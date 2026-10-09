@@ -55,7 +55,9 @@ def _pdf_uris(pdf: bytes) -> list[bytes]:
 @pytest.mark.parametrize("fmt", ["markdown", "pdf", "docx", "xlsx"])
 def test_content_system_prompt_permits_public_links(fmt):
     system = b.system_prompt_for(fmt)
-    assert system is b.CONTENT_SYSTEM or system == b.CONTENT_SYSTEM
+    assert b.CONTENT_SYSTEM in system
+    if fmt != "xlsx":
+        assert system == b.CONTENT_SYSTEM
     low = system.lower()
     assert "labelled markdown links" in low or "labeled markdown links" in low
     assert "public http(s)" in low

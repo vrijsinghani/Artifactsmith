@@ -4,6 +4,10 @@ Allows navigational links to global hosts. Blocks private/loopback hosts and
 dangerous schemes. Protocol-relative ``//host`` is upgraded to ``https://`` when
 the host is public (via ``public_href_or_none``). Does not fetch anything.
 Markdown images pointing at remote URLs become normal links (nothing loads on open).
+
+Classification uses a de-obfuscated *view* of the URL. Emission keeps the original
+destination with only minimal fix-ups (trim, literal spaces → ``%20``, protocol
+upgrade). Legitimate percent-encoding is never decoded on emit.
 """
 
 from __future__ import annotations
@@ -25,12 +29,11 @@ def _strip_format_chars(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Cf")
 
 
-def normalize_href(value: str) -> str:
-    """De-obfuscate an href/src before classification.
+def deobfuscate_href(value: str) -> str:
+    """De-obfuscate an href/src for classification only.
 
     Percent-decodes repeatedly until stable, applies NFKC, strips Unicode format
-    characters (Cf), whitespace, and backslashes. Shared by HTML, Markdown, PDF,
-    DOCX, and XLSX paths.
+    characters (Cf), whitespace, and backslashes. Never used as the emitted URL.
     """
     raw = unescape(value)
     for _ in range(8):
@@ -45,25 +48,39 @@ def normalize_href(value: str) -> str:
     return raw.strip()
 
 
-def classify_href(value: str) -> HrefClass:
-    """Classify an href/src candidate after de-obfuscation."""
-    raw = normalize_href(value)
-    if not raw:
+def normalize_href(value: str) -> str:
+    """Backward-compatible name for the classification de-obfuscation view."""
+    return deobfuscate_href(value)
+
+
+def emit_href(value: str) -> str:
+    """Minimal emit normalization: trim, HTML-unescape, literal spaces → %20.
+
+    Does not percent-decode. Callers add format-specific escaping (HTML attributes,
+    Markdown angle-bracket destinations) at write time.
+    """
+    raw = unescape(value).strip()
+    return raw.replace(" ", "%20")
+
+
+def _classify_view(view: str) -> HrefClass:
+    """Classify an already-deobfuscated href view."""
+    if not view:
         return "blocked"
-    if raw.startswith("#"):
+    if view.startswith("#"):
         return "fragment"
-    low = raw.lower()
+    low = view.lower()
     if low.startswith("//"):
         return "blocked"
     for prefix in _DANGEROUS_PREFIXES:
         if low.startswith(prefix):
             return "blocked"
     if low.startswith(("http://", "https://")):
-        host = _url_host(raw)
+        host = _url_host(view)
         if host is None or host == "" or _host_is_private(host):
             return "blocked"
         try:
-            parsed = urlparse(raw)
+            parsed = urlparse(view)
             if parsed.scheme not in ("http", "https"):
                 return "blocked"
         except Exception:  # noqa: BLE001
@@ -74,23 +91,31 @@ def classify_href(value: str) -> HrefClass:
     return "relative"
 
 
+def classify_href(value: str) -> HrefClass:
+    """Classify an href/src candidate after de-obfuscation."""
+    return _classify_view(deobfuscate_href(value))
+
+
 def is_public_http_url(url: str) -> bool:
     return classify_href(url) == "public"
 
 
 def public_href_or_none(url: str) -> str | None:
-    """Return a normalized public http(s) URL, or None if not allowed.
+    """Return an emit-ready public http(s) URL, or None if not allowed.
 
-    Protocol-relative ``//host/path`` is upgraded to ``https://host/path`` when the
-    host is public, so citations stay clickable. Private or dangerous destinations
-    return None (they are not upgraded).
+    Classification uses the de-obfuscated view of the emit candidate. The returned
+    string is the original destination with minimal emit normalization. Intentional
+    protocol-relative ``//host`` (emit form) upgrades to ``https://host`` when the
+    host is public; obfuscations that only look like ``//`` after de-obfuscation
+    stay blocked. Percent-encoding in the original is preserved.
     """
-    raw = normalize_href(url)
-    if raw.startswith("//") and not raw.lower().startswith("///"):
-        raw = "https:" + raw
-    if classify_href(raw) != "public":
+    emit = emit_href(url)
+    # Upgrade only when the caller wrote a real protocol-relative citation.
+    if emit.startswith("//") and not emit.lower().startswith("///"):
+        emit = "https:" + emit
+    if _classify_view(deobfuscate_href(emit)) != "public":
         return None
-    return raw
+    return emit
 
 
 def sanitize_markdown(text: str) -> str:
