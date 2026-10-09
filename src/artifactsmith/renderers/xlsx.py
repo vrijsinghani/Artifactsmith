@@ -39,7 +39,11 @@ def _first_public_href(text: str) -> str | None:
 
 
 def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
-    """Write untrusted content as a string cell so leading '=' cannot become a formula."""
+    """Write untrusted content as a string cell so leading '=' cannot become a formula.
+
+    The full cell text is preserved (every URL stays visible). When multiple public
+    http(s) URLs appear, only the first becomes the cell hyperlink.
+    """
     from openpyxl.cell.cell import TYPE_STRING
 
     text = "" if value is None else str(value)

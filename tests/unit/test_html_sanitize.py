@@ -213,15 +213,16 @@ def _chrome_netlog_urls(html: str) -> list[str]:
             timeout=40,
             check=False,
         )
-        if not netlog.is_file():
-            return []
+        assert netlog.is_file(), "chrome netlog file was not created"
+        assert netlog.stat().st_size > 0, "chrome netlog file is empty"
         raw = netlog.read_text(encoding="utf-8", errors="replace")
+        assert raw.strip(), "chrome netlog file has no content"
         # Netlog is JSON; collect string values that look like absolute URLs.
         urls: list[str] = []
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            # Partial netlog on timeout — still scan text.
+            # Partial netlog on timeout — still scan text (file exists and is non-empty).
             for m in __import__("re").findall(r"https?://[^\s\"']+", raw):
                 urls.append(m)
             return urls

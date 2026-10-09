@@ -43,6 +43,19 @@ PRIVATE_HOST_NAMES = frozenset(
     }
 )
 
+# Reserved / site-local DNS suffixes (RFC 6761/6762 and common intranet TLDs).
+PRIVATE_DNS_SUFFIXES = (
+    ".local",
+    ".localhost",
+    ".localdomain",
+    ".home.arpa",
+    ".lan",
+    ".corp",
+    ".internal",
+    ".intranet",
+    ".private",
+)
+
 # Wildcard DNS products that commonly alias private/loopback addresses into public DNS.
 WILDCARD_DNS_SUFFIXES = (
     ".sslip.io",
@@ -74,11 +87,10 @@ def strip_remote_urls(text: str) -> str:
 
 
 def sanitize_text(text: str) -> str:
-    """Remove executable markup; keep public http(s) URLs and linkify bare ones."""
-    from .links import linkify_markdown
+    """Remove executable markup; sanitize markdown links/images; linkify bare URLs."""
+    from .links import sanitize_markdown
 
-    cleaned = strip_remote_urls(strip_scripts(text))
-    return linkify_markdown(cleaned)
+    return sanitize_markdown(strip_scripts(text))
 
 
 def find_secrets(text: str) -> list[str]:
@@ -120,23 +132,39 @@ def _parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None
     return None
 
 
+def _ip_is_private(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when the address (or an embedded IPv4) is not global unicast."""
+    if not ip.is_global:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address):
+        mapped = ip.ipv4_mapped
+        if mapped is not None:
+            return not mapped.is_global
+        # Deprecated IPv4-compatible form ::a.b.c.d (e.g. [::10.0.0.1]).
+        if ip.packed[:12] == b"\x00" * 12:
+            embedded = ipaddress.IPv4Address(ip.packed[12:])
+            return not embedded.is_global
+    return False
+
+
 def _host_is_private(host: str) -> bool:
-    """True when the host is not a global unicast address, or a known wildcard-DNS alias.
+    """True when the host is not a global unicast address, or a known private/wildcard alias.
 
     Fail closed: unparseable address-like hosts and bare single-label names are private.
     Uses ``not ip.is_global`` so CGNAT (100.64.0.0/10) and similar ranges are blocked.
     """
     h = _normalize_host(host)
-    if not h or h in PRIVATE_HOST_NAMES or h.endswith(".local") or h.endswith(".internal"):
+    if not h or h in PRIVATE_HOST_NAMES:
         return True
-    if h.endswith(".localhost"):
-        return True
+    for suf in PRIVATE_DNS_SUFFIXES:
+        if h == suf.lstrip(".") or h.endswith(suf):
+            return True
     for suf in WILDCARD_DNS_SUFFIXES:
         if h == suf.lstrip(".") or h.endswith(suf):
             return True
     ip = _parse_ip(h)
     if ip is not None:
-        return not ip.is_global
+        return _ip_is_private(ip)
     # Bare hostnames without a dot are treated as local/private.
     if "." not in h:
         return True

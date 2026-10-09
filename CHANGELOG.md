@@ -19,6 +19,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Changed
 
 - Public `http://` and `https://` links to global hosts are kept in HTML, Markdown, PDF, DOCX, and XLSX so documents can cite outside sources. Private/loopback hosts and dangerous schemes stay blocked. Images, CSS, fonts, and iframes remain self-contained (no remote fetch when an export is opened).
+- Markdown remote image syntax is rewritten to a normal link; dangerous markdown destinations (including reference and autolinks) are neutralized; reserved private DNS suffixes and IPv4-in-IPv6 forms are treated as private; bare URLs are not linkified inside code.
 - `compose.yaml` restores `env_file: .env` so documented settings (`AM_SHARE_URL`, limits, `*_FILE`) reach the server.
 - `compose.yaml` reads LLM and object-store credentials from `.env`. `./scripts/ensure-local-env.sh` fills empty store keys without corrupting a final line that lacks a trailing newline.
 - Storage image pinned to `rustfs/rustfs:1.0.1` by digest.

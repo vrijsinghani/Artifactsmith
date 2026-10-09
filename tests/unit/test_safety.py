@@ -42,6 +42,10 @@ def test_rejects_private_links():
         "http://127%2e0%2e0%2e1/",
         "http://\uff11\uff12\uff17.\uff10.\uff10.\uff11/",  # full-width 127.0.0.1
         "http://127.0.0.1.traefik.me/",
+        "http://[::ffff:10.0.0.1]/",
+        "http://[::10.0.0.1]/",
+        "http://app.home.arpa/",
+        "http://files.lan/",
     ],
 )
 def test_rejects_obfuscated_private_link_forms(url):

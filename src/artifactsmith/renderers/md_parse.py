@@ -100,7 +100,10 @@ def parse_blocks(text: str) -> list[Block]:
 
 
 def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    from html import escape, unescape
+
+    # Unescape first so labels are not double-escaped when entities were already present.
+    return escape(unescape(s), quote=True)
 
 
 def _inline_html(text: str) -> str:

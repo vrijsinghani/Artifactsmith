@@ -140,6 +140,29 @@ def test_xlsx_public_urls_are_plain_hyperlinks_not_formulas():
     assert found
 
 
+def test_xlsx_multi_url_cell_keeps_all_text_links_first():
+    """First public URL is the cell hyperlink; every URL stays visible as text."""
+    from openpyxl import load_workbook
+
+    body = "See https://example.com/a and https://example.org/b together."
+    out = get_renderer("xlsx").render(title="Multi", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    found = False
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is None:
+                    continue
+                text = str(cell.value)
+                if "example.com/a" in text and "example.org/b" in text:
+                    found = True
+                    assert cell.hyperlink is not None
+                    target = getattr(cell.hyperlink, "target", None) or str(cell.hyperlink)
+                    assert "example.com/a" in target
+                    assert "example.org" not in target
+    assert found
+
+
 def test_xlsx_without_table_still_writes_sheet():
     out = get_renderer("xlsx").render(title="Notes only", body="Just a sentence with HARBOR-17.")
     assert out.files["document.xlsx"][:2] == b"PK"

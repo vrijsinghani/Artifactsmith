@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from artifactsmith.renderers.links import classify_href, is_public_http_url, linkify_markdown
+from artifactsmith.renderers.links import classify_href, is_public_http_url, sanitize_markdown
+from artifactsmith.renderers.safety import find_private_links, sanitize_text
 
 
 @pytest.mark.parametrize(
@@ -48,10 +49,92 @@ def test_relative_and_fragment():
     assert classify_href("docs/page.html") == "relative"
 
 
+def test_markdown_remote_image_becomes_clickable_link():
+    out = sanitize_text("See ![chart](https://example.com/chart.png) please")
+    assert "![chart]" not in out
+    assert "[chart](https://example.com/chart.png)" in out
+    empty_alt = sanitize_text("x ![](https://example.com/a.png) y")
+    assert "[image](https://example.com/a.png)" in empty_alt
+    assert "![" not in empty_alt
+
+
+def test_dangerous_markdown_destinations_neutralized():
+    cases = [
+        ("[x](javascript:alert(1))", "x", "javascript:"),
+        ("[x](vbscript:msgbox(1))", "x", "vbscript:"),
+        ("[x](data:text/html,hi)", "x", "data:"),
+        ("[x](file:///etc/passwd)", "x", "file:"),
+        ("[x](//evil.example/a)", "x", "](//"),
+        ("[x](java\u200bscript:alert(1))", "x", "javascript:"),
+        ("[x](https:\\\\127.0.0.1\\a)", "x", "127.0.0.1"),
+    ]
+    for raw, label, banned in cases:
+        out = sanitize_markdown(raw)
+        assert label in out, raw
+        assert f"]({banned}" not in out.lower().replace("\u200b", ""), raw
+        assert "javascript:" not in out.lower().replace("\u200b", "")
+
+
+def test_reference_and_autolink_dangerous_neutralized():
+    md = "[click][r]\n\n[r]: javascript:alert(1)\n"
+    out = sanitize_markdown(md)
+    assert "javascript:" not in out.lower()
+    assert "click" in out
+    assert "][r]" not in out or "javascript" not in out.lower()
+
+    auto = sanitize_markdown("go <javascript:alert(1)> now")
+    assert "javascript:" not in auto.lower()
+    assert "<javascript" not in auto.lower()
+
+    good_auto = sanitize_markdown("see <https://example.com/a>")
+    assert "[https://example.com/a](https://example.com/a)" in good_auto
+
+
+def test_no_linkify_inside_code_fences_or_inline_code():
+    md = (
+        "Intro https://example.com/out\n\n"
+        "```\nhttps://example.com/in-fence\n```\n\n"
+        "Use `https://example.com/inline` in code.\n"
+    )
+    out = sanitize_markdown(md)
+    assert "[https://example.com/out](https://example.com/out)" in out
+    # Fence and inline code keep the raw URL, not a markdown link wrapper.
+    assert "```\nhttps://example.com/in-fence\n```" in out
+    assert "`https://example.com/inline`" in out
+    assert "](https://example.com/in-fence)" not in out
+    assert "](https://example.com/inline)" not in out
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "http://printer.home.arpa/",
+        "http://files.lan/x",
+        "http://app.corp/",
+        "http://wiki.internal/",
+        "http://mail.intranet/",
+        "http://db.private/",
+        "http://box.localdomain/",
+        "http://thing.local/",
+        "http://svc.localhost/",
+    ],
+)
+def test_reserved_private_dns_suffixes(host):
+    assert find_private_links(f"see {host}")
+
+
+def test_ipv4_embedded_in_ipv6_treated_private():
+    for url in (
+        "http://[::ffff:10.0.0.1]/",
+        "http://[::10.0.0.1]/",
+        "http://[::ffff:192.168.1.5]/path",
+    ):
+        assert find_private_links(f"see {url}"), url
+
+
 def test_linkify_markdown_wraps_bare_public_urls():
-    out = linkify_markdown("see https://example.com/a and [x](https://example.org/b)")
+    out = sanitize_markdown("see https://example.com/a and [x](https://example.org/b)")
     assert "[https://example.com/a](https://example.com/a)" in out
     assert "[x](https://example.org/b)" in out
-    # private bare URL stays plain text (not turned into a markdown link)
-    private = linkify_markdown("go http://127.0.0.1/x now")
+    private = sanitize_markdown("go http://127.0.0.1/x now")
     assert "](http://127.0.0.1" not in private

@@ -48,7 +48,7 @@ When `AM_BLOCK_PRIVATE_LINKS=true`, private, loopback, and link-local hosts fail
 
 When `AM_ALLOWED_LINK_DOMAINS` is set, any other host fails the build.
 
-`<script>` tags are stripped. Public `http://` and `https://` links to global hosts are kept so research write-ups can cite sources. HTML adds `rel="noopener noreferrer nofollow"` and `target="_blank"`. Markdown may linkify bare URLs. PDF emits link annotations without fetching. DOCX and XLSX write plain hyperlinks (XLSX never uses `=HYPERLINK()` formulas). `javascript:`, `vbscript:`, `data:`, `file:`, obfuscated forms of those schemes, and protocol-relative URLs are removed. Remote `img src`, CSS `url()`, fonts, and iframes are not allowed — documents stay self-contained. HTML still has to be a complete document.
+`<script>` tags are stripped. Public `http://` and `https://` links to global hosts are kept so research write-ups can cite sources. HTML adds `rel="noopener noreferrer nofollow"` and `target="_blank"`. Markdown may linkify bare URLs outside code; remote image syntax (`![…](https://…)`) is rewritten to a normal link so nothing loads on open. PDF emits link annotations without fetching. DOCX and XLSX write plain hyperlinks (XLSX never uses `=HYPERLINK()` formulas; when a cell has several public URLs, the first is the cell hyperlink and the others stay visible as text). `javascript:`, `vbscript:`, `data:`, `file:`, obfuscated forms of those schemes, and protocol-relative URLs are neutralized. Remote `img src`, CSS `url()`, fonts, and iframes are not allowed — documents stay self-contained. HTML still has to be a complete document.
 
 `AM_RENDER_TIMEOUT` caps one renderer call. `AM_MAX_OUTPUT_BYTES` caps stored bytes.
 
