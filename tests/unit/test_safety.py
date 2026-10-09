@@ -38,6 +38,7 @@ def test_rejects_private_links():
         "https://192.168.1.5.nip.io/path",
         "http://10-0-0-1.sslip.io/",
         "http://100.64.1.2/",
+        "http://[fd7a:115c:a1e0::1]/",  # Tailscale IPv6 ULA
         "http://127%2e0%2e0%2e1/",
         "http://\uff11\uff12\uff17.\uff10.\uff10.\uff11/",  # full-width 127.0.0.1
         "http://127.0.0.1.traefik.me/",
