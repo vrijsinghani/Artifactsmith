@@ -6,6 +6,12 @@ Agents call it to turn their work into documents: web pages, PDFs, Word files, s
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
+## Why I built this
+
+My agents did good work and then handed it back as a wall of chat text. Useful, sure. Fun to read? Not so much.
+
+Then I saw Meta's Muse artifacts, where the agent hands you a real page you can look at, share, and pull back later. I wanted that for my own agents, on my own servers. So I vibe coded it. And here we are.
+
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
 ## Quickstart
