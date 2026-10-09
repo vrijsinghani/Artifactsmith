@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from artifactsmith.builder import sanitize_html
+from artifactsmith.renderers.css_sanitize import sanitize_inline_style
 from artifactsmith.renderers.html_sanitize import sanitize_css, sanitize_html_document
 
 
@@ -98,6 +99,330 @@ def test_css_escape_url_and_import_dropped():
 
 def test_css_rejects_raw_tag_open():
     assert sanitize_css("p{color:red}</style><img src=x>") == ""
+
+
+def _compact(css: str) -> str:
+    return "".join(css.split()).lower()
+
+
+# Builder house-style page: :root tokens and var() for color, type, and layout.
+_BUILDER_SHARE_FIXTURE = """
+:root {
+  --ink: #1a1a1a;
+  --paper: #fafafa;
+  --accent: #0b6e4f;
+  --accent-soft: #e6f4ef;
+  --muted: #5c5c5c;
+  --line: #d6d6d6;
+  --sans: "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto;
+  max-width: 68ch;
+  color: var(--ink);
+  background: var(--paper);
+  font: 1rem/1.55 var(--sans);
+  padding: 1.5rem 1.25rem;
+}
+header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  place-items: start;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+header > p { color: var(--muted, #5c5c5c); margin: 0; }
+.hero {
+  background: linear-gradient(180deg, var(--accent-soft), var(--paper));
+  background-image: linear-gradient(180deg, var(--accent-soft), var(--paper));
+  padding: 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+h1 { color: var(--accent); font-weight: 650; text-wrap: balance; }
+.badge {
+  position: sticky;
+  top: 0;
+  inset: 0 auto auto 0;
+  accent-color: var(--accent);
+}
+@media (max-width: 640px) {
+  header { grid-template-columns: 1fr; }
+  body { font-size: 0.95rem; padding: 1rem; }
+}
+@supports (display: grid) {
+  main { display: grid; row-gap: 1rem; }
+}
+"""
+
+
+def test_builder_stylesheet_variables_media_gradients_survive():
+    out = sanitize_css(_BUILDER_SHARE_FIXTURE)
+    compact = _compact(out)
+    required = (
+        ":root",
+        "--ink:#1a1a1a",
+        "--paper:#fafafa",
+        "--accent:#0b6e4f",
+        "color:var(--ink)",
+        "background:var(--paper)",
+        "font:1rem/1.55var(--sans)",
+        "var(--muted,#5c5c5c)",
+        "@media",
+        "max-width:640px",
+        "linear-gradient",
+        "grid-template-columns",
+        "grid-template-rows",
+        "place-items",
+        "box-shadow",
+        "text-wrap",
+        "position:sticky",
+        "@supports",
+        "row-gap",
+        "header>p",
+    )
+    missing = [item for item in required if item not in compact]
+    assert missing == [], (missing, out)
+
+
+def test_url_in_custom_property_drops_only_that_declaration():
+    css = ":root{--ink:#111;--bg:url(https://evil.example/x.png);--paper:#fff}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "--ink:#111" in compact
+    assert "--paper:#fff" in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_var_fallback_drops_only_that_declaration():
+    css = "p{color:var(--ink,#111);background:var(--paper,url(https://evil.example/x.png))}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "color:var(--ink,#111)" in compact
+    assert "background" not in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_gradient_drops_only_that_declaration():
+    css = "p{color:var(--ink);background-image:linear-gradient(red,url(https://evil.example/x.png));margin:0}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "color:var(--ink)" in compact
+    assert "margin:0" in compact
+    assert "background-image" not in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_media_drops_only_that_declaration():
+    css = "@media (max-width: 640px){p{color:var(--ink);background:url(https://evil.example/x.png)}}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "@media" in compact
+    assert "color:var(--ink)" in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_style_breakout_in_css_still_returns_empty():
+    assert sanitize_css("p{color:red}</style><img src=x>") == ""
+    assert sanitize_css("p{content:'</style>'}") == ""
+    assert sanitize_css(":root{--x:'</style>'}") == ""
+
+
+def test_css_comment_with_angle_brackets_does_not_wipe_stylesheet():
+    out = sanitize_css("/* <header> */ body{color:red}")
+    assert "color:red" in _compact(out)
+    assert "header" not in out.lower()
+    out = sanitize_css("/* </header> */ body{color:red}")
+    assert "color:red" in _compact(out)
+    assert "</" not in out
+
+
+def test_media_range_comparisons_are_kept():
+    out = sanitize_css("@media (width <= 640px){p{color:red}}")
+    compact = _compact(out)
+    assert "@media" in compact
+    assert "width<=640px" in compact
+    assert "color:red" in compact
+
+
+def test_deeply_nested_media_returns_without_raising():
+    css = "@media screen{" * 3000 + "p{color:red}" + "}" * 3000
+    assert sanitize_css(css) is not None
+
+
+def test_content_string_and_counters_kept_attr_dropped():
+    out = sanitize_css('p{content:"•";color:red}')
+    compact = _compact(out)
+    assert "content:" in compact
+    assert "color:red" in compact
+    out = sanitize_css("p{content:counter(section);color:red}")
+    compact = _compact(out)
+    assert "content:counter(section)" in compact
+    out = sanitize_css('p{content:counters(item,".");color:red}')
+    compact = _compact(out)
+    assert "content:counters(item" in compact
+    out = sanitize_css("p{content:attr(href);color:red}")
+    compact = _compact(out)
+    assert "content" not in compact
+    assert "color:red" in compact
+
+
+def test_grid_slash_values_and_font_shorthand_survive():
+    out = sanitize_css(".x{grid-area:1 / 2 / 3 / 4;color:red}")
+    compact = _compact(out)
+    assert "grid-area:1/2/3/4" in compact
+    assert "color:red" in compact
+    out = sanitize_css(".x{grid-row:1 / 3;color:red}")
+    compact = _compact(out)
+    assert "grid-row:1/3" in compact
+    out = sanitize_css("p{font:1rem/1.55 var(--sans);color:red}")
+    compact = _compact(out)
+    assert "font:1rem/1.55var(--sans)" in compact
+
+
+def test_malformed_url_token_drops_only_that_declaration():
+    out = sanitize_css(":root{--ink:#111} p{color:red} q{background:url(a b)}")
+    compact = _compact(out)
+    assert "--ink:#111" in compact
+    assert "p{color:red" in compact
+    assert "url(" not in out.lower()
+    assert "background" not in compact
+
+
+def test_added_builder_style_properties_kept():
+    css = (
+        "p{break-before:avoid;break-after:auto;pointer-events:none;"
+        "print-color-adjust:exact;-webkit-print-color-adjust:exact;"
+        "backdrop-filter:blur(4px);border-block:1px solid red;"
+        "color-scheme:light;resize:both;color:red}"
+    )
+    compact = _compact(sanitize_css(css))
+    for name in (
+        "break-before:avoid",
+        "break-after:auto",
+        "pointer-events:none",
+        "print-color-adjust:exact",
+        "-webkit-print-color-adjust:exact",
+        "backdrop-filter:blur(4px)",
+        "border-block:1pxsolidred",
+        "color-scheme:light",
+        "resize:both",
+    ):
+        assert name in compact, (name, compact)
+
+
+def test_background_image_none_and_var_kept():
+    out = sanitize_css("p{background-image:none;color:red}")
+    compact = _compact(out)
+    assert "background-image:none" in compact
+    out = sanitize_css("p{background-image:var(--hero);color:red}")
+    compact = _compact(out)
+    assert "background-image:var(--hero)" in compact
+
+
+def test_keyframes_and_animation_and_important_kept():
+    css = "@keyframes fade{from{opacity:0}to{opacity:1}}p{animation:fade 200ms ease;color:red !important}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "@keyframes" in compact and "fade" in compact
+    assert "opacity:0" in compact
+    assert "animation:" in compact
+    assert "color:red!important" in compact
+
+
+_INLINE_FETCH_CASES: tuple[str, ...] = (
+    "background:url(https://track.example.net/pixel.png) red",
+    "background-image:url(https://track.example.net/a.png)",
+    "list-style:url(https://track.example.net/b.png) disc",
+    "cursor:url(https://track.example.net/c.png), pointer",
+    "content:url(https://track.example.net/d.png)",
+    "background:image-set('https://track.example.net/e.png' 1x)",
+    "background:image-set(url(https://track.example.net/f.png) 1x)",
+    r"background:u\72l(https://track.example.net/esc.png)",
+    "background:&#117;rl(https://track.example.net/ent.png)",
+    "background:url&lpar;https://track.example.net/lpar.png)",
+    "background:URL(https://track.example.net/case.png)",
+    "background:var(--missing,url(https://track.example.net/var.png))",
+    "background:var(--missing, &#117;rl(https://track.example.net/varent.png))",
+    r"background:var(--missing,u\72l(https://track.example.net/varesc.png))",
+    "background:url&#40;https://track.example.net/n40.png)",
+    "list-style:&#117;rl(https://track.example.net/ls.png)",
+    "cursor:&#117;rl(https://track.example.net/cur.png),pointer",
+    "content:&#117;rl(https://track.example.net/cnt.png)",
+    "background:linear-gradient(red,url(https://track.example.net/grad.png))",
+    "font:url(https://track.example.net/x.woff)",
+    "background:u/**/rl(https://track.example.net/cmt.png)",
+    "background:url/**/(https://track.example.net/cmt2.png)",
+    r"background:url\20(https://track.example.net/sp.png)",
+    "filter:url(https://track.example.net/f.svg)",
+    "background:&#x75;rl(https://track.example.net/hex.png)",
+)
+
+
+def _inline_doc(decl: str) -> str:
+    if '"' in decl and "'" not in decl:
+        return f"<html><body><div style='{decl};color:#111;height:40px'>x</div></body></html>"
+    return f'<html><body><div style="{decl};color:#111;height:40px">x</div></body></html>'
+
+
+def test_inline_style_url_and_image_set_dropped_per_declaration():
+    for decl in _INLINE_FETCH_CASES:
+        out = sanitize_html(_inline_doc(decl))
+        low = out.lower()
+        assert "track.example.net" not in low, decl
+        assert "url(" not in low, decl
+        assert "image-set" not in low, decl
+        assert "color:" in low and "height:" in low, (decl, out)
+
+
+def test_sanitize_inline_style_drops_obfuscated_fetches():
+    """Entity, escape, case, comment-split, and var-fallback url() forms are removed."""
+    for decl in _INLINE_FETCH_CASES:
+        cleaned = sanitize_inline_style(decl + ";color:#111;height:40px")
+        low = cleaned.lower()
+        assert "url(" not in low, (decl, cleaned)
+        assert "image-set" not in low, (decl, cleaned)
+        assert "track.example.net" not in low, (decl, cleaned)
+        assert "color:" in low and "height:" in low, (decl, cleaned)
+
+
+def test_inline_custom_property_survives():
+    raw = '<html><body><div style="--w:40%;color:#111;height:40px">x</div></body></html>'
+    out = sanitize_html(raw)
+    compact = _compact(out)
+    assert "--w:40%" in compact
+    assert "color:" in compact
+
+
+def test_sanitize_inline_style_empty_when_only_url():
+    assert sanitize_inline_style("background:url(https://track.example.net/x.png)") == ""
+
+
+def test_regression_builder_share_page_keeps_variable_stylesheet():
+    """Production share pages lost most rules because var() emptied each rule."""
+    raw = (
+        "<!DOCTYPE html><html><head><title>Brief</title>"
+        f"<style>{_BUILDER_SHARE_FIXTURE}</style>"
+        "</head><body><header><p>Verdict first.</p></header>"
+        "<main class='hero'><h1>Keep the tokens</h1></main></body></html>"
+    )
+    out = sanitize_html_document(raw)
+    assert "<style>" in out
+    style = out.split("<style>")[1].split("</style>")[0]
+    compact = _compact(style)
+    assert "--ink:#1a1a1a" in compact
+    assert "color:var(--ink)" in compact
+    assert "@media" in compact
+    assert "linear-gradient" in compact
+    assert "</" not in style and "<!" not in style
+    assert "verdict first" in out.lower()
 
 
 def test_style_block_urls_do_not_survive_document_sanitize():
@@ -357,4 +682,20 @@ def test_html_export_with_public_link_does_not_fetch_remote():
         assert "paper" in dom.lower()
         remote = [t for t in proxy.targets if any(h in t for h in watched)]
         # Anchors (including rewritten images) must not be fetched on open.
+        assert remote == [], remote
+
+
+@pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
+def test_html_export_inline_style_url_does_not_fetch_remote():
+    parts = []
+    for decl in _INLINE_FETCH_CASES:
+        parts.append(_inline_doc(decl).split("<body>")[1].split("</body>")[0])
+    raw = "<!DOCTYPE html><html><body>" + "".join(parts) + "</body></html>"
+    cleaned = sanitize_html(raw)
+    assert "track.example.net" not in cleaned.lower()
+    assert "url(" not in cleaned.lower()
+    with _ProxyRecorder() as proxy:
+        dom = _chrome_open_via_proxy(cleaned, proxy.url)
+        assert "<html" in dom.lower()
+        remote = [t for t in proxy.targets if "track.example.net" in t]
         assert remote == [], remote
