@@ -29,7 +29,8 @@ Run each payload through `sanitize_html_document` and, for XSS claims, open the 
 | `image-set` / `-webkit-image-set` | `background:image-set(url(https://evil) 1x)` | Function kept |
 | `@font-face` | `@font-face{src:url(https://evil)}` | Font fetch remains |
 | Backslash hrefs | `href="javascript:\\nalert(1)"`, `href="/\\evil.example/"`, `href="\\evil"` | Browser would treat `\` as `/` and navigate or run JS |
-| `javascript:` / `data:` / protocol-relative | `href="javascript:alert(1)"`, `href="//evil"` | Attribute kept |
+| `javascript:` / `data:` | `href="javascript:alert(1)"`, `href="data:text/html,..."` | Attribute kept |
+| Protocol-relative `//host` | `href="//example.com"`, `href="//127.0.0.1/"` | Public host is not upgraded to `https://`; private host is kept or upgraded |
 | Inline `style=` url | `style="background:url(https://evil)"` | Fetch-capable value kept |
 
 Also confirm `<img src>`, `cite`, and rebuilt `<title>` cannot smuggle markup.
@@ -92,12 +93,18 @@ Reject (or strip, then still fail closed) all of:
 - `http://127.0.0.1`, `http://localhost`, `http://[::1]`
 - RFC1918 (`10.`, `172.16–31.`, `192.168.`)
 - Link-local, metadata (`169.254.169.254`, `metadata.google.internal`)
-- `*.local`, `*.internal`, `*.localhost`, bare single-label hosts
+- `*.local`, `*.internal`, `*.localhost`, `*.lan`, `*.corp`, `*.home.arpa`, bare single-label hosts
 - Decimal/hex IP forms if a browser would still hit a private address
+- Known wildcard-DNS suffixes that alias loopback (`nip.io`, `sslip.io`, …)
 
-Also fail if `AM_BLOCK_PRIVATE_LINKS=false` is the documented default, or if empty `AM_ALLOWED_LINK_DOMAINS` silently allows every public host while private-link blocking is off.
+Also fail if:
 
-Standalone exports and Markdown/PDF/DOCX/XLSX bodies are in scope, not only hosted preview.
+- An entity-like query name (`https://example.com/?a=1&section=2`) is rewritten on emit (HTML-unescape or percent-decode of the destination)
+- Host-reading disagrees across de-obfuscated, urllib, and WHATWG-style parses (backslash, userinfo, hidden whitespace) and the link is still kept
+- A Markdown escape round-trip or linkify pass relinks a destination that the first pass neutralized
+- `AM_BLOCK_PRIVATE_LINKS=false` is the documented default, or empty `AM_ALLOWED_LINK_DOMAINS` silently allows every public host while private-link blocking is off
+
+Standalone exports and Markdown/PDF/DOCX/XLSX bodies are in scope, not only hosted preview. Public `http(s)` citations to global hosts may stay.
 
 ## How to record a result
 

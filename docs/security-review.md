@@ -2,7 +2,7 @@
 
 Skills that belong in this repo live in `.cursor/skills/`. OpenAI text keeps
 `ATTRIBUTION.md` beside the skill and `licenses/Apache-2.0-openai-skills.txt`.
-Trail of Bits skills are **not** copied here (CC-BY-SA-4.0). Fetch them at
+Trail of Bits skills are not copied here (CC-BY-SA-4.0). Fetch them at
 run time; the index is `.cursor/skills/trail-of-bits.md`.
 
 | Skill | Where | License |
@@ -12,38 +12,47 @@ run time; the index is `.cursor/skills/trail-of-bits.md`.
 | `security-best-practices` | `.cursor/skills/security-best-practices/` | Apache-2.0 |
 | `artifactsmith-security-checklist` | `.cursor/skills/artifactsmith-security-checklist/` | MIT |
 
+Prerequisites: `git`, `bash`, `jq`, `python3`, Semgrep, bandit, gitleaks,
+pip-audit, Trivy, and Docker (for the image scan). `uv` is optional for the
+supply-chain collector. Activate `.venv` when this repo has one.
+
 ## 1. Semgrep
 
 Install Semgrep. Fetch the skill, then use its `run-scans.sh`. Do not
-hand-write `semgrep` lines. The runner clones third-party ruleset repos at
-scan time.
+hand-write `semgrep` lines. Third-party rulesets are cloned at the commits
+pinned in `fetch-upstream.sh`.
 
 ```bash
 SKILL=$(bash .cursor/skills/fetch-upstream.sh semgrep)
+mapfile -t RULE_DIRS < <(bash .cursor/skills/fetch-upstream.sh semgrep-rulesets)
 OUTPUT="${OUTPUT:-$PWD/security-audit/semgrep}"
 mkdir -p "$OUTPUT"
-cat > "$OUTPUT/rulesets.json" <<'EOF'
-{
-  "baseline": ["p/owasp-top-ten", "p/secrets", "p/python"],
-  "python": ["p/python"],
-  "docker": ["p/dockerfile"],
-  "yaml": ["p/yaml"],
-  "github-actions": ["p/github-actions"],
-  "third_party": [
-    "https://github.com/trailofbits/semgrep-rules",
-    "https://github.com/elttam/semgrep-rules",
-    "https://github.com/apiiro/malicious-code-ruleset"
-  ]
-}
-EOF
+jq -n \
+  --arg tob "${RULE_DIRS[0]}" \
+  --arg elttam "${RULE_DIRS[1]}" \
+  --arg apiiro "${RULE_DIRS[2]}" \
+  '{
+    baseline: ["p/owasp-top-ten", "p/secrets", "p/python"],
+    python: ["p/python"],
+    docker: ["p/dockerfile"],
+    yaml: ["p/docker-compose"],
+    "github-actions": ["p/github-actions"],
+    third_party: [$tob, $elttam, $apiiro]
+  }' > "$OUTPUT/rulesets.json"
 bash "$SKILL/scripts/run-scans.sh" \
   --target "$(pwd)" \
   --output-dir "$OUTPUT" \
   --mode run-all \
   --rulesets "$OUTPUT/rulesets.json"
-python "$SKILL/scripts/merge_sarif.py" \
+python3 "$SKILL/scripts/merge_sarif.py" \
   "$OUTPUT/raw" "$OUTPUT/results/results.sarif" --scans "$OUTPUT/scans.json"
 ```
+
+Pins (also in `fetch-upstream.sh`):
+
+- trailofbits/semgrep-rules `31390b3a99c04c81522d1b37c8d1900aa2dd4094`
+- elttam/semgrep-rules `244268562cc92d33f54b8a60a187df5520f91b26`
+- apiiro/malicious-code-ruleset `a21246b666f34db899f0e33add7237ed70fab790`
 
 Fetch `sarif-parsing` and follow its `SKILL.md` to summarize the merged SARIF.
 Report `failed`, `skipped`, `coveredNothing`, and `oversized` from `scans.json`.
@@ -56,7 +65,7 @@ share / download routes, CLI, and env/config. Treat model output as untrusted.
 Fetch the prompt template, then write `<name>-threat-model.md`:
 
 ```bash
-REFS=$(bash .cursor/skills/fetch-upstream.sh openai-threat-model)
+TM=$(bash .cursor/skills/fetch-upstream.sh openai-threat-model)
 ```
 
 ## 3. Sharp edges
@@ -94,23 +103,43 @@ SKILL=$(bash .cursor/skills/fetch-upstream.sh fp-check)
 Follow `$SKILL/SKILL.md` on every candidate finding before it enters a report.
 Keep only what survives. One-line each discarded item.
 
-## 7. Other scanners this repo expects
+## 7. Other scanners
 
-- bandit on `src/`
-- gitleaks on full git history
-- pip-audit on the resolved dependency set (install the package, then audit)
-- trivy on the **built Docker image**, not only the filesystem
-- supply-chain collector:
+Put outputs under `security-audit/` (gitignored) or attach them as a CI artifact.
+Do not commit SARIF or JSON.
+
+```bash
+mkdir -p security-audit
+
+# bandit 1.9.x on application code
+python3 -m bandit -r src -f json -o security-audit/bandit.json
+python3 -m bandit -r src
+
+# gitleaks 8.x on full git history
+gitleaks detect --source . --report-format json --report-path security-audit/gitleaks.json
+
+# pip-audit 2.x on the installed package (activate .venv first)
+python3 -m pip install -e .
+python3 -m pip_audit --desc
+
+# Trivy 0.75.x on the built image, not only the filesystem
+docker build -t artifactsmith:review -f docker/Dockerfile .
+trivy image --severity CRITICAL,HIGH artifactsmith:review
+```
+
+Supply-chain collector (fetch, then run). `uv` if you have it; otherwise
+`python3`:
 
 ```bash
 SKILL=$(bash .cursor/skills/fetch-upstream.sh supply-chain-risk-auditor)
-uv run --no-project "$SKILL/scripts/collect.py" .
+if command -v uv >/dev/null; then
+  uv run --no-project "$SKILL/scripts/collect.py" .
+else
+  python3 "$SKILL/scripts/collect.py" .
+fi
 ```
 
 Record tool versions next to the outputs.
 
-Keep raw SARIF, JSON, and scanner logs out of git. Store them as a CI
-artifact, or under `security-audit/` on a local machine (that path is in
-`.gitignore`).
-
-A dated snapshot of PR #2 at `a2b873c` is `docs/security-audit-2026-10-09.md`.
+The 9 October 2026 review of `a2b873c56365445d3443efb992eda480dafa593e` is
+`docs/security-audit-2026-10-09.md`.

@@ -5,12 +5,14 @@ description: "Perform language and framework specific security best-practice rev
 
 # Security Best Practices
 
+Modified from [OpenAI security-best-practices](https://github.com/openai/skills/blob/49f948faa9258a0c61caceaf225e179651397431/skills/.curated/security-best-practices/SKILL.md) (Apache-2.0). This copy fetches companion `references/` at run time with `bash .cursor/skills/fetch-upstream.sh` instead of shipping that tree.
+
 ## Overview
 
 This skill provides a description of how to identify the language and frameworks used by the current context, and then to load information from the fetched references directory about the security best practices for this language and or frameworks. Do not vendor those files; fetch them when the skill runs:
 
 ```bash
-REFS=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-best-practices)
+REFS=$(bash .cursor/skills/fetch-upstream.sh openai-best-practices)
 ```
 
 This information, if present, can be used to write new secure by default code, or to passively detect major issues within existing code, or (if requested by the user) provide a vulnerability report and suggest fixes.

@@ -5,6 +5,8 @@ description: "Repository-grounded threat modeling that enumerates trust boundari
 
 # Threat Model Source Code Repo
 
+Modified from [OpenAI security-threat-model](https://github.com/openai/skills/blob/49f948faa9258a0c61caceaf225e179651397431/skills/.curated/security-threat-model/SKILL.md) (Apache-2.0). This copy fetches companion `references/` at run time with `bash .cursor/skills/fetch-upstream.sh` instead of shipping that tree.
+
 Deliver an actionable AppSec-grade threat model that is specific to the repository or a project path, not a generic checklist. Anchor every architectural claim to evidence in the repo and keep assumptions explicit. Prioritizing realistic attacker goals and concrete impacts over generic checklists.
 
 ## Quick start
@@ -17,7 +19,7 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 Fetch the prompt template (do not vendor the rest of the reference tree):
 
 ```bash
-TM=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-threat-model)
+TM=$(bash .cursor/skills/fetch-upstream.sh openai-threat-model)
 ```
 
 - Use prompts in `$TM/prompt-template.md` to generate a repository summary.
