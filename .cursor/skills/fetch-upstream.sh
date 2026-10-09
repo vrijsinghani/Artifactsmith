@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fetch companion skill files from pinned upstreams. Nothing here is vendored
-# in git: rulesets, language notes, and collector scripts are cloned at run time.
+# Fetch pinned upstream skill trees at run time. Does not vendor them in git.
+# Trail of Bits material stays in their repo (CC-BY-SA-4.0). This script is
+# original to ArtifactSmith (MIT).
 set -euo pipefail
 
 readonly TOB_URL=https://github.com/trailofbits/skills.git
@@ -15,16 +16,18 @@ Usage: fetch-upstream.sh NAME [NAME...]
 
 Prints the directory that holds the fetched files (one line per NAME).
 
-  semgrep-refs           scan-modes.md, scan-workflow.md, rulesets.md
-  sharp-edges-refs       language and config notes
-  supply-chain-scripts   collect.py, render.py, and helpers
-  sarif-extras           jq-queries.md
-  differential-extras    methodology, patterns, reporting, adversarial
-  fp-check-refs          verification checklists
-  openai-best-practices  framework security notes
-  openai-threat-model    prompt-template and controls list
-  tob                    pinned Trail of Bits skills checkout
-  openai                 pinned OpenAI skills checkout
+Trail of Bits (pin 82fe8226252622fa807643bdca1710901198553a):
+  semgrep
+  sarif-parsing
+  differential-review
+  sharp-edges
+  supply-chain-risk-auditor
+  fp-check
+  tob                      all of the above (prints the clone root)
+
+OpenAI curated (pin 49f948faa9258a0c61caceaf225e179651397431):
+  openai-best-practices    framework notes (SKILL.md is already in git)
+  openai-threat-model      prompt template and controls list
 USAGE
 }
 
@@ -55,48 +58,56 @@ sparse_pin() {
 }
 
 fetch_one() {
+  local root
   case "$1" in
     tob)
-      sparse_pin tob "$TOB_URL" "$TOB_SHA"
+      sparse_pin tob "$TOB_URL" "$TOB_SHA" \
+        plugins/static-analysis/skills/semgrep \
+        plugins/static-analysis/skills/sarif-parsing \
+        plugins/differential-review/skills/differential-review \
+        plugins/sharp-edges/skills/sharp-edges \
+        plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor \
+        plugins/fp-check/skills/fp-check
       ;;
-    openai)
-      sparse_pin openai "$OA_URL" "$OA_SHA"
+    semgrep)
+      root=$(sparse_pin semgrep "$TOB_URL" "$TOB_SHA" \
+        plugins/static-analysis/skills/semgrep)
+      printf '%s\n' "$root/plugins/static-analysis/skills/semgrep"
       ;;
-    semgrep-refs)
-      sparse_pin semgrep-refs "$TOB_URL" "$TOB_SHA" \
-        plugins/static-analysis/skills/semgrep/references \
-        plugins/static-analysis/skills/semgrep/workflows
+    sarif-parsing)
+      root=$(sparse_pin sarif-parsing "$TOB_URL" "$TOB_SHA" \
+        plugins/static-analysis/skills/sarif-parsing)
+      printf '%s\n' "$root/plugins/static-analysis/skills/sarif-parsing"
       ;;
-    sharp-edges-refs)
-      sparse_pin sharp-edges-refs "$TOB_URL" "$TOB_SHA" \
-        plugins/sharp-edges/skills/sharp-edges/references
+    differential-review)
+      root=$(sparse_pin differential-review "$TOB_URL" "$TOB_SHA" \
+        plugins/differential-review/skills/differential-review)
+      printf '%s\n' "$root/plugins/differential-review/skills/differential-review"
       ;;
-    supply-chain-scripts)
-      sparse_pin supply-chain-scripts "$TOB_URL" "$TOB_SHA" \
-        plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts
+    sharp-edges)
+      root=$(sparse_pin sharp-edges "$TOB_URL" "$TOB_SHA" \
+        plugins/sharp-edges/skills/sharp-edges)
+      printf '%s\n' "$root/plugins/sharp-edges/skills/sharp-edges"
       ;;
-    sarif-extras)
-      sparse_pin sarif-extras "$TOB_URL" "$TOB_SHA" \
-        plugins/static-analysis/skills/sarif-parsing/resources
+    supply-chain-risk-auditor)
+      root=$(sparse_pin supply-chain-risk-auditor "$TOB_URL" "$TOB_SHA" \
+        plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor)
+      printf '%s\n' "$root/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor"
       ;;
-    differential-extras)
-      sparse_pin differential-extras "$TOB_URL" "$TOB_SHA" \
-        plugins/differential-review/skills/differential-review/adversarial.md \
-        plugins/differential-review/skills/differential-review/methodology.md \
-        plugins/differential-review/skills/differential-review/patterns.md \
-        plugins/differential-review/skills/differential-review/reporting.md
-      ;;
-    fp-check-refs)
-      sparse_pin fp-check-refs "$TOB_URL" "$TOB_SHA" \
-        plugins/fp-check/skills/fp-check/references
+    fp-check)
+      root=$(sparse_pin fp-check "$TOB_URL" "$TOB_SHA" \
+        plugins/fp-check/skills/fp-check)
+      printf '%s\n' "$root/plugins/fp-check/skills/fp-check"
       ;;
     openai-best-practices)
-      sparse_pin openai-best-practices "$OA_URL" "$OA_SHA" \
-        skills/.curated/security-best-practices/references
+      root=$(sparse_pin openai-best-practices "$OA_URL" "$OA_SHA" \
+        skills/.curated/security-best-practices/references)
+      printf '%s\n' "$root/skills/.curated/security-best-practices/references"
       ;;
     openai-threat-model)
-      sparse_pin openai-threat-model "$OA_URL" "$OA_SHA" \
-        skills/.curated/security-threat-model/references
+      root=$(sparse_pin openai-threat-model "$OA_URL" "$OA_SHA" \
+        skills/.curated/security-threat-model/references)
+      printf '%s\n' "$root/skills/.curated/security-threat-model/references"
       ;;
     *)
       die "unknown name: $1"

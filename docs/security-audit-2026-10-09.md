@@ -1,81 +1,164 @@
-# Security audit of ArtifactSmith PR #2
+# Security audit — 9 October 2026
 
-Independent read-only review. Application code was not changed.
+Independent review of ArtifactSmith PR #2 at
+`a2b873c56365445d3443efb992eda480dafa593e` (`cursor/remove-mock-llm-review-cleanup-3c14`).
+This is a pre-merge snapshot. Status below is checked against later commits
+on that same PR. Application code was not changed in this review.
 
-**Audited commit:** `a2b873c56365445d3443efb992eda480dafa593e` on `cursor/remove-mock-llm-review-cleanup-3c14` (PR #2). Subject: Close round-3 should-fix: limits, idempotency, docs, and image scan.
+**Scanners:** semgrep 1.180.0 via the Trail of Bits runner (`--metrics=off`),
+bandit 1.9.4, gitleaks 8.30.0 (full history), pip-audit 2.10.1 on the resolved
+venv, trivy 0.75.0 on image `artifactsmith-audit:a2b873c`
+(`sha256:506b1e33e9e383c234102f66cdec4041332ab2640ca5bcaeb21e5a0ae83d1b94`).
+Also: threat model, sharp-edges on config/compose, differential review vs
+`main`, and the project checklist with live payloads.
 
-**Method:** Trail of Bits `run-scans.sh` (`--metrics=off`), bandit, gitleaks (full history), pip-audit on the resolved venv set, Trivy on image `artifactsmith-audit:a2b873c` (`sha256:506b1e33e9e383c234102f66cdec4041332ab2640ca5bcaeb21e5a0ae83d1b94`), threat model, sharp-edges on config/compose, differential review vs `main`, project checklist with live payloads. Every candidate went through fp-check. Only survivors are ranked below.
+**Libraries used in reproductions:** Python 3.12.3, nh3 0.3.7, tinycss2 1.5.1,
+openpyxl 3.1.5, Chrome 148.0.7778.96, docker 29.1.3.
 
-**Tool versions:** semgrep 1.180.0 (OSS; Pro unavailable), bandit 1.9.4, pip-audit 2.10.1, gitleaks 8.30.0, trivy 0.75.0, docker 29.1.3, Python 3.12.3, nh3 0.3.7, tinycss2 1.5.1, openpyxl 3.1.5, Chrome 148.0.7778.96. Raw SARIF/JSON is the tarball `/opt/cursor/artifacts/artifactsmith-security-audit-a2b873c-raw.tgz` (not in git).
+Raw scanner output is kept out of git. Store a copy as a CI artifact, or under
+`security-audit/` locally (gitignored).
 
-Semgrep Pro did not run. `p/yaml` failed (exit 7) and was excluded from the merge. elttam and Apiiro rulesets were partial (exit 2).
+| Finding | Severity | Status |
+|---|---|---|
+| Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts | Medium | Fixed in `3ef385a` on PR #2 |
+| `artifactsmith serve` listens on all interfaces by default | Medium | Fixed in `3ef385a` on PR #2 |
+| MCP DNS-rebinding protection is off until an allow-list is set | Low | Fixed in `3ef385a` on PR #2 |
+| `inspect` can return raw object-store exceptions | Low | Fixed in `3ef385a` on PR #2 |
+| `start_workers` re-queues in-flight `building` jobs | Low | Fixed in `3ef385a` on PR #2 |
 
-## Ranked findings
+## Findings
 
 ### Medium — Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts
 
-`src/artifactsmith/renderers/safety.py:10`, `safety.py:57`, `safety.py:73`.
+**Status:** Fixed in `3ef385a` on PR #2.
 
-`URL_RE` stops at `]`, so `http://[::1]/x` is not parsed. `_host_is_private` only understands dotted textual IPs, so `http://127.1/x` and `http://0x7f.0.0.1/x` are not flagged. Hostnames are not resolved, so `http://127.0.0.1.sslip.io/x` and `http://evil.127.0.0.1.nip.io/x` pass.
+At the audited commit: `src/artifactsmith/renderers/safety.py:10`,
+`safety.py:57`, `safety.py:73`.
 
-**Reproduction:** `find_private_links` and `check_fields` returned empty for those five strings. `http://127.0.0.1`, `localhost`, `10.0.0.5`, `169.254.169.254`, and `metadata.google.internal` were flagged. The JSONL is in the artifacts tarball as `security-audit/repro/checklist.jsonl`.
+`URL_RE` stopped at `]`, so `http://[::1]/x` was not parsed. `_host_is_private`
+only understood dotted textual IPs, so `http://127.1/x` and `http://0x7f.0.0.1/x`
+were not flagged. Hostnames were not resolved, so
+`http://127.0.0.1.sslip.io/x` and `http://evil.127.0.0.1.nip.io/x` passed.
 
-**Why it is exploitable here:** Titles, summaries, assumptions, and `needs_input` are scanned only by `check_fields` (`builder.py:335`). A hostile model can put a loopback URL in the card. MCP clients often linkify `http://…`. The operator's browser then hits a private host. HTML `href` values with `://` are stripped, and ordinary `http://host` bodies are stripped, so this is a metadata / leftover-text bypass of the documented "never point at private hosts" control, not server-side SSRF.
+**Reproduction at `a2b873c`:** `find_private_links` and `check_fields` returned
+empty for those five strings. `http://127.0.0.1`, `localhost`, `10.0.0.5`,
+`169.254.169.254`, and `metadata.google.internal` were flagged.
 
-**Fix:** Parse with `urllib.parse` over a regex that accepts IPv6. Treat IPv4-mapped, short, octal, and hex forms as IP addresses. Fail closed on `]`. Optionally resolve DNS or block known rebinding suffixes (`nip.io`, `sslip.io`, `localtest.me`). Run the same check on the text that is actually stored on the card.
+**Why it was exploitable:** Titles, summaries, assumptions, and `needs_input`
+are scanned only by `check_fields` (`builder.py:335`). A hostile model can put
+a loopback URL in the card. MCP clients often linkify `http://…`. The
+operator's browser then hits a private host. HTML `href` values with `://`
+are stripped, and ordinary `http://host` bodies are stripped, so this was a
+metadata / leftover-text bypass of the documented "never point at private
+hosts" control, not server-side SSRF.
+
+**Fix applied on PR #2:** Parse with `urllib.parse` and accept IPv6; treat
+IPv4-mapped, short, octal, hex, and integer forms as IPs; block known
+rebinding suffixes.
 
 ### Medium — `artifactsmith serve` listens on all interfaces by default
 
-`src/artifactsmith/config.py:65` (`AM_HOST` default `0.0.0.0`). Bandit B104.
+**Status:** Fixed in `3ef385a` on PR #2.
 
-Compose publishes `${AM_BIND_ADDRESS:-127.0.0.1}:8780` and `:8781` (`compose.yaml:46` at this commit). A bare `artifactsmith serve` does not. Preview and share routes are unauthenticated capability URLs. The API is bearer-only, but it is then reachable on every NIC.
+At the audited commit: `src/artifactsmith/config.py:65` (`AM_HOST` default
+`0.0.0.0`). Bandit B104.
 
-**Why it is exploitable here:** Operators who follow the CLI and skip compose expose MCP and `/p/`, `/dl/`, `/s/` on the LAN. Share links become world-reachable if the host has a public address.
+Compose published `${AM_BIND_ADDRESS:-127.0.0.1}:8780` and `:8781`
+(`compose.yaml:46` at `a2b873c`). A bare `artifactsmith serve` did not.
+Preview and share routes are unauthenticated capability URLs. The API is
+bearer-only, but it was then reachable on every NIC.
 
-**Fix:** Default `AM_HOST` to `127.0.0.1`. Keep `0.0.0.0` as an explicit opt-in. Refuse to start if the process is listening on a non-loopback address and `AM_ALLOWED_HOSTS` / a reverse-proxy flag is unset.
+**Why it was exploitable:** Operators who follow the CLI and skip compose
+expose MCP and `/p/`, `/dl/`, `/s/` on the LAN. Share links become
+world-reachable if the host has a public address.
+
+**Fix applied on PR #2:** Default `AM_HOST` to `127.0.0.1`. Compose and the
+container image still set `0.0.0.0` for in-container listen.
 
 ### Low — MCP DNS-rebinding protection is off until an allow-list is set
 
-`src/artifactsmith/server.py:39`. `enable_dns_rebinding_protection` is true only when `AM_ALLOWED_HOSTS` or `AM_ALLOWED_ORIGINS` is non-empty. Both default to empty.
+**Status:** Fixed in `3ef385a` on PR #2.
 
-**Why it is exploitable here:** A browser origin confused onto the API port can call `/mcp` without a Host check. Bearer tokens are not sent automatically by a normal page, so this is defense-in-depth, not a token theft by itself.
+At the audited commit: `src/artifactsmith/server.py:39`.
+`enable_dns_rebinding_protection` was true only when `AM_ALLOWED_HOSTS` or
+`AM_ALLOWED_ORIGINS` was non-empty. Both defaulted to empty.
 
-**Fix:** Enable the MCP transport check by default for `127.0.0.1` / `localhost`, or require the allow-lists whenever `AM_HOST` is not loopback.
+**Why it was exploitable:** A browser origin confused onto the API port can
+call `/mcp` without a Host check. Bearer tokens are not sent automatically by
+a normal page, so this is defense-in-depth, not a token theft by itself.
+
+**Fix applied on PR #2:** Default allowed hosts are `127.0.0.1` and
+`localhost` on the API port, which turns the MCP transport check on for
+plain `serve`.
 
 ### Low — `inspect` can return raw object-store exceptions
 
-`src/artifactsmith/service.py:901`. `manifest_error` is `str(e)[:200]` from `store.get`. A missing object or boto error can leak endpoint, bucket, or key layout to any token with `read`.
+**Status:** Fixed in `3ef385a` on PR #2.
 
-**Fix:** Return a fixed `"manifest missing"` string and log the exception server-side.
+At the audited commit: `src/artifactsmith/service.py:901`. `manifest_error`
+was `str(e)[:200]` from `store.get`. A missing object or boto error could
+leak endpoint, bucket, or key layout to any token with `read`.
+
+**Fix applied on PR #2:** Return the fixed string `store_read_failed` and log
+the exception server-side.
 
 ### Low — `start_workers` re-queues in-flight `building` jobs
 
-`src/artifactsmith/service.py:462`. Every `queued`/`building` row is set back to `queued` and enqueued. The claim `UPDATE … AND status='queued'` is atomic in one process (barrier test: one of two threads got the row). A second process sharing the same SQLite file can reset a live `building` job and claim it. Two workers then upload the same version.
+**Status:** Fixed in `3ef385a` on PR #2.
 
-**Fix:** Claim with `UPDATE … WHERE status IN ('queued','building') AND (status='queued' OR started_at < stale)`. Do not reset `building` unless the row is older than the build timeout. Document single-replica SQLite.
+At the audited commit: `src/artifactsmith/service.py:462`. Every
+`queued`/`building` row was set back to `queued` and enqueued. The claim
+`UPDATE … AND status='queued'` is atomic in one process (barrier test: one of
+two threads got the row). A second process sharing the same SQLite file could
+reset a live `building` job and claim it. Two workers then upload the same
+version.
 
-## Controls that held
+**Fix applied on PR #2:** Requeue `building` only when `started_at` is older
+than the build timeout. Fresh in-flight rows are left alone.
 
-1. HTML/CSS sanitizer: style breakout, entity-encoded `</style>`, `u\72l()`, `@\69mport`, `image-set`, `@font-face`, backslash hrefs, `javascript:`, protocol-relative links. Chrome `--dump-dom` on the standalone export (no CSP) did not fire `onerror`.
-2. XLSX: `=`, `+`, `-`, `@` cells and the title stayed `data_type='s'` after openpyxl save/reload, including `007` and `1e2`.
-3. Job claim: `BEGIN IMMEDIATE` plus `status='queued'` admitted one worker. Delete refuses while `building` and cancels `queued`. Thread enqueue uses `call_soon_threadsafe`.
-4. Limits: 200 KB source, 32k verbatim, 500k model chars, render kill + 512 MiB `RLIMIT_AS`, 50 MiB output, per-token hourly quota.
-5. Listed secret shapes in titles/summaries (`sk-`, `ghp_`, PEM, `AKIA`, Slack, `Bearer`) failed `check_fields`.
-6. gitleaks: no leaks in 19 commits. pip-audit on the resolved dependency pins: no known vulns.
+## Controls that held at `a2b873c`
+
+1. HTML/CSS sanitizer: style breakout, entity-encoded `</style>`, `u\72l()`,
+   `@\69mport`, `image-set`, `@font-face`, backslash hrefs, `javascript:`,
+   protocol-relative links. Chrome `--dump-dom` on the standalone export (no
+   CSP) did not fire `onerror`.
+2. XLSX: `=`, `+`, `-`, `@` cells and the title stayed `data_type='s'` after
+   openpyxl save/reload, including `007` and `1e2`.
+3. Job claim: `BEGIN IMMEDIATE` plus `status='queued'` admitted one worker.
+   Delete refuses while `building` and cancels `queued`. Thread enqueue uses
+   `call_soon_threadsafe`.
+4. Limits: 200 KB source, 32k verbatim, 500k model chars, render kill +
+   512 MiB `RLIMIT_AS`, 50 MiB output, per-token hourly quota.
+5. Listed secret shapes in titles/summaries (`sk-`, `ghp_`, PEM, `AKIA`,
+   Slack, `Bearer`) failed `check_fields`.
+6. gitleaks: no leaks in 19 commits. pip-audit on the resolved dependency
+   pins: no known vulns.
 
 ## False positives discarded
 
-- `rustfs/rustfs:latest` on `compose.yaml:12`: that line is on `main`, not on the audited commit. At `a2b873c` the store image is `compose.yaml:13`, `rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c`. Finding withdrawn.
-- Semgrep `docker-compose.port-all-interfaces` on compose published ports: the host bind is `127.0.0.1` by default (`compose.yaml:46` at `a2b873c`).
+- `rustfs/rustfs:latest` on `compose.yaml:12`: that line is on `main`, not on
+  the audited commit. At `a2b873c` the store image is `compose.yaml:13`,
+  `rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c`.
+- Semgrep `docker-compose.port-all-interfaces` on compose published ports: the
+  host bind is `127.0.0.1` by default (`compose.yaml:46` at `a2b873c`).
 - Semgrep Dependabot missing cooldown: supply-chain hygiene, not a runtime bug.
-- Apiiro "obfuscation" on `md_parse._esc`, the `URL_RE` character class, and `Service.list`: ordinary string replace, a regex, and a method name.
-- Bandit B608 at `service.py:1067`: `DELETE FROM {tbl}` with `tbl` from a fixed tuple.
-- Bandit B112/B110 in `safety.py` and `subprocess_render.py`: `urlparse` skip and pipe close, not a swallowed auth check.
-- Trivy 4 CRITICAL / 85 HIGH on Debian packages in the slim image (util-linux mount helpers, curl CLI, leftover `pip` 25.0.1). Python app packages had no High/Critical. Not a demonstrated ArtifactSmith entry-point exploit; treat as image-hardening follow-up.
-- Empty `url()` left in an allowlisted inline `style` after nh3 stripped the argument: no host remains, Chrome has nothing to fetch.
-- `gho_`, `glpat-`, and raw AWS secret keys missed by `SECRET_PATTERNS`: the code already calls this a heuristic, not a guarantee.
+- Apiiro "obfuscation" on `md_parse._esc`, the `URL_RE` character class, and
+  `Service.list`: ordinary string replace, a regex, and a method name.
+- Bandit B608 at `service.py:1067`: `DELETE FROM {tbl}` with `tbl` from a
+  fixed tuple.
+- Bandit B112/B110 in `safety.py` and `subprocess_render.py`: `urlparse` skip
+  and pipe close, not a swallowed auth check.
+- Trivy 4 CRITICAL / 85 HIGH on Debian packages in the slim image (util-linux
+  mount helpers, curl CLI, leftover `pip` 25.0.1). Python app packages had no
+  High/Critical. Not a demonstrated ArtifactSmith entry-point exploit; treat
+  as image-hardening follow-up.
+- Empty `url()` left in an allowlisted inline `style` after nh3 stripped the
+  argument: no host remains, Chrome has nothing to fetch.
+- `gho_`, `glpat-`, and raw AWS secret keys missed by `SECRET_PATTERNS`: the
+  code already calls this a heuristic, not a guarantee.
 
 ## Assumptions
 
-Single-replica compose on loopback is the intended deploy. Identity is bearer tokens only. The LLM provider is untrusted for content and out of scope as a compromised vendor. No operator answered extra scoping questions; ranking uses those assumptions.
-EOF
+Single-replica compose on loopback is the intended deploy. Identity is bearer
+tokens only. The LLM provider is untrusted for content and out of scope as a
+compromised vendor. Ranking used those assumptions.

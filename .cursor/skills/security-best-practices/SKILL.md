@@ -10,8 +10,7 @@ description: "Perform language and framework specific security best-practice rev
 This skill provides a description of how to identify the language and frameworks used by the current context, and then to load information from the fetched references directory about the security best practices for this language and or frameworks. Do not vendor those files; fetch them when the skill runs:
 
 ```bash
-ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-best-practices)
-REFS="$ROOT/skills/.curated/security-best-practices/references"
+REFS=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-best-practices)
 ```
 
 This information, if present, can be used to write new secure by default code, or to passively detect major issues within existing code, or (if requested by the user) provide a vulnerability report and suggest fixes.

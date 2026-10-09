@@ -17,8 +17,7 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 Fetch the prompt template (do not vendor the rest of the reference tree):
 
 ```bash
-ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-threat-model)
-TM="$ROOT/skills/.curated/security-threat-model/references"
+TM=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-threat-model)
 ```
 
 - Use prompts in `$TM/prompt-template.md` to generate a repository summary.
