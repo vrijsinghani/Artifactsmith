@@ -16,10 +16,11 @@ from .md_serialize import escape_all_md_punctuation, serialize_blocks
 from .safety import URL_RE
 
 
-def _parser() -> MarkdownIt:
+def _parser(*, linkify: bool = True) -> MarkdownIt:
     """CommonMark parser that accepts every destination; we enforce policy ourselves."""
-    md = MarkdownIt("commonmark", {"linkify": True})
-    md.enable("linkify")
+    md = MarkdownIt("commonmark", {"linkify": linkify})
+    if linkify:
+        md.enable("linkify")
     # markdown-it rejects javascript:/etc. before we can neutralize them.
     md.validateLink = lambda _url: True  # type: ignore[assignment]
     return md
@@ -42,6 +43,13 @@ def _label_text(tokens: list[Token]) -> str:
 
 def _text_token(content: str) -> Token:
     t = Token("text", "", 0)
+    t.content = content
+    return t
+
+
+def _code_inline_token(content: str) -> Token:
+    t = Token("code_inline", "code", 0)
+    t.markup = "`"
     t.content = content
     return t
 
@@ -84,6 +92,7 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
         if tok.type == "link_open":
             href_raw = _attr_str(tok, "href")
             title = _attr_str(tok, "title") or None
+            link_markup = tok.markup or ""
             inner: list[Token] = []
             i += 1
             while i < len(children) and children[i].type != "link_close":
@@ -105,9 +114,16 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
                     out.append(open_t)
                     out.extend(_rewrite_inline(inner))
                     out.append(Token("link_close", "a", -1))
-                elif inner and not _label_is_destination(label, href_raw):
+                elif _label_is_destination(label, href_raw):
+                    # Blocked <url> autolink: keep readable as inline code (not a link).
+                    if label:
+                        if link_markup == "autolink":
+                            out.append(_code_inline_token(label))
+                        else:
+                            out.append(_text_token(label))
+                elif inner:
                     out.extend(_rewrite_inline(inner))
-                elif label and not _label_is_destination(label, href_raw):
+                elif label:
                     out.append(_text_token(label))
             continue
         if tok.type == "code_inline":
@@ -176,8 +192,12 @@ def _linkify_prose_urls(text: str) -> str:
 
 
 def _destinations_policy_clean(md_text: str) -> bool:
-    """True when re-parsed output has no images and only allowed link destinations."""
-    md = _parser()
+    """True when re-parsed output has no images and only allowed link destinations.
+
+    Linkify is off: after sanitize, intended links are already markdown links;
+    re-linkifying bare text would treat kept private URL text as a new destination.
+    """
+    md = _parser(linkify=False)
     tokens = md.parse(md_text)
 
     def walk(children: list[Token] | None) -> bool:

@@ -113,10 +113,10 @@ _COMMONMARK_CASES: list[tuple[str, str, list[str], list[str]]] = [
         ["javascript:"],
     ),
     (
-        "autolink_js_dropped",
+        "autolink_js_as_inline_code",
         "go <javascript:alert(1)> now",
-        ["go", "now"],
-        ["javascript:", "<javascript"],
+        ["go", "`javascript:alert(1)`", "now"],
+        ["<javascript", "](javascript:"],
     ),
     (
         "autolink_https_kept",
@@ -246,8 +246,10 @@ def test_reference_and_autolink_dangerous_neutralized():
     assert "][r]" not in out or "javascript" not in out.lower()
 
     auto = sanitize_markdown("go <javascript:alert(1)> now")
-    assert "javascript:" not in auto.lower()
+    assert "`javascript:alert(1)`" in auto
     assert "<javascript" not in auto.lower()
+    assert "](javascript:" not in auto.lower()
+    assert collect_link_destinations(auto) == []
 
     good_auto = sanitize_markdown("see <https://example.com/a>")
     assert "[https://example.com/a](https://example.com/a)" in good_auto
@@ -301,6 +303,18 @@ def test_linkify_markdown_wraps_bare_public_urls():
     assert "[x](https://example.org/b)" in out
     private = sanitize_markdown("go http://127.0.0.1/x now")
     assert "](http://127.0.0.1" not in private
+    # Bare private URL stays visible as text (not a destination).
+    assert "http://127.0.0.1/x" in private
+
+
+def test_blocked_angle_autolinks_become_inline_code():
+    """Blocked <url> autolinks must not vanish; render as inline code (not links)."""
+    out = sanitize_markdown("See <javascript:alert(1)> and <http://127.0.0.1/x>.")
+    assert out == "See `javascript:alert(1)` and `http://127.0.0.1/x`."
+    assert collect_link_destinations(out) == []
+    assert "<javascript" not in out
+    assert "](javascript:" not in out
+    assert "](http://127.0.0.1" not in out
 
 
 def test_https_markdown_link_survives_byte_for_byte():
@@ -341,6 +355,7 @@ _TRICKY_CORPUS = [
     "[x](java\u200bscript:alert(1))",
     "[lab][r]\n\n[r]: javascript:alert(1)\n",
     "go <javascript:alert(1)> now",
+    "See <javascript:alert(1)> and <http://127.0.0.1/x>.",
     "see https://example.com/a and [NSF](https://www.nsf.gov/)",
     "[NSF](//www.nsf.gov/)",
     "Use `https://example.com/inline` and\n\n```\nhttps://example.com/fence\n```\n",

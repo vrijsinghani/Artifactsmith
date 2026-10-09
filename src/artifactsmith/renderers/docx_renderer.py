@@ -8,6 +8,7 @@ from typing import Any
 from .base import RenderOutput
 from .links import iter_inline_segments
 from .md_parse import parse_blocks
+from .safety import strip_ooxml_controls
 
 
 def _add_text_with_links(paragraph: Any, text: str) -> None:
@@ -17,6 +18,7 @@ def _add_text_with_links(paragraph: Any, text: str) -> None:
     from docx.oxml.ns import qn
 
     for display, href in iter_inline_segments(text):
+        display = strip_ooxml_controls(display)
         if not display:
             continue
         if href is None:
@@ -56,7 +58,7 @@ class DocxRenderer:
         style.font.name = "Calibri"
         style.font.size = Pt(11)
         if title:
-            doc.add_heading(title, level=0)
+            doc.add_heading(strip_ooxml_controls(title), level=0)
         for b in parse_blocks(body):
             if b.kind == "heading":
                 p = doc.add_heading("", level=min(max(b.level, 1), 4))
@@ -71,7 +73,7 @@ class DocxRenderer:
                     p = doc.add_paragraph(style="List Bullet")
                     _add_text_with_links(p, item)
             elif b.kind == "code":
-                p = doc.add_paragraph(b.text)
+                p = doc.add_paragraph(strip_ooxml_controls(b.text))
                 for run in p.runs:
                     run.font.name = "Courier New"
                     run.font.size = Pt(9)

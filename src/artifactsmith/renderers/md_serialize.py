@@ -9,17 +9,42 @@ from markdown_it.token import Token
 # Inline text: escape characters that can open links, images, emphasis, or HTML.
 _MD_TEXT_ESCAPE_RE = re.compile(r"([\\`*_{}\[\]()!<>])")
 # Fail-closed: every CommonMark-special character.
+_MD_FAIL_CLOSED_SPECIALS = "\\`*_{}[]()#+.!|<>~-"
 _MD_FAIL_CLOSED_RE = re.compile(r"([\\`*_{}\[\]()#+.!|<>~-])")
 
 
+def _unescape_md_specials(text: str, specials: str) -> str:
+    """Remove one layer of backslash-escapes before ``specials`` (and backslash)."""
+    allowed = set(specials) | {"\\"}
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n and text[i + 1] in allowed:
+            out.append(text[i + 1])
+            i += 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def escape_md_text(text: str) -> str:
-    """Escape Markdown-significant characters in a prose text token."""
+    """Escape Markdown-significant characters in a prose text token.
+
+    Token content is raw display text (already unescaped by the parser), so every
+    special is escaped exactly once.
+    """
     return _MD_TEXT_ESCAPE_RE.sub(r"\\\1", text)
 
 
 def escape_all_md_punctuation(text: str) -> str:
-    """Fail-closed: escape every Markdown-special character in a full document."""
-    return _MD_FAIL_CLOSED_RE.sub(r"\\\1", text)
+    """Fail-closed: escape every Markdown-special character in a full document.
+
+    Idempotent: one unescape layer, then escape once (no doubled backslashes).
+    """
+    plain = _unescape_md_specials(text, _MD_FAIL_CLOSED_SPECIALS)
+    return _MD_FAIL_CLOSED_RE.sub(r"\\\1", plain)
 
 
 def _attr_str(tok: Token, name: str) -> str:

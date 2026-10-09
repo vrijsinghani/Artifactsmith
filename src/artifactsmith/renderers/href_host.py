@@ -1,4 +1,9 @@
-"""Host extraction for link policy: urllib and WHATWG-style authority parses."""
+"""Host extraction for link policy: urllib and WHATWG-style authority parses.
+
+``whatwg_host`` is a WHATWG-style approximation, not a full browser URL parser.
+Agreement across these parses guarantees an accepted http(s) link does not
+target a private host; it does not claim every accepted link is browser-valid.
+"""
 
 from __future__ import annotations
 

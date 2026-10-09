@@ -68,6 +68,18 @@ WILDCARD_DNS_SUFFIXES = (
 )
 
 
+# C0 controls illegal in OOXML / openpyxl (keep tab, LF, CR).
+_OOXML_ILLEGAL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def strip_ooxml_controls(text: str) -> str:
+    """Remove C0 controls that DOCX/XLSX cannot hold (VT, FF, NUL, etc.).
+
+    Tab, newline, and carriage return are kept. Apply before writing runs/cells.
+    """
+    return _OOXML_ILLEGAL_CTRL_RE.sub("", text)
+
+
 def strip_scripts(text: str) -> str:
     return SCRIPT_RE.sub("", text)
 

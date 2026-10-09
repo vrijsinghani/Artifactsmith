@@ -14,6 +14,7 @@ from typing import Any
 from .base import RenderOutput
 from .links import iter_inline_segments, public_href_or_none
 from .md_parse import parse_blocks
+from .safety import strip_ooxml_controls
 
 _SHEET_SAFE = re.compile(r"[\[\]\*\:\/\\\?]")
 
@@ -46,7 +47,7 @@ def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
     """
     from openpyxl.cell.cell import TYPE_STRING
 
-    text = "" if value is None else str(value)
+    text = strip_ooxml_controls("" if value is None else str(value))
     cell = ws.cell(row=row, column=col, value=text)
     cell.data_type = TYPE_STRING
     href = _first_public_href(text) if text else None
