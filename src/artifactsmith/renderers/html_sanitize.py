@@ -10,7 +10,7 @@ import re
 from html import unescape
 
 import nh3
-import tinycss2
+import tinycss2  # type: ignore[import-untyped]
 from tinycss2 import ast as css_ast
 
 # Document structure is rebuilt after fragment cleaning (Ammonia drops html/head/body).
@@ -236,7 +236,7 @@ def _tokens_safe(tokens: list[object]) -> bool:
 
 
 def _serialize_safe(nodes: list[object]) -> str:
-    text = tinycss2.serialize(nodes)  # type: ignore[arg-type]
+    text = str(tinycss2.serialize(nodes))
     if "<" in text or ">" in text:
         return ""
     return text
@@ -250,12 +250,10 @@ def sanitize_css(css: str) -> str:
     """
     if not css or "<" in css:
         # Raw '<' in a style block is always treated as a breakout attempt.
-        if css and "<" in css:
-            return ""
         return ""
 
     rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
-    kept: list[object] = []
+    kept: list[str] = []
     for rule in rules:
         if isinstance(rule, css_ast.AtRule):
             # Drop @import, @font-face, @namespace, @media, …

@@ -140,12 +140,21 @@ def test_create_idempotent_and_duplicate_slug(svc):
         display_name="Pilot",
         kind="web_static",
         verbatim_request="show the code",
+        source_content="HARBOR-17",
         idempotency_key="k1",
     )
     assert replay["idempotent_replay"] is True
     assert replay["artifact_id"] == first["artifact_id"]
+    # Same client key with a different request fingerprint does not replay.
     with pytest.raises(AMError, match="already exists"):
-        svc.create(p, slug="pilot-store", display_name="Pilot", kind="web_static", verbatim_request="again")
+        svc.create(
+            p,
+            slug="pilot-store",
+            display_name="Pilot",
+            kind="web_static",
+            verbatim_request="again",
+            idempotency_key="k1",
+        )
 
 
 def test_quota(svc, monkeypatch):
@@ -186,7 +195,7 @@ def test_edit_stale_and_missing(svc):
     again = svc.edit(
         p,
         base_version=1,
-        verbatim_request="ignored",
+        verbatim_request="change it",
         artifact_id=created["artifact_id"],
         idempotency_key="ek",
     )

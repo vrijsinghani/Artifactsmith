@@ -12,6 +12,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Added
 
 - `AM_BIND_ADDRESS` (default `127.0.0.1`) configures the compose host publish bind for API and preview ports. README and operations cover LAN access, TLS reverse proxy, and remote MCP clients. CI runs a bind-address smoke against a non-loopback host IP.
+- Size caps on `verbatim_request`, `display_name`, history, idempotency keys, and model output. Idempotency keys are bound to operation plus request fingerprint; quota is checked in the admitting transaction.
+- Docker image ships `LICENSE`, `NOTICE`, and `licenses/`. CI Trivy scans the built image. Denylist covers all tracked files with a generic private-identifier pass.
 
 ### Changed
 
@@ -48,5 +50,4 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Compose publishes API and preview on `127.0.0.1` only.
 - The process does not send usage data anywhere.
 
-[Unreleased]: https://github.com/vrijsinghani/Artifactsmith/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/vrijsinghani/Artifactsmith/releases/tag/v0.1.0
+<!-- Tag compare links omitted until v0.1.0 is tagged. -->

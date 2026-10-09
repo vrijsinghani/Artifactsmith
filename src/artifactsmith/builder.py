@@ -388,9 +388,9 @@ async def run_build(
             log.warning("renderer bounded failure format=%s: %s", fmt, e)
             continue
         except Exception as e:  # noqa: BLE001
-            last_problems = [f"renderer error: {type(e).__name__}: {e}"]
+            last_problems = [f"renderer error: {type(e).__name__}"]
             notes.append(f"attempt {attempt}: {last_problems[0]}")
-            log.exception("renderer failed for format=%s", fmt)
+            log.exception("renderer failed for format=%s: %s", fmt, e)
             continue
         # Final remote-URL sweep on any textual files.
         for name, data in list(rendered.files.items()):

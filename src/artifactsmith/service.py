@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import time
@@ -19,12 +20,19 @@ from .db import DB, jloads
 from .renderers import EXTENSION, SUPPORTED_FORMATS
 from .store import Store
 
+log = logging.getLogger("artifactsmith.service")
+
 ALL_PERMS = {"create", "read", "edit", "export", "share", "delete"}
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 WS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 SOURCE_CAP_BYTES = 200 * 1024
+VERBATIM_CAP_CHARS = 32_000
+DISPLAY_NAME_CAP_CHARS = 200
+IDEMPOTENCY_KEY_CAP_CHARS = 128
+HISTORY_CAP_ENTRIES = 50
+HISTORY_CAP_CHARS = 64_000
 KINDS = {"web_static", "file"}
 
 
@@ -133,18 +141,56 @@ class Service:
         self.check_access(principal, a["workspace"])
         return a
 
-    def _idem_get(self, principal: dict[str, Any], key: str | None) -> dict[str, Any] | None:
-        if not key:
+    @staticmethod
+    def _bound_idem_key(op: str, key: str, fingerprint: str) -> str:
+        """Bind a client idempotency key to the operation and request fingerprint."""
+        digest = hashlib.sha256(f"{op}\0{key}\0{fingerprint}".encode()).hexdigest()
+        return f"{key[:IDEMPOTENCY_KEY_CAP_CHARS]}:{digest[:32]}"
+
+    @staticmethod
+    def _request_fingerprint(parts: dict[str, Any]) -> str:
+        blob = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(blob.encode()).hexdigest()
+
+    def _idem_get(self, principal: dict[str, Any], bound_key: str | None) -> dict[str, Any] | None:
+        if not bound_key:
             return None
-        r = self.db.one("SELECT result_json FROM idempotency WHERE client=? AND key=?", principal["id"], key)
+        r = self.db.one("SELECT result_json FROM idempotency WHERE client=? AND key=?", principal["id"], bound_key)
         return json.loads(r["result_json"]) if r else None
 
-    def _quota(self, principal: dict[str, Any]) -> None:
-        n = self.db.must("SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?", principal["id"], now() - 3600)[
-            "n"
-        ]
+    def _check_quota(self, c: Any, principal: dict[str, Any]) -> None:
+        n = c.execute(
+            "SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?",
+            (principal["id"], now() - 3600),
+        ).fetchone()["n"]
         if n >= CFG.builds_per_hour:
             raise AMError(f"quota: {CFG.builds_per_hour} builds/hour reached")
+
+    @staticmethod
+    def _validate_idempotency_key(key: str | None) -> str | None:
+        if key is None:
+            return None
+        if not isinstance(key, str) or not key.strip():
+            raise AMError("idempotency_key must be a non-empty string")
+        if len(key) > IDEMPOTENCY_KEY_CAP_CHARS:
+            raise AMError(f"idempotency_key exceeds {IDEMPOTENCY_KEY_CAP_CHARS} characters")
+        return key
+
+    @staticmethod
+    def _validate_verbatim(verbatim_request: str) -> str:
+        text = (verbatim_request or "").strip()
+        if not text:
+            raise AMError("verbatim_request is required")
+        if len(text) > VERBATIM_CAP_CHARS:
+            raise AMError(f"verbatim_request exceeds {VERBATIM_CAP_CHARS} characters")
+        return text
+
+    @staticmethod
+    def _validate_display_name(display_name: str, slug: str) -> str:
+        name = (display_name or slug or "").strip() or slug
+        if len(name) > DISPLAY_NAME_CAP_CHARS:
+            raise AMError(f"display_name exceeds {DISPLAY_NAME_CAP_CHARS} characters")
+        return name
 
     @staticmethod
     def _model(model: str | None) -> str:
@@ -197,9 +243,6 @@ class Service:
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "create")
-        prior = self._idem_get(principal, idempotency_key)
-        if prior:
-            return dict(prior, idempotent_replay=True)
         ws = workspace or principal["workspace"]
         if not WS_RE.match(ws or ""):
             raise AMError("invalid workspace name")
@@ -215,15 +258,34 @@ class Service:
         if not SLUG_RE.match(slug or ""):
             raise AMError("slug must be 2-63 chars of a-z, 0-9 and '-'")
         model = self._model(model)
-        if not (verbatim_request or "").strip():
-            raise AMError("verbatim_request is required")
+        verbatim_request = self._validate_verbatim(verbatim_request)
+        display_name = self._validate_display_name(display_name, slug)
+        idempotency_key = self._validate_idempotency_key(idempotency_key)
         caps = capabilities or {}
         if not isinstance(caps, dict):
             raise AMError("capabilities must be an object")
         if caps.get("web") or caps.get("connectors"):
             raise AMError("capabilities web/connectors are not available yet")
         bundle = self._source(source_content, source_files)
-        self._quota(principal)
+        fingerprint = self._request_fingerprint(
+            {
+                "op": "create",
+                "slug": slug,
+                "display_name": display_name,
+                "kind": kind,
+                "format": format,
+                "workspace": ws,
+                "model": model,
+                "verbatim_request": verbatim_request,
+                "source_content": source_content,
+                "source_files": source_files,
+                "capabilities": caps,
+            }
+        )
+        bound_key = self._bound_idem_key("create", idempotency_key, fingerprint) if idempotency_key else None
+        prior = self._idem_get(principal, bound_key)
+        if prior:
+            return dict(prior, idempotent_replay=True)
         aid, jid, t = rid("art_"), rid("job_"), now()
         prev = self.db.one("SELECT * FROM artifacts WHERE workspace=? AND slug=?", ws, slug)
         newv = 1
@@ -247,13 +309,21 @@ class Service:
             "source_bytes": bundle["bytes"] if bundle else 0,
         }
         with self.db.tx() as c:
+            self._check_quota(c, principal)
+            if bound_key:
+                existing = c.execute(
+                    "SELECT result_json FROM idempotency WHERE client=? AND key=?",
+                    (principal["id"], bound_key),
+                ).fetchone()
+                if existing:
+                    return dict(json.loads(existing["result_json"]), idempotent_replay=True)
             if prev:
                 row = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (aid,)).fetchone()
                 if row and row["deleting_at"]:
                     raise AMError("artifact is being deleted")
                 c.execute(
                     "UPDATE artifacts SET display_name=?, kind=?, format=?, updated_at=? WHERE id=?",
-                    (display_name or slug, kind, format, t, aid),
+                    (display_name, kind, format, t, aid),
                 )
             else:
                 if c.execute("SELECT 1 FROM artifacts WHERE workspace=? AND slug=?", (ws, slug)).fetchone():
@@ -261,7 +331,7 @@ class Service:
                 c.execute(
                     "INSERT INTO artifacts (id,workspace,slug,display_name,kind,format,created_by,created_at,updated_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (aid, ws, slug, display_name or slug, kind, format, principal["name"], t, t),
+                    (aid, ws, slug, display_name, kind, format, principal["name"], t, t),
                 )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
@@ -272,10 +342,10 @@ class Service:
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
                 (jid, aid, newv, principal["id"], "queued", t),
             )
-            if idempotency_key:
+            if bound_key:
                 c.execute(
                     "INSERT INTO idempotency VALUES (?,?,?,?)",
-                    (principal["id"], idempotency_key, json.dumps(result), t),
+                    (principal["id"], bound_key, json.dumps(result), t),
                 )
         self.audit(principal, "create", artifact_id=aid, slug=slug, kind=kind, model=model)
         self._enqueue(jid)
@@ -296,19 +366,40 @@ class Service:
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "edit")
-        prior = self._idem_get(principal, idempotency_key)
-        if prior:
-            return dict(prior, idempotent_replay=True)
         a = self.get_artifact(principal, artifact_id)
+        if workspace is not None and workspace != a["workspace"]:
+            raise AMError("workspace does not match artifact")
         if a.get("deleting_at"):
             raise AMError("artifact is being deleted")
-        if not (verbatim_request or "").strip():
-            raise AMError("verbatim_request is required")
+        verbatim_request = self._validate_verbatim(verbatim_request)
         model = self._model(model)
+        idempotency_key = self._validate_idempotency_key(idempotency_key)
         bundle = self._source(source_content, source_files)
-        self._quota(principal)
+        fingerprint = self._request_fingerprint(
+            {
+                "op": "edit",
+                "artifact_id": a["id"],
+                "base_version": int(base_version),
+                "model": model,
+                "verbatim_request": verbatim_request,
+                "source_content": source_content,
+                "source_files": source_files,
+            }
+        )
+        bound_key = self._bound_idem_key("edit", idempotency_key, fingerprint) if idempotency_key else None
+        prior = self._idem_get(principal, bound_key)
+        if prior:
+            return dict(prior, idempotent_replay=True)
         jid, t = rid("job_"), now()
         with self.db.tx() as c:
+            self._check_quota(c, principal)
+            if bound_key:
+                existing = c.execute(
+                    "SELECT result_json FROM idempotency WHERE client=? AND key=?",
+                    (principal["id"], bound_key),
+                ).fetchone()
+                if existing:
+                    return dict(json.loads(existing["result_json"]), idempotent_replay=True)
             art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
             if art and art["deleting_at"]:
                 raise AMError("artifact is being deleted")
@@ -354,18 +445,22 @@ class Service:
                 "model": model,
                 "status": "queued",
             }
-            if idempotency_key:
+            if bound_key:
                 c.execute(
                     "INSERT INTO idempotency VALUES (?,?,?,?)",
-                    (principal["id"], idempotency_key, json.dumps(result), t),
+                    (principal["id"], bound_key, json.dumps(result), t),
                 )
         self.audit(principal, "edit", artifact_id=a["id"], version=newv, base_version=base_version, model=model)
         self._enqueue(jid)
         return result
 
     # ---------------- worker ----------------
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Record the running loop so _enqueue works before workers start."""
+        self._loop = loop
+
     def start_workers(self) -> None:
-        self._loop = asyncio.get_running_loop()
+        self.bind_loop(asyncio.get_running_loop())
         for j in self.db.all("SELECT id FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"):
             self.db.exec("UPDATE jobs SET status='queued', progress='re-queued after restart' WHERE id=?", j["id"])
             self._enqueue(j["id"])
@@ -387,7 +482,8 @@ class Service:
             try:
                 await self._run_job(jid)
             except Exception as e:  # noqa: BLE001
-                self._fail(jid, f"internal error: {type(e).__name__}: {e}")
+                log.exception("worker failed job=%s", jid)
+                self._fail(jid, f"internal error: {type(e).__name__}")
             finally:
                 self.queue.task_done()
 
@@ -455,7 +551,8 @@ class Service:
                 "UPDATE jobs SET status='building', started_at=? WHERE id=? AND status='queued'",
                 (now(), jid),
             ).rowcount
-            if not claimed and j["status"] != "building":
+            # Another worker already claimed this job (or it left queued). Do not build twice.
+            if not claimed:
                 return
             c.execute(
                 "UPDATE versions SET status='building' WHERE artifact_id=? AND version=?", (a["id"], v["version"])
@@ -474,8 +571,12 @@ class Service:
             self._fail(jid, f"build timed out after {CFG.build_timeout_s}s")
         except builder.NeedsInput as e:
             self._needs_input(jid, str(e))
+        except AMError as e:
+            self._fail(jid, str(e))
         except Exception as e:  # noqa: BLE001
-            self._fail(jid, f"{type(e).__name__}: {e}")
+            log.exception("build failed job=%s", jid)
+            # Do not leak LLM/renderer/store internals to clients.
+            self._fail(jid, f"build failed: {type(e).__name__}")
 
     async def _execute_build(
         self,
@@ -494,14 +595,18 @@ class Service:
             key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
             data, _ = await asyncio.to_thread(self.store.get, key)
             base_source = data.decode("utf-8", errors="replace")
-        history = [
-            r["verbatim_request"]
-            for r in self.db.all(
-                "SELECT verbatim_request FROM versions WHERE artifact_id=? AND version<? AND status='done' ORDER BY version",
-                a["id"],
-                v["version"],
-            )
-        ]
+        history_rows = self.db.all(
+            "SELECT verbatim_request FROM versions WHERE artifact_id=? AND version<? AND status='done' "
+            "ORDER BY version DESC LIMIT ?",
+            a["id"],
+            v["version"],
+            HISTORY_CAP_ENTRIES,
+        )
+        history = list(reversed([r["verbatim_request"] for r in history_rows]))
+        hist_chars = sum(len(h) for h in history)
+        while history and hist_chars > HISTORY_CAP_CHARS:
+            hist_chars -= len(history.pop(0))
+
         source = None
         if v.get("source_key"):
             raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
@@ -960,7 +1065,13 @@ class Service:
             c.execute("UPDATE shares SET revoked_at=? WHERE artifact_id=? AND revoked_at IS NULL", (now(), a["id"]))
             for tbl in ("versions", "jobs", "shares", "delete_tokens", "short_links"):
                 c.execute(f"DELETE FROM {tbl} WHERE artifact_id=?", (a["id"],))
-            c.execute("DELETE FROM idempotency WHERE result_json LIKE ?", (f'%"{a["id"]}"%',))
+            for row in c.execute("SELECT client, key, result_json FROM idempotency").fetchall():
+                try:
+                    payload = json.loads(row["result_json"])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if isinstance(payload, dict) and payload.get("artifact_id") == a["id"]:
+                    c.execute("DELETE FROM idempotency WHERE client=? AND key=?", (row["client"], row["key"]))
             c.execute("DELETE FROM artifacts WHERE id=?", (a["id"],))
         self.audit(principal, "delete", artifact_id=a["id"], slug=a["slug"], purged_objects=purged)
         return {"deleted": True, "artifact_id": a["id"], "purged_object_versions": purged}

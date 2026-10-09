@@ -44,7 +44,7 @@ That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a
 
 `docs/` covers architecture, the threat model, operations, and formats.
 
-Keep new modules under about 300 lines. Add a renderer module instead of growing `builder.py`.
+Prefer focused modules. New renderers belong in `src/artifactsmith/renderers/`, not in `builder.py`. `service.py` is still a large single-process orchestration module; do not grow it further without extracting a coherent slice. The server is one process per data directory (SQLite single-writer).
 
 ## Pull requests
 

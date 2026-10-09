@@ -7,23 +7,28 @@ import time
 import pytest
 
 from artifactsmith.renderers.subprocess_render import (
+    RenderCrashed,
     RenderTimeout,
     RenderTooLarge,
     render_killable,
 )
 
 
-def _hang_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object) -> None:
+def _hang_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object, as_limit: int = 0) -> None:
     time.sleep(30)
 
 
-def _huge_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object) -> None:
+def _huge_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object, as_limit: int = 0) -> None:
     conn.send(("too_large", max_bytes + 1, max_bytes))  # type: ignore[attr-defined]
     conn.close()  # type: ignore[attr-defined]
 
 
-def _ok_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object) -> None:
+def _ok_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object, as_limit: int = 0) -> None:
     conn.send(("ok", {"index.html": b"<html></html>"}, "index.html"))  # type: ignore[attr-defined]
+    conn.close()  # type: ignore[attr-defined]
+
+
+def _crash_worker(fmt: str, title: str, body: str, max_bytes: int, conn: object, as_limit: int = 0) -> None:
     conn.close()  # type: ignore[attr-defined]
 
 
@@ -80,3 +85,16 @@ def test_real_html_render_via_subprocess():
         max_bytes=1024 * 1024,
     )
     assert b"HARBOR-17" in out.files["index.html"]
+
+
+def test_render_killable_maps_closed_pipe_to_crashed():
+    with pytest.raises(RenderCrashed):
+        render_killable(
+            fmt="html",
+            title="t",
+            body="x",
+            timeout_s=5,
+            max_bytes=1024,
+            mp_context="fork",
+            worker=_crash_worker,
+        )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from artifactsmith import store as store_mod
-from artifactsmith.store import Store, vdir
+from artifactsmith.store import Store, StoreError, vdir
 
 
 class _FakeBody:
@@ -30,6 +30,10 @@ class _FakeS3:
 
     def put_bucket_versioning(self, Bucket, VersioningConfiguration):
         self.versioning[Bucket] = VersioningConfiguration["Status"]
+
+    def get_bucket_versioning(self, Bucket):
+        status = self.versioning.get(Bucket)
+        return {"Status": status} if status else {}
 
     def put_object(self, Bucket, Key, Body, ContentType):
         self.objects[Key] = (Body, ContentType)
@@ -93,3 +97,17 @@ def test_ensure_put_get_purge(monkeypatch):
     assert "ws/a/v001/index.html" in fake.objects
     assert s.purge_prefix("ws/a/") == 2
     assert "ws/a/v001/index.html" not in fake.objects
+
+
+def test_ensure_bucket_requires_versioning(monkeypatch):
+    class _NoVersion(_FakeS3):
+        def put_bucket_versioning(self, Bucket, VersioningConfiguration):
+            raise RuntimeError("versioning unsupported")
+
+    fake = _NoVersion()
+    monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")
+    monkeypatch.setattr(store_mod.CFG, "store_credentials", lambda: ("ak", "sk"))
+    monkeypatch.setattr(store_mod.CFG, "store_bucket", "artifacts")
+    monkeypatch.setattr(store_mod.boto3, "client", lambda *a, **k: fake)
+    with pytest.raises(StoreError, match="versioning"):
+        Store().ensure_bucket()

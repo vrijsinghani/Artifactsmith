@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -102,6 +103,9 @@ def test_export_bytes_safe_without_csp():
 
 
 def _chrome() -> str | None:
+    env = os.environ.get("CHROME_BIN") or os.environ.get("CHROMIUM_BIN")
+    if env and Path(env).is_file():
+        return env
     for name in ("google-chrome", "chromium", "chromium-browser", "chrome"):
         path = subprocess.run(["which", name], capture_output=True, text=True, check=False)
         if path.returncode == 0 and path.stdout.strip():

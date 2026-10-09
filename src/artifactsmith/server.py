@@ -356,6 +356,8 @@ async def main() -> None:
     svc = Service()
     SVC = svc
     svc.store.ensure_bucket()
+    # Bind the loop before accepting connections so early MCP enqueues are thread-safe.
+    svc.bind_loop(asyncio.get_running_loop())
     api_app = BearerAuth(mcp.streamable_http_app())
     api = uvicorn.Server(
         uvicorn.Config(

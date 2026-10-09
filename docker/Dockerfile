@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
+COPY LICENSE NOTICE ./
+COPY licenses ./licenses
 RUN pip install --no-cache-dir . \
     && useradd -u 10001 -m asm \
     && mkdir -p /data /secrets \

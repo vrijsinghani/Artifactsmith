@@ -102,7 +102,7 @@ Header: Authorization: Bearer am_…
 
 Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link.
 
-The server makes one model call against any OpenAI-compatible endpoint. The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. Call `status` (or `wait` up to 90 seconds) to get a private preview.
+The server calls an OpenAI-compatible endpoint (up to two attempts when checks fail). The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. Call `status` (or `wait` up to 90 seconds) to get a private preview.
 
 `share` creates a public link for one exact version. `unshare` makes that link return 404. Tokens belong to one workspace and carry a permission set.
 
@@ -134,6 +134,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | `export` | `export` | Download link for the rendered file, valid 15 minutes. |
 | `share` | `share` | Public link for one exact version. |
 | `unshare` | `share` | Revoke the public link immediately. |
+| `revoke_previews` | `export` | Expire private `/p/` preview links for an artifact (optional version). |
 | `delete` | `delete` | Two-step purge. First call returns a confirm token. |
 
 `create` fields:
@@ -229,4 +230,4 @@ python -m tests.e2e.test_bind_address   # AM_BIND_ADDRESS=0.0.0.0 via non-loopba
 
 ## License
 
-MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). Copies live in `NOTICE` and `licenses/`.
+MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). Attribution is in `NOTICE`; third-party license texts are under `licenses/`. The Docker image ships those files at `/app`.

@@ -3,13 +3,31 @@ that the builder parses; this module never executes model output."""
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from .config import CFG
 
+log = logging.getLogger("artifactsmith.llm")
+
+# Cap model text so a runaway response cannot exhaust memory before the builder runs.
+LLM_RESPONSE_CAP_CHARS = 500_000
+
 
 class LLMError(RuntimeError):
     pass
+
+
+def _scrub_http_error(status: int, body: str) -> LLMError:
+    log.warning("LLM HTTP %s body_prefix=%r", status, body[:200])
+    return LLMError(f"LLM HTTP {status}")
+
+
+def _truncate(text: str) -> str:
+    if len(text) > LLM_RESPONSE_CAP_CHARS:
+        raise LLMError(f"model output exceeds {LLM_RESPONSE_CAP_CHARS} characters")
+    return text
 
 
 async def call_chat(model: str, system: str, user: str, timeout: float = 300) -> str:
@@ -26,15 +44,16 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300) ->
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         r = await client.post(url, json=payload, headers=headers)
     if r.status_code != 200:
-        raise LLMError(f"LLM HTTP {r.status_code}: {r.text[:400]}")
+        raise _scrub_http_error(r.status_code, r.text)
     data = r.json()
     try:
         text = data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
-        raise LLMError(f"unexpected chat-completions response: {str(data)[:400]}") from e
+        log.warning("unexpected chat-completions shape: %s", type(data).__name__)
+        raise LLMError("unexpected chat-completions response") from e
     if not text.strip():
         raise LLMError("empty model output")
-    return text
+    return _truncate(text)
 
 
 async def call_responses(model: str, system: str, user: str, timeout: float = 300) -> str:
@@ -50,7 +69,7 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         r = await client.post(url, json=payload, headers=headers)
     if r.status_code != 200:
-        raise LLMError(f"LLM HTTP {r.status_code}: {r.text[:400]}")
+        raise _scrub_http_error(r.status_code, r.text)
     data = r.json()
     text = "".join(
         c.get("text", "")
@@ -60,7 +79,7 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
     )
     if not text.strip():
         raise LLMError("empty model output")
-    return text
+    return _truncate(text)
 
 
 async def call(model: str, system: str, user: str, timeout: float = 300) -> str:

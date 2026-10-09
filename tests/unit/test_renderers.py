@@ -51,10 +51,10 @@ def test_pdf_magic_and_source():
 
 
 def test_pdf_url_fetcher_denies_all():
-    from artifactsmith.renderers.pdf import _deny_all_url_fetcher
+    from artifactsmith.renderers.pdf import DenyAllURLFetcher
 
     try:
-        _deny_all_url_fetcher("https://example.com/x.png")
+        DenyAllURLFetcher().fetch("https://example.com/x.png")
         raise AssertionError("expected deny-all fetcher to raise")
     except ValueError as e:
         assert "denied" in str(e).lower()

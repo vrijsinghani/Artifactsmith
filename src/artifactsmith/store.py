@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import logging
+
 import boto3
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from .config import CFG
+
+log = logging.getLogger("artifactsmith.store")
 
 
 def vdir(version: int) -> str:
     return f"v{version:03d}"
+
+
+class StoreError(RuntimeError):
+    """Object-store configuration or capability failure."""
 
 
 class Store:
@@ -39,17 +48,38 @@ class Store:
         return p + (vdir(version) + "/" if version is not None else "")
 
     def ensure_bucket(self) -> bool:
-        """Create the bucket and enable versioning. Returns True if newly created."""
+        """Create the bucket and enable versioning. Returns True if newly created.
+
+        Versioning is required. Failures enabling it raise StoreError.
+        """
+        created = False
         try:
             self.s3.head_bucket(Bucket=self.bucket)
-            created = False
-        except Exception:
-            self.s3.create_bucket(Bucket=self.bucket)
-            created = True
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchBucket", "NotFound", "403", "400"):
+                self.s3.create_bucket(Bucket=self.bucket)
+                created = True
+            else:
+                raise StoreError(f"head_bucket failed: {code or type(e).__name__}") from e
+        except Exception as e:  # noqa: BLE001 — boto can raise ConnectionError etc.
+            # Missing bucket often surfaces as a generic exception against local stores.
+            try:
+                self.s3.create_bucket(Bucket=self.bucket)
+                created = True
+            except Exception as create_err:  # noqa: BLE001
+                raise StoreError(f"object store bucket unavailable: {type(e).__name__}") from create_err
         try:
             self.s3.put_bucket_versioning(Bucket=self.bucket, VersioningConfiguration={"Status": "Enabled"})
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            raise StoreError(f"failed to enable bucket versioning: {type(e).__name__}: {e}") from e
+        # Verify versioning actually stuck.
+        try:
+            status = self.s3.get_bucket_versioning(Bucket=self.bucket).get("Status")
+        except Exception as e:  # noqa: BLE001
+            raise StoreError(f"could not verify bucket versioning: {type(e).__name__}") from e
+        if status != "Enabled":
+            raise StoreError(f"bucket versioning is {status!r}, expected 'Enabled'")
         return created
 
     def put(self, key: str, data: bytes, content_type: str) -> str:

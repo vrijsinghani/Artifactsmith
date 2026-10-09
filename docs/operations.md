@@ -79,9 +79,9 @@ Header: Authorization: Bearer <token from artifactsmith token add>
 
 Copy these together:
 
-1. SQLite at `AM_DATA_DIR/state.sqlite`, plus `-wal` and `-shm` if they exist. Stop writers, or use `sqlite3 .backup`, so the copy is consistent.
+1. SQLite at `AM_DATA_DIR/state.sqlite`, plus `-wal` and `-shm` if they exist. Stop writers, or use `sqlite3 .backup`, so the copy is consistent. Preview (`/p/`) and share (`/s/`) ids live here.
 2. The `AM_STORE_BUCKET` contents, including object versions.
-3. `AM_SECRETS_DIR/signing.key`. Losing the key invalidates outstanding preview and download links. Share links use stored ids and keep working.
+3. `AM_SECRETS_DIR/signing.key`. Losing the key invalidates outstanding `/dl/` download links only. Preview and share links use stored ids and keep working until expiry, `revoke_previews`, or `unshare`.
 
 To restore: stop the server, replace the data dir and secrets, restore the bucket, start the server. Done versions are not rebuilt.
 
@@ -118,4 +118,4 @@ Audit lines append to `AM_DATA_DIR/audit.jsonl` with actor, action, and artifact
 
 ## Capacity
 
-`AM_MAX_BUILDS` is in-process concurrency. Run one server per machine (SQLite is single-writer), or move metadata to an external store, which this release does not include. `AM_BUILDS_PER_HOUR` is per token.
+`AM_MAX_BUILDS` is in-process concurrency. This release is single-process: one server per data directory (SQLite is single-writer). Do not run multiple server containers against the same SQLite file or secrets volume. Moving metadata to an external store is out of scope here. `AM_BUILDS_PER_HOUR` is per token.
