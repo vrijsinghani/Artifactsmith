@@ -239,6 +239,9 @@ def test_css_comment_with_angle_brackets_does_not_wipe_stylesheet():
     out = sanitize_css("/* <header> */ body{color:red}")
     assert "color:red" in _compact(out)
     assert "header" not in out.lower()
+    out = sanitize_css("/* </header> */ body{color:red}")
+    assert "color:red" in _compact(out)
+    assert "</" not in out
 
 
 def test_media_range_comparisons_are_kept():
@@ -254,19 +257,65 @@ def test_deeply_nested_media_returns_without_raising():
     assert sanitize_css(css) is not None
 
 
-def test_content_string_kept_attr_and_counter_dropped():
+def test_content_string_and_counters_kept_attr_dropped():
     out = sanitize_css('p{content:"•";color:red}')
     compact = _compact(out)
     assert "content:" in compact
     assert "color:red" in compact
+    out = sanitize_css("p{content:counter(section);color:red}")
+    compact = _compact(out)
+    assert "content:counter(section)" in compact
+    out = sanitize_css('p{content:counters(item,".");color:red}')
+    compact = _compact(out)
+    assert "content:counters(item" in compact
     out = sanitize_css("p{content:attr(href);color:red}")
     compact = _compact(out)
     assert "content" not in compact
     assert "color:red" in compact
-    out = sanitize_css("p{content:counter(section);color:red}")
+
+
+def test_grid_slash_values_and_font_shorthand_survive():
+    out = sanitize_css(".x{grid-area:1 / 2 / 3 / 4;color:red}")
     compact = _compact(out)
-    assert "content" not in compact
+    assert "grid-area:1/2/3/4" in compact
     assert "color:red" in compact
+    out = sanitize_css(".x{grid-row:1 / 3;color:red}")
+    compact = _compact(out)
+    assert "grid-row:1/3" in compact
+    out = sanitize_css("p{font:1rem/1.55 var(--sans);color:red}")
+    compact = _compact(out)
+    assert "font:1rem/1.55var(--sans)" in compact
+
+
+def test_malformed_url_token_drops_only_that_declaration():
+    out = sanitize_css(":root{--ink:#111} p{color:red} q{background:url(a b)}")
+    compact = _compact(out)
+    assert "--ink:#111" in compact
+    assert "p{color:red" in compact
+    assert "url(" not in out.lower()
+    assert "background" not in compact
+
+
+def test_added_builder_style_properties_kept():
+    css = (
+        "p{break-before:avoid;break-after:auto;pointer-events:none;"
+        "print-color-adjust:exact;-webkit-print-color-adjust:exact;"
+        "backdrop-filter:blur(4px);border-block:1px solid red;"
+        "color-scheme:light;resize:both;color:red}"
+    )
+    compact = _compact(sanitize_css(css))
+    for name in (
+        "break-before:avoid",
+        "break-after:auto",
+        "pointer-events:none",
+        "print-color-adjust:exact",
+        "-webkit-print-color-adjust:exact",
+        "backdrop-filter:blur(4px)",
+        "border-block:1pxsolidred",
+        "color-scheme:light",
+        "resize:both",
+    ):
+        assert name in compact, (name, compact)
 
 
 def test_background_image_none_and_var_kept():
@@ -312,6 +361,8 @@ _INLINE_FETCH_CASES: tuple[str, ...] = (
     "background:u/**/rl(https://track.example.net/cmt.png)",
     "background:url/**/(https://track.example.net/cmt2.png)",
     r"background:url\20(https://track.example.net/sp.png)",
+    "filter:url(https://track.example.net/f.svg)",
+    "background:&#x75;rl(https://track.example.net/hex.png)",
 )
 
 
@@ -331,8 +382,8 @@ def test_inline_style_url_and_image_set_dropped_per_declaration():
         assert "color:" in low and "height:" in low, (decl, out)
 
 
-def test_inline_style_f2_obfuscations_dropped():
-    """Every F2 fetch obfuscation from the adversarial probe."""
+def test_sanitize_inline_style_drops_obfuscated_fetches():
+    """Entity, escape, case, comment-split, and var-fallback url() forms are removed."""
     for decl in _INLINE_FETCH_CASES:
         cleaned = sanitize_inline_style(decl + ";color:#111;height:40px")
         low = cleaned.lower()

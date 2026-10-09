@@ -25,9 +25,10 @@ _STYLE_PROPS: set[str] = set(
     border-left-width border-radius border-right border-right-color border-right-style
     border-right-width border-spacing border-style border-top border-top-color
     border-top-left-radius border-top-right-radius border-top-style border-top-width
-    border-width bottom box-shadow box-sizing break-inside caption-side color
+    border-width border-block bottom box-shadow box-sizing break-after break-before
+    break-inside caption-side color color-scheme
     column-count column-gap columns content counter-increment counter-reset cursor
-    display filter flex flex-basis flex-direction flex-flow flex-grow flex-shrink
+    display filter backdrop-filter flex flex-basis flex-direction flex-flow flex-grow flex-shrink
     flex-wrap font font-family font-feature-settings font-size font-style font-variant
     font-variant-numeric font-weight gap grid-area grid-auto-flow grid-column grid-row
     grid-template-areas grid-template-columns grid-template-rows height hyphens inset
@@ -37,7 +38,8 @@ _STYLE_PROPS: set[str] = set(
     min-height min-width object-fit object-position opacity order outline outline-offset
     overflow overflow-wrap overflow-x overflow-y padding padding-block padding-bottom
     padding-inline padding-left padding-right padding-top page-break-inside place-content
-    place-items place-self position right row-gap scroll-behavior scroll-margin-top
+    place-items place-self pointer-events position print-color-adjust
+    -webkit-print-color-adjust resize right row-gap scroll-behavior scroll-margin-top
     table-layout text-align text-decoration text-decoration-color
     text-decoration-thickness text-indent text-overflow text-shadow text-transform
     text-underline-offset text-wrap top transform transition vertical-align visibility
@@ -95,6 +97,9 @@ def _flat_css_text(tokens: list[object]) -> str:
             continue
         if isinstance(tok, (css_ast.IdentToken, css_ast.LiteralToken, css_ast.StringToken, css_ast.HashToken)):
             parts.append(getattr(tok, "value", "") or "")
+        elif isinstance(tok, (css_ast.NumberToken, css_ast.PercentageToken, css_ast.DimensionToken)):
+            # Keep a separator so ``1 / 2 / 3 / 4`` cannot collapse into ``//``.
+            parts.append(" " + (getattr(tok, "representation", None) or str(getattr(tok, "value", ""))) + " ")
         elif isinstance(tok, css_ast.URLToken):
             parts.append("url(")
         elif isinstance(tok, css_ast.FunctionBlock):
@@ -118,7 +123,7 @@ def _flat_css_text(tokens: list[object]) -> str:
 
 def _flat_text_safe(tokens: list[object]) -> bool:
     blob = re.sub(r"\s+", "", _flat_css_text(tokens)).lower().replace("\\", "")
-    if "://" in blob or blob.startswith("//"):
+    if "://" in blob:
         return False
     return not _has_fetch_leak(blob)
 
@@ -153,6 +158,8 @@ def _var_args_safe(arguments: list[object]) -> bool:
 def _tokens_safe(tokens: list[object]) -> bool:
     """False if any token can fetch remote content or break out of a style element."""
     for tok in tokens:
+        if isinstance(tok, css_ast.ParseError):
+            return False
         if isinstance(tok, css_ast.URLToken):
             return False
         if isinstance(tok, css_ast.FunctionBlock):
@@ -201,7 +208,7 @@ def _background_image_ok(tokens: list[object]) -> bool:
                 saw_layer = True
                 continue
             if isinstance(tok, css_ast.FunctionBlock):
-                name = (tok.lower_name or "").lower()
+                name = _function_name(tok)
                 if name == "var" or name in _GRADIENT_FUNCTIONS:
                     expecting_layer = False
                     saw_layer = True
@@ -215,12 +222,15 @@ def _background_image_ok(tokens: list[object]) -> bool:
 
 
 def _content_ok(tokens: list[object]) -> bool:
-    """content: strings only (no url/attr/counters)."""
+    """content: strings and counter()/counters(); no url/attr."""
     for tok in tokens:
         if isinstance(tok, css_ast.WhitespaceToken):
             continue
         if isinstance(tok, css_ast.StringToken):
             continue
+        if isinstance(tok, css_ast.FunctionBlock) and _function_name(tok) in {"counter", "counters"}:
+            if _tokens_safe(list(tok.arguments)):
+                continue
         return False
     return True
 
@@ -321,7 +331,7 @@ def sanitize_inline_style(value: str) -> str:
     if not value:
         return ""
     text = unescape(value)
-    if _has_breakout(text):
+    if _has_breakout(re.sub(r"/\*.*?\*/", "", text, flags=re.S)):
         return ""
     try:
         decls = tinycss2.parse_declaration_list(text, skip_comments=True, skip_whitespace=True)
@@ -348,7 +358,8 @@ def sanitize_css(css: str) -> str:
     """
     if not css:
         return ""
-    if _has_breakout(css):
+    # Comments are skipped by the parser; only leftover ``</`` / ``<!`` fail closed.
+    if _has_breakout(re.sub(r"/\*.*?\*/", "", css, flags=re.S)):
         return ""
     try:
         rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
