@@ -1,4 +1,4 @@
-"""Self-hosted MCP server that lets AI agents make real documents."""
+"""ArtifactSmith is an open source artifact server for AI agents."""
 
 from __future__ import annotations
 

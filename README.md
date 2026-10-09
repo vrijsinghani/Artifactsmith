@@ -1,6 +1,12 @@
 # ArtifactSmith
 
-ArtifactSmith lets your AI agents make real documents. Ask your agent for a report, a plan or a one-page summary, and ArtifactSmith turns it into a finished web page, PDF, Word doc, Excel sheet or Markdown file. You get a private preview first. When you're happy with it, you share a link, and you can turn that link off any time. It runs on your own server and works with any agent that supports MCP, the standard way agents connect to tools.
+ArtifactSmith is an open source artifact server for AI agents.
+
+Agents call it to turn their work into documents: web pages, PDFs, Word files, spreadsheets and Markdown. Each artifact is versioned and stays private until someone shares it, and a shared link can be revoked at any time.
+
+It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
+
+![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
 ## Quickstart
 
@@ -28,11 +34,11 @@ docker compose up -d --build
 
 ## How it works
 
-Your agent talks to ArtifactSmith over MCP. It passes the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish anything.
+Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link.
 
-The server makes one model call against any OpenAI-compatible endpoint. The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. You poll `status` (or `wait` up to 90 seconds) for a private preview.
+The server makes one model call against any OpenAI-compatible endpoint. The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. Call `status` (or `wait` up to 90 seconds) to get a private preview.
 
-`share` mints a public link for one exact version. `unshare` makes that link return 404. Tokens belong to one workspace and carry a permission set.
+`share` creates a public link for one exact version. `unshare` makes that link return 404. Tokens belong to one workspace and carry a permission set.
 
 The server strips scripts and remote URLs, rejects private-link hosts and likely secrets, and enforces size limits. The process does not send usage data anywhere.
 
@@ -104,11 +110,11 @@ Copy `.env.example` for a local file. Compose publishes ports on `127.0.0.1` onl
 
 ## Security
 
-You issue tokens per workspace. They are stored as SHA-256 hashes. Knowing an artifact id does not grant access.
+Tokens are issued per workspace and stored as SHA-256 hashes. Knowing an artifact id does not grant access.
 
 Permissions are `create`, `read`, `edit`, `export`, `share`, and `delete`.
 
-Builds stay private until you call `share`. That mints a public `/s/…` URL. `unshare` makes it return 404.
+Builds stay private until you call `share`. That creates a public `/s/…` URL. `unshare` makes it return 404.
 
 Preview runs on its own port, sends no cookies, and sets CSP `script-src 'none'`.
 

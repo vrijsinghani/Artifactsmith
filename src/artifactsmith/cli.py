@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="artifactsmith",
-        description="Self-hosted MCP server that lets AI agents make real documents.",
+        description="ArtifactSmith is an open source artifact server for AI agents.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 

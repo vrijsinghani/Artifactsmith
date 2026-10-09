@@ -1,7 +1,7 @@
 [project]
 name = "artifactsmith"
 version = "0.1.0"
-description = "A self-hosted MCP server that lets AI agents make real documents: web pages, PDFs, Word docs, Excel sheets, and Markdown, with private previews and share links you can turn off."
+description = "ArtifactSmith is an open source artifact server for AI agents."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
