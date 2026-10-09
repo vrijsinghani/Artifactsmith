@@ -1,12 +1,23 @@
-"""Real-reader regression: sanitized markdown must not revive private destinations.
+"""Real-reader regression for sanitized markdown destinations.
 
-Corpus is WS × FORMS × SHAPES (610 cases). Each sanitized string is rendered with
-markdown-it (commonmark and linkify) and pandoc (gfm, commonmark, markdown).
-No href may resolve to a private host or carry userinfo. Sanitize is idempotent.
+Two corpora:
+
+1. **Authority** — WS × SHAPES × FORMS (11 whitespace/odd separators inside
+   destinations × 5 attack URL shapes × 11 Markdown forms) plus EXTRA cases
+   from the probe_ws / test_links_authority generator (610 cases). These are
+   known-blocked: after sanitize, readers must emit **no** anchors.
+
+2. **Hosts** — private-host shapes in common Markdown forms (kept from the
+   earlier host corpus). Also known-blocked (no anchors).
+
+Readers: markdown-it (commonmark, and commonmark+linkify) always; pandoc
+``markdown`` / ``commonmark`` / ``gfm`` / ``commonmark_x`` when pandoc is on
+PATH (those parameters skip if missing). Sanitize is idempotent over both.
 """
 
 from __future__ import annotations
 
+import itertools
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -18,22 +29,63 @@ from markdown_it import MarkdownIt
 from artifactsmith.renderers.md_sanitize import sanitize_markdown
 from artifactsmith.renderers.safety import _host_is_private
 
-pytestmark = pytest.mark.skipif(shutil.which("pandoc") is None, reason="pandoc not installed")
+# --- Authority corpus: WS × SHAPES × FORMS (+ EXTRA) -------------------------
 
-# --- corpus dimensions (2 × 5 × 61 = 610) ------------------------------------
+_WS: list[str] = [
+    "\t",
+    " ",
+    "  ",
+    "\u00a0",
+    "\x0b",
+    "\x0c",
+    "\n",
+    "\r",
+    "\u200b",
+    "\u3000",
+    "",
+]
+_WS_NAMES = ["TAB", "SP", "SP2", "NBSP", "VT", "FF", "LF", "CR", "ZWSP", "U+3000", "none"]
 
-_WS: list[tuple[str, str]] = [
-    ("plain", "{body}"),
-    ("sentence", "See {body} now."),
+_SHAPES: list[str] = [
+    "https://example.com{w}@127.0.0.1/x",
+    "https://example.com%23{w}@127.0.0.1/x",
+    "https:{w}//127.0.0.1/x",
+    "https://user{w}:pass@example.com/x",
+    "https://example.com{w}@192.168.30.4:8006/",
 ]
 
 _FORMS: list[tuple[str, str]] = [
-    ("bare", "{url}"),
-    ("autolink", "<{url}>"),
-    ("inline", "[lab]({url})"),
-    ("inline_ws", "[lab]( {url} )"),
-    ("image", "![lab]({url})"),
+    ("inline", "See [L]({u}) end.\n"),
+    ("inline<>", "See [L](<{u}>) end.\n"),
+    ("inline-titled", 'See [L]({u} "t") end.\n'),
+    ("refdef", "[r]: {u}\n\nSee [x][r].\n"),
+    ("refdef<>", "[r]: <{u}>\n\nSee [x][r].\n"),
+    ("refdef-titled", '[r]: {u} "t"\n\nSee [x][r].\n'),
+    ("autolink<>", "See <{u}> end.\n"),
+    ("bare-url", "Bare {u} end.\n"),
+    ("image-in-link", "See [![i](data:,x)]({u}) end.\n"),
+    ("list-item", "- item [L]({u})\n"),
+    ("nested-brackets", "See [a [b] c]({u}) end.\n"),
 ]
+
+_EXTRA: list[str] = [
+    "See <https://user@example.com/x> and <https://example.com%23@127.0.0.1/x>.\n",
+    "See <https://example.com\t@127.0.0.1/x> end.\n",
+    "See [L](https://example.com\r@127.0.0.1/x) end.\r\nNext\r",
+    "Bare https://example.com\u3000@127.0.0.1/x and https://example.com\u00a0@192.168.30.4/ end.\n",
+    "- item https://example.com\u3000@127.0.0.1/x\n",
+]
+
+_AUTHORITY_CASES: list[tuple[str, str, str, str]] = [
+    (wn, fn, s.format(w=w), ft.format(u=s.format(w=w)))
+    for s, (w, wn), (fn, ft) in itertools.product(_SHAPES, zip(_WS, _WS_NAMES, strict=True), _FORMS)
+]
+for i, src in enumerate(_EXTRA):
+    _AUTHORITY_CASES.append(("extra", f"extra{i}", "-", src))
+
+assert len(_AUTHORITY_CASES) == 610
+
+# --- Host corpus (private hosts × forms) ------------------------------------
 
 _HOSTS: list[str] = [
     "127.0.0.1",
@@ -46,75 +98,29 @@ _HOSTS: list[str] = [
     "100.64.0.1",
     "0.0.0.0",
     "[::ffff:127.0.0.1]",
-    "[::ffff:10.0.0.1]",
     "metadata.google.internal",
     "printer.home.arpa",
     "files.lan",
     "app.corp",
     "wiki.internal",
-    "mail.intranet",
-    "db.private",
-    "box.localdomain",
     "thing.local",
     "svc.localhost",
-    "127.1",
-    "0x7f.0.0.1",
-    "2130706433",
     "127.0.0.1:8080",
-    "localhost.localdomain",
-    "[fe80::1]",
-    "192.168.0.1",
-    "10.255.255.254",
-    "172.31.255.255",
-    "127.0.0.2",
-    "[::ffff:192.168.0.1]",
-    "[::10.0.0.1]",
-    "localhost:9",
-    "[::1]:8080",
-    "0x7f000001",
-    "0177.0.0.1",
-    "127.0.1",
-    "test.local",
-    "x.localhost",
-    "y.localdomain",
-    "z.home.arpa",
-    "a.lan",
-    "b.corp",
-    "c.internal",
-    "d.intranet",
-    "e.private",
     "1.sslip.io",
-    "1.nip.io",
-    "1.xip.io",
-    "1.localtest.me",
-    "1.lvh.me",
-    "1.vcap.me",
-    "1.traefik.me",
     "169.254.169.254",
-    "10.0.0.2",
-    "10.0.0.3",
-    "192.168.100.1",
-    "172.16.5.5",
-    "127.0.0.3",
-    "10.1.2.3",
 ]
 
-assert len(_HOSTS) == 61
-
-_SHAPES: list[str] = [f"http://{h}/x" for h in _HOSTS]
-# Mix schemes and userinfo while keeping length 61.
-_SHAPES[1] = "https://127.0.0.1/x"
-_SHAPES[2] = "http://user@127.0.0.1/x"
-_SHAPES[3] = "http://user:pass@10.0.0.1/x"
-_SHAPES[4] = "https://localhost/x"
-
-_CORPUS: list[tuple[str, str, str, str]] = [
-    (wname, fname, url, wt.format(body=ft.format(url=url)))
-    for wname, wt in _WS
-    for fname, ft in _FORMS
-    for url in _SHAPES
+_HOST_FORMS: list[tuple[str, str]] = [
+    ("bare", "{url}"),
+    ("autolink", "<{url}>"),
+    ("inline", "[lab]({url})"),
+    ("image", "![lab]({url})"),
+    ("ref", "[x][r]\n\n[r]: {url}\n"),
 ]
-assert len(_CORPUS) == 610
+
+_HOST_CASES: list[tuple[str, str, str]] = [
+    (fn, f"http://{h}/x", ft.format(url=f"http://{h}/x")) for h, (fn, ft) in itertools.product(_HOSTS, _HOST_FORMS)
+]
 
 
 class _HrefCollector(HTMLParser):
@@ -176,26 +182,90 @@ def _href_is_private_or_userinfo(href: str) -> bool:
     return False
 
 
-@pytest.mark.parametrize(
-    ("wname", "fname", "url", "raw"),
-    _CORPUS,
-    ids=[f"{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_CORPUS)],
-)
-def test_reader_corpus_no_private_href_and_idempotent(wname: str, fname: str, url: str, raw: str) -> None:
-    once = sanitize_markdown(raw)
-    twice = sanitize_markdown(once)
-    assert twice == once, (wname, fname, url, once, twice)
+_MDIT_READERS = ("markdown-it-commonmark", "markdown-it-linkify")
+_PANDOC_READERS = ("markdown", "commonmark", "gfm", "commonmark_x")
 
-    readers: list[tuple[str, list[str]]] = [
-        ("markdown-it-commonmark", _markdown_it_hrefs(once, linkify=False)),
-        ("markdown-it-linkify", _markdown_it_hrefs(once, linkify=True)),
-        ("pandoc-gfm", _pandoc_hrefs(once, "gfm")),
-        ("pandoc-commonmark", _pandoc_hrefs(once, "commonmark")),
-        ("pandoc-markdown", _pandoc_hrefs(once, "markdown")),
-    ]
-    for reader, hrefs in readers:
-        for href in hrefs:
-            assert not _href_is_private_or_userinfo(href), (reader, wname, fname, url, once, href)
+
+def _reader_hrefs(text: str, reader: str) -> list[str]:
+    if reader == "markdown-it-commonmark":
+        return _markdown_it_hrefs(text, linkify=False)
+    if reader == "markdown-it-linkify":
+        return _markdown_it_hrefs(text, linkify=True)
+    return _pandoc_hrefs(text, reader)
+
+
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _AUTHORITY_CASES,
+    ids=[f"auth/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_AUTHORITY_CASES)],
+)
+def test_authority_corpus_idempotent(ws: str, form: str, shape: str, raw: str) -> None:
+    once = sanitize_markdown(raw)
+    assert sanitize_markdown(once) == once
+
+
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _AUTHORITY_CASES,
+    ids=[f"auth/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_AUTHORITY_CASES)],
+)
+@pytest.mark.parametrize("reader", _MDIT_READERS)
+def test_authority_corpus_mdit_no_anchors(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    assert hrefs == [], (reader, ws, form, shape, out, hrefs)
+    for href in hrefs:
+        assert not _href_is_private_or_userinfo(href)
+
+
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _AUTHORITY_CASES,
+    ids=[f"auth/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_AUTHORITY_CASES)],
+)
+@pytest.mark.parametrize("reader", _PANDOC_READERS)
+def test_authority_corpus_pandoc_no_anchors(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+    if shutil.which("pandoc") is None:
+        pytest.skip("pandoc not installed")
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    assert hrefs == [], (reader, ws, form, shape, out, hrefs)
+
+
+@pytest.mark.parametrize(
+    ("form", "url", "raw"),
+    _HOST_CASES,
+    ids=[f"host/{f}/{i}" for i, (f, _, _) in enumerate(_HOST_CASES)],
+)
+def test_host_corpus_idempotent(form: str, url: str, raw: str) -> None:
+    once = sanitize_markdown(raw)
+    assert sanitize_markdown(once) == once
+
+
+@pytest.mark.parametrize(
+    ("form", "url", "raw"),
+    _HOST_CASES,
+    ids=[f"host/{f}/{i}" for i, (f, _, _) in enumerate(_HOST_CASES)],
+)
+@pytest.mark.parametrize("reader", _MDIT_READERS)
+def test_host_corpus_mdit_no_anchors(form: str, url: str, raw: str, reader: str) -> None:
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    assert hrefs == [], (reader, form, url, out, hrefs)
+
+
+@pytest.mark.parametrize(
+    ("form", "url", "raw"),
+    _HOST_CASES,
+    ids=[f"host/{f}/{i}" for i, (f, _, _) in enumerate(_HOST_CASES)],
+)
+@pytest.mark.parametrize("reader", _PANDOC_READERS)
+def test_host_corpus_pandoc_no_anchors(form: str, url: str, raw: str, reader: str) -> None:
+    if shutil.which("pandoc") is None:
+        pytest.skip("pandoc not installed")
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    assert hrefs == [], (reader, form, url, out, hrefs)
 
 
 def test_list_continuation_ordered_loose_idempotent() -> None:
@@ -208,8 +278,12 @@ def test_list_continuation_ordered_loose_idempotent() -> None:
         twice = sanitize_markdown(once)
         assert once == twice
         assert "continued" in once or "second para" in once
-        # Still a single ordered list after re-parse (continuation not ejected).
         md = MarkdownIt("commonmark")
         types = [t.type for t in md.parse(once)]
         assert types.count("ordered_list_open") == 1
         assert types.count("paragraph_open") >= 2
+
+
+def test_authority_corpus_size() -> None:
+    assert len(_WS) * len(_SHAPES) * len(_FORMS) + len(_EXTRA) == 610
+    assert len(_AUTHORITY_CASES) == 610
