@@ -99,11 +99,18 @@ def parse_blocks(text: str) -> list[Block]:
     return blocks
 
 
-def _esc(s: str) -> str:
+def _esc_text(s: str) -> str:
     from html import escape, unescape
 
     # Unescape first so labels are not double-escaped when entities were already present.
     return escape(unescape(s), quote=True)
+
+
+def _esc_href(s: str) -> str:
+    """Escape a URL for an HTML attribute. Never entity-decode (``&section=`` stays)."""
+    from html import escape
+
+    return escape(s, quote=True)
 
 
 def _inline_html(text: str) -> str:
@@ -111,9 +118,9 @@ def _inline_html(text: str) -> str:
     parts: list[str] = []
     for display, href in iter_inline_segments(text):
         if href is None:
-            parts.append(_esc(display))
+            parts.append(_esc_text(display))
         else:
-            parts.append(f'<a href="{_esc(href)}">{_esc(display)}</a>')
+            parts.append(f'<a href="{_esc_href(href)}">{_esc_text(display)}</a>')
     return "".join(parts)
 
 
@@ -125,7 +132,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
     """
     parts = [
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">',
-        f"<title>{_esc(title)}</title>",
+        f"<title>{_esc_text(title)}</title>",
         "<style>",
         "body{font-family:Helvetica,Arial,sans-serif;margin:2rem;max-width:48rem;",
         "line-height:1.5;color:#111;background:#fff}",
@@ -133,7 +140,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         "table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:0.4rem 0.6rem}",
         "th{background:#e8eef8;text-align:left}",
         "</style></head><body>",
-        f"<h1>{_esc(title)}</h1>",
+        f"<h1>{_esc_text(title)}</h1>",
     ]
     for b in blocks:
         if b.kind == "heading":
@@ -144,7 +151,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         elif b.kind == "list":
             parts.append("<ul>" + "".join(f"<li>{_inline_html(it)}</li>" for it in b.items) + "</ul>")
         elif b.kind == "code":
-            parts.append(f"<pre><code>{_esc(b.text)}</code></pre>")
+            parts.append(f"<pre><code>{_esc_text(b.text)}</code></pre>")
         elif b.kind == "table":
             parts.append("<table><thead><tr>")
             parts.extend(f"<th>{_inline_html(h)}</th>" for h in b.headers)

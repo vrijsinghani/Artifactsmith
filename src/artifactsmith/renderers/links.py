@@ -1,9 +1,10 @@
 """Public http(s) link policy shared by sanitizer and renderers.
 
-Allows navigational links to global hosts. Blocks private/loopback hosts and
-dangerous schemes. Protocol-relative ``//host`` is upgraded to ``https://`` when
-the host is public (via ``public_href_or_none``). Does not fetch anything.
-Markdown images pointing at remote URLs become normal links (nothing loads on open).
+Classification uses a de-obfuscated *view* plus WHATWG-style and urllib parses of
+the exact emit string; all must agree on one public host. Emission keeps the
+original destination (trim, literal spaces → ``%20``, intentional ``//`` →
+``https://``). Never HTML-entity-decode or percent-decode on emit. Userinfo is
+rejected. Does not fetch anything.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from html import escape, unescape
 from typing import Literal
 from urllib.parse import unquote, urlparse
 
+from .href_host import hosts_agree_public
 from .safety import URL_RE, _host_is_private, _url_host
 
 HrefClass = Literal["fragment", "relative", "public", "blocked"]
@@ -25,12 +27,11 @@ def _strip_format_chars(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Cf")
 
 
-def normalize_href(value: str) -> str:
-    """De-obfuscate an href/src before classification.
+def deobfuscate_href(value: str) -> str:
+    """De-obfuscate an href/src for classification only.
 
     Percent-decodes repeatedly until stable, applies NFKC, strips Unicode format
-    characters (Cf), whitespace, and backslashes. Shared by HTML, Markdown, PDF,
-    DOCX, and XLSX paths.
+    characters (Cf), whitespace, and backslashes. Never used as the emitted URL.
     """
     raw = unescape(value)
     for _ in range(8):
@@ -45,26 +46,43 @@ def normalize_href(value: str) -> str:
     return raw.strip()
 
 
-def classify_href(value: str) -> HrefClass:
-    """Classify an href/src candidate after de-obfuscation."""
-    raw = normalize_href(value)
-    if not raw:
+def normalize_href(value: str) -> str:
+    """Backward-compatible name for the classification de-obfuscation view."""
+    return deobfuscate_href(value)
+
+
+def emit_href(value: str) -> str:
+    """Minimal emit normalization: trim and literal spaces → %20.
+
+    Does not HTML-unescape (``&section=`` must stay ``&section=``) and does not
+    percent-decode. Callers add format-specific escaping at write time.
+    """
+    return value.strip().replace(" ", "%20")
+
+
+def _classify_view(view: str) -> HrefClass:
+    """Classify an already-deobfuscated href view (scheme / private host only)."""
+    if not view:
         return "blocked"
-    if raw.startswith("#"):
+    if view.startswith("#"):
         return "fragment"
-    low = raw.lower()
+    low = view.lower()
     if low.startswith("//"):
         return "blocked"
     for prefix in _DANGEROUS_PREFIXES:
         if low.startswith(prefix):
             return "blocked"
     if low.startswith(("http://", "https://")):
-        host = _url_host(raw)
+        host = _url_host(view)
         if host is None or host == "" or _host_is_private(host):
             return "blocked"
         try:
-            parsed = urlparse(raw)
+            parsed = urlparse(view)
             if parsed.scheme not in ("http", "https"):
+                return "blocked"
+            if parsed.username is not None or parsed.password is not None:
+                return "blocked"
+            if "@" in (parsed.netloc or ""):
                 return "blocked"
         except Exception:  # noqa: BLE001
             return "blocked"
@@ -74,23 +92,44 @@ def classify_href(value: str) -> HrefClass:
     return "relative"
 
 
+def classify_href(value: str) -> HrefClass:
+    """Classify an href/src candidate; http(s) requires multi-parse host agreement."""
+    emit = emit_href(value)
+    # Protocol-relative stays blocked at classify time (upgrade only in public_href_or_none).
+    if emit.startswith("//"):
+        return "blocked"
+    view = deobfuscate_href(value)
+    kind = _classify_view(view)
+    if kind != "public":
+        return kind
+    if not emit.lower().startswith(("http://", "https://")):
+        return "blocked"
+    if not hosts_agree_public(emit, deobfuscate=deobfuscate_href):
+        return "blocked"
+    return "public"
+
+
 def is_public_http_url(url: str) -> bool:
     return classify_href(url) == "public"
 
 
 def public_href_or_none(url: str) -> str | None:
-    """Return a normalized public http(s) URL, or None if not allowed.
+    """Return an emit-ready public http(s) URL, or None if not allowed.
 
-    Protocol-relative ``//host/path`` is upgraded to ``https://host/path`` when the
-    host is public, so citations stay clickable. Private or dangerous destinations
-    return None (they are not upgraded).
+    Emit keeps the original bytes (plus trim / space→%20 / intentional ``//`` upgrade).
+    Drops the link unless the de-obfuscated view is an allowed http(s) URL *and*
+    urllib + WHATWG-style parses of the emit string agree on the same public host.
     """
-    raw = normalize_href(url)
-    if raw.startswith("//") and not raw.lower().startswith("///"):
-        raw = "https:" + raw
-    if classify_href(raw) != "public":
+    emit = emit_href(url)
+    if emit.startswith("//") and not emit.lower().startswith("///"):
+        emit = "https:" + emit
+    if not emit.lower().startswith(("http://", "https://")):
         return None
-    return raw
+    if _classify_view(deobfuscate_href(emit)) != "public":
+        return None
+    if not hosts_agree_public(emit, deobfuscate=deobfuscate_href):
+        return None
+    return emit
 
 
 def sanitize_markdown(text: str) -> str:
@@ -146,7 +185,7 @@ def harden_external_anchors(html: str) -> str:
         if not hm:
             return m.group(0)
         href = hm.group(2) if hm.group(2) is not None else hm.group(3)
-        if classify_href(href or "") != "public":
+        if public_href_or_none(href or "") is None:
             return m.group(0)
         attrs2 = re.sub(r"""\s*\brel\s*=\s*(".*?"|'.*?')""", "", attrs, flags=re.I)
         attrs2 = re.sub(r"""\s*\btarget\s*=\s*(".*?"|'.*?')""", "", attrs2, flags=re.I)

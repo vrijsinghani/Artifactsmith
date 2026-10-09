@@ -278,8 +278,18 @@ def render_html(body: str) -> tuple[dict[str, bytes], str]:
     return out.files, out.primary
 
 
+_XLSX_LINK_HINT = (
+    "\nSpreadsheet: put each public URL in its own table cell (one link per cell) "
+    "so every citation stays clickable in XLSX.\n"
+)
+
+
 def system_prompt_for(fmt: str) -> str:
-    return SYSTEM if fmt == "html" else CONTENT_SYSTEM
+    if fmt == "html":
+        return SYSTEM
+    if fmt == "xlsx":
+        return CONTENT_SYSTEM + _XLSX_LINK_HINT
+    return CONTENT_SYSTEM
 
 
 async def run_build(

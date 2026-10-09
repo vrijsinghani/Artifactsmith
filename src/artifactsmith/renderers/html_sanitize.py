@@ -296,15 +296,16 @@ def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
     """Allow public http(s) on <a href> only; reject other remote resource URLs."""
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
         return value
-    from .links import classify_href, normalize_href, public_href_or_none
+    from .links import classify_href, emit_href, public_href_or_none
 
-    raw = normalize_href(value)
-    kind = classify_href(raw)
-    if kind == "fragment" or kind == "relative":
+    kind = classify_href(value)
+    if kind in ("fragment", "relative"):
         # Relative/fragment only — never protocol-relative (classify blocks those).
-        return raw or None
-    if tag == "a" and attr == "href" and kind == "public":
-        return public_href_or_none(raw)
+        # Emit minimally normalized original (do not percent-decode).
+        return emit_href(value) or None
+    if tag == "a" and attr == "href":
+        # Public http(s), or intentional //host upgraded when the host is public.
+        return public_href_or_none(value)
     # img src, cite, and every other URL-bearing attribute stay local-only.
     return None
 
