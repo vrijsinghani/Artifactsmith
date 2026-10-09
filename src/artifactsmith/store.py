@@ -56,8 +56,9 @@ class Store:
         try:
             self.s3.head_bucket(Bucket=self.bucket)
         except ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
-            if code in ("404", "NoSuchBucket", "NotFound", "403", "400"):
+            code = str(e.response.get("Error", {}).get("Code", ""))
+            # Only missing-bucket signals warrant create. 403/400 are auth/config errors.
+            if code in ("404", "NoSuchBucket", "NotFound") or code.endswith("404"):
                 self.s3.create_bucket(Bucket=self.bucket)
                 created = True
             else:

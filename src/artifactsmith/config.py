@@ -108,8 +108,7 @@ class Config:
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_LINK_DOMAINS", "").split(",") if h.strip()]
     )
     block_private_links: bool = field(default_factory=lambda: _setting_bool("AM_BLOCK_PRIVATE_LINKS", True))
-    # MCP Host/Origin allow-lists (comma-separated). DNS-rebinding protection is on when either is non-empty.
-    # Default hosts cover loopback on the configured API port so plain `serve` is protected.
+    # MCP Host/Origin allow-lists (comma-separated). Protection is on by default via loopback hosts.
     allowed_hosts: list[str] = field(default_factory=lambda: _default_allowed_hosts())
     allowed_origins: list[str] = field(
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_ORIGINS", "").split(",") if h.strip()]

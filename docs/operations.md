@@ -14,20 +14,22 @@ docker compose exec server artifactsmith token add --name agent --workspace alph
 
 ## Serving on your network or behind a proxy
 
-Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (default `127.0.0.1`). Cards and links use `AM_API_URL`, `AM_PREVIEW_URL`, and `AM_SHARE_URL` (empty `AM_SHARE_URL` falls back to `AM_PREVIEW_URL`). `AM_ALLOWED_HOSTS` / `AM_ALLOWED_ORIGINS` enable MCP DNS-rebinding protection when either is set.
+Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (default `127.0.0.1`). Cards and links use `AM_API_URL`, `AM_PREVIEW_URL`, and `AM_SHARE_URL` (empty `AM_SHARE_URL` falls back to `AM_PREVIEW_URL`). MCP DNS-rebinding protection is on by default for `127.0.0.1` / `localhost` on the API port; set `AM_ALLOWED_HOSTS` / `AM_ALLOWED_ORIGINS` when clients use another hostname or a browser Origin.
 
 ### LAN access
 
 ```bash
-# .env
+# .env  (192.0.2.10 is documentation-range; substitute your LAN IP)
 AM_BIND_ADDRESS=0.0.0.0
-AM_API_URL=http://192.168.1.40:8780
-AM_PREVIEW_URL=http://192.168.1.40:8781
-AM_SHARE_URL=http://192.168.1.40:8781
-AM_ALLOWED_HOSTS=192.168.1.40:8780,127.0.0.1:8780,localhost:8780
+AM_API_URL=http://192.0.2.10:8780
+AM_PREVIEW_URL=http://192.0.2.10:8781
+AM_SHARE_URL=http://192.0.2.10:8781
+AM_ALLOWED_HOSTS=192.0.2.10:8780,127.0.0.1:8780,localhost:8780
+# Browser MCP clients also need:
+# AM_ALLOWED_ORIGINS=http://192.0.2.10:8780
 ```
 
-Clients open `http://192.168.1.40:8780/mcp`. Preview and share links use the LAN host, not `127.0.0.1`.
+Clients open `http://192.0.2.10:8780/mcp`. Preview and share links use the LAN host, not `127.0.0.1`.
 
 ### Reverse proxy with TLS
 
@@ -64,9 +66,13 @@ server {
     proxy_pass http://127.0.0.1:8780;
     proxy_set_header Host $host;
     proxy_set_header Authorization $http_authorization;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
   }
 }
 ```
+
+With `AM_ALLOWED_HOSTS` limited to the public hostname, `curl http://127.0.0.1:8780/mcp` returns HTTP 421. Use the proxied URL. Browser-based MCP clients need `AM_ALLOWED_ORIGINS` set; an empty list rejects any request that carries an Origin header.
 
 ### MCP client on another machine
 
@@ -118,6 +124,6 @@ Audit lines append to `AM_DATA_DIR/audit.jsonl` with actor, action, and artifact
 
 ## Capacity
 
-`AM_MAX_BUILDS` is in-process concurrency. This release supports one server process per data directory (SQLite is single-writer). Do not run multiple server processes or containers against the same SQLite file or secrets volume: a second process will not reclaim a live `building` job, and concurrent writers can corrupt state. Moving metadata to an external store is out of scope here. `AM_BUILDS_PER_HOUR` is per token.
+`AM_MAX_BUILDS` is in-process concurrency. Run one server process per data directory (SQLite is single-writer). Do not share the same SQLite file or secrets volume across processes. External metadata stores are not part of this release. `AM_BUILDS_PER_HOUR` is per token.
 
-`artifactsmith serve` binds `AM_HOST` (default `127.0.0.1`). The compose image sets `AM_HOST=0.0.0.0` inside the container; host publish still uses `AM_BIND_ADDRESS` (default loopback).
+`artifactsmith serve` binds `AM_HOST` (default `127.0.0.1`). The compose image sets `AM_HOST=0.0.0.0` inside the container; host publish still uses `AM_BIND_ADDRESS` (default loopback). On restart, queued and building jobs are requeued; claim stays atomic.

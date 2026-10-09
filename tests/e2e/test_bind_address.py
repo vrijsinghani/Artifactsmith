@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -68,68 +70,77 @@ async def main() -> int:
 
     env_path = REPO / ".env"
     subprocess.run(["bash", "scripts/ensure-local-env.sh"], cwd=REPO, check=True, capture_output=True)
-    _set_env(
-        env_path,
-        {
-            "AM_BIND_ADDRESS": "0.0.0.0",
-            "AM_API_URL": api,
-            "AM_PREVIEW_URL": preview,
-            "AM_SHARE_URL": preview,
-            "AM_ALLOWED_HOSTS": f"{ip}:8780,127.0.0.1:8780,localhost:8780",
-        },
-    )
+    backup = Path(tempfile.mkstemp(prefix="am-env-", suffix=".bak")[1])
+    shutil.copy2(env_path, backup)
 
-    compose("down", "-v")
-    compose("up", "-d", "--build")
+    def restore_env() -> None:
+        if backup.is_file():
+            shutil.copy2(backup, env_path)
+            backup.unlink(missing_ok=True)
+
     try:
-        await wait_health(api, tries=120)
-        r = httpx.get(f"{api}/healthz", timeout=10)
-        check(r.status_code == 200, f"/healthz via non-loopback {api} returned 200")
+        _set_env(
+            env_path,
+            {
+                "AM_BIND_ADDRESS": "0.0.0.0",
+                "AM_API_URL": api,
+                "AM_PREVIEW_URL": preview,
+                "AM_SHARE_URL": preview,
+                "AM_ALLOWED_HOSTS": f"{ip}:8780,127.0.0.1:8780,localhost:8780",
+            },
+        )
 
-        token = provision("bind-agent", "alpha", "create,read,edit,export,share,delete")
-
-        async def build(s):  # type: ignore[no-untyped-def]
-            from tests.e2e.stack import call
-
-            created = await call(
-                s,
-                "create",
-                {
-                    "slug": "bind-smoke",
-                    "display_name": "Bind smoke",
-                    "kind": "web_static",
-                    "verbatim_request": "One short page that says BIND-OK.",
-                    "source_content": "The marker is BIND-OK.",
-                    "format": "html",
-                },
-            )
-            check("job_id" in created, "create returned job_id")
-            status = await call(s, "status", {"job_id": created["job_id"], "wait": 90}, read_timeout=120)
-            check(status.get("status") == "done", f"build finished: {status.get('status')}")
-            preview_url = status.get("preview_url") or (status.get("card") or {}).get("preview_url")
-            check(isinstance(preview_url, str) and preview_url, "status includes preview_url")
-            check(
-                preview_url.startswith(preview + "/"),
-                f"preview_url uses AM_PREVIEW_URL ({preview}), got {preview_url}",
-            )
-            page = httpx.get(preview_url, timeout=10)
-            check(page.status_code == 200, "preview page reachable on non-loopback preview URL")
-            check("BIND-OK" in page.text, "preview body contains marker")
-
-        # MCP client must also target the non-loopback API.
-        os.environ["AM_E2E_API"] = api
-        os.environ["AM_E2E_PREVIEW"] = preview
-        # Temporarily point stack helpers at the public URLs.
-        import tests.e2e.stack as stack
-
-        stack.API = api
-        stack.PREVIEW = preview
-        stack.MCP_URL = f"{api}/mcp"
-        await phase(token, build)
-        print("bind smoke: PASS")
-        return 0
-    finally:
         compose("down", "-v")
+        compose("up", "-d", "--build")
+        try:
+            await wait_health(api, tries=120)
+            r = httpx.get(f"{api}/healthz", timeout=10)
+            check(r.status_code == 200, f"/healthz via non-loopback {api} returned 200")
+
+            token = provision("bind-agent", "alpha", "create,read,edit,export,share,delete")
+
+            async def build(s):  # type: ignore[no-untyped-def]
+                from tests.e2e.stack import call
+
+                created = await call(
+                    s,
+                    "create",
+                    {
+                        "slug": "bind-smoke",
+                        "display_name": "Bind smoke",
+                        "kind": "web_static",
+                        "verbatim_request": "One short page that says BIND-OK.",
+                        "source_content": "The marker is BIND-OK.",
+                        "format": "html",
+                    },
+                )
+                check("job_id" in created, "create returned job_id")
+                status = await call(s, "status", {"job_id": created["job_id"], "wait": 90}, read_timeout=120)
+                check(status.get("status") == "done", f"build finished: {status.get('status')}")
+                preview_url = status.get("preview_url") or (status.get("card") or {}).get("preview_url")
+                check(isinstance(preview_url, str) and preview_url, "status includes preview_url")
+                check(
+                    preview_url.startswith(preview + "/"),
+                    f"preview_url uses AM_PREVIEW_URL ({preview}), got {preview_url}",
+                )
+                page = httpx.get(preview_url, timeout=10)
+                check(page.status_code == 200, "preview page reachable on non-loopback preview URL")
+                check("BIND-OK" in page.text, "preview body contains marker")
+
+            os.environ["AM_E2E_API"] = api
+            os.environ["AM_E2E_PREVIEW"] = preview
+            import tests.e2e.stack as stack
+
+            stack.API = api
+            stack.PREVIEW = preview
+            stack.MCP_URL = f"{api}/mcp"
+            await phase(token, build)
+            print("bind smoke: PASS")
+            return 0
+        finally:
+            compose("down", "-v")
+    finally:
+        restore_env()
 
 
 if __name__ == "__main__":

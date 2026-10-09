@@ -142,21 +142,28 @@ class Service:
         return a
 
     @staticmethod
-    def _bound_idem_key(op: str, key: str, fingerprint: str) -> str:
-        """Bind a client idempotency key to the operation and request fingerprint."""
-        digest = hashlib.sha256(f"{op}\0{key}\0{fingerprint}".encode()).hexdigest()
-        return f"{key[:IDEMPOTENCY_KEY_CAP_CHARS]}:{digest[:32]}"
-
-    @staticmethod
     def _request_fingerprint(parts: dict[str, Any]) -> str:
         blob = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(blob.encode()).hexdigest()
 
-    def _idem_get(self, principal: dict[str, Any], bound_key: str | None) -> dict[str, Any] | None:
-        if not bound_key:
+    def _idem_lookup(self, principal: dict[str, Any], key: str | None, fingerprint: str) -> dict[str, Any] | None:
+        """Return a prior result, or raise if the same key was used with a different request."""
+        if not key:
             return None
-        r = self.db.one("SELECT result_json FROM idempotency WHERE client=? AND key=?", principal["id"], bound_key)
-        return json.loads(r["result_json"]) if r else None
+        r = self.db.one("SELECT result_json FROM idempotency WHERE client=? AND key=?", principal["id"], key)
+        if not r:
+            return None
+        data = json.loads(r["result_json"])
+        if isinstance(data, dict) and "_fp" in data and "body" in data:
+            if data["_fp"] != fingerprint:
+                raise AMError("idempotency_key was already used with a different request")
+            return data["body"] if isinstance(data["body"], dict) else None
+        # Legacy rows without a fingerprint: treat as a conflict rather than a silent mismatch.
+        raise AMError("idempotency_key was already used with a different request")
+
+    @staticmethod
+    def _idem_payload(fingerprint: str, result: dict[str, Any]) -> str:
+        return json.dumps({"_fp": fingerprint, "body": result}, separators=(",", ":"))
 
     def _check_quota(self, c: Any, principal: dict[str, Any]) -> None:
         n = c.execute(
@@ -282,8 +289,7 @@ class Service:
                 "capabilities": caps,
             }
         )
-        bound_key = self._bound_idem_key("create", idempotency_key, fingerprint) if idempotency_key else None
-        prior = self._idem_get(principal, bound_key)
+        prior = self._idem_lookup(principal, idempotency_key, fingerprint)
         if prior:
             return dict(prior, idempotent_replay=True)
         aid, jid, t = rid("art_"), rid("job_"), now()
@@ -310,13 +316,16 @@ class Service:
         }
         with self.db.tx() as c:
             self._check_quota(c, principal)
-            if bound_key:
+            if idempotency_key:
                 existing = c.execute(
                     "SELECT result_json FROM idempotency WHERE client=? AND key=?",
-                    (principal["id"], bound_key),
+                    (principal["id"], idempotency_key),
                 ).fetchone()
                 if existing:
-                    return dict(json.loads(existing["result_json"]), idempotent_replay=True)
+                    data = json.loads(existing["result_json"])
+                    if isinstance(data, dict) and data.get("_fp") == fingerprint and isinstance(data.get("body"), dict):
+                        return dict(data["body"], idempotent_replay=True)
+                    raise AMError("idempotency_key was already used with a different request")
             if prev:
                 row = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (aid,)).fetchone()
                 if row and row["deleting_at"]:
@@ -342,10 +351,10 @@ class Service:
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
                 (jid, aid, newv, principal["id"], "queued", t),
             )
-            if bound_key:
+            if idempotency_key:
                 c.execute(
                     "INSERT INTO idempotency VALUES (?,?,?,?)",
-                    (principal["id"], bound_key, json.dumps(result), t),
+                    (principal["id"], idempotency_key, self._idem_payload(fingerprint, result), t),
                 )
         self.audit(principal, "create", artifact_id=aid, slug=slug, kind=kind, model=model)
         self._enqueue(jid)
@@ -386,20 +395,22 @@ class Service:
                 "source_files": source_files,
             }
         )
-        bound_key = self._bound_idem_key("edit", idempotency_key, fingerprint) if idempotency_key else None
-        prior = self._idem_get(principal, bound_key)
+        prior = self._idem_lookup(principal, idempotency_key, fingerprint)
         if prior:
             return dict(prior, idempotent_replay=True)
         jid, t = rid("job_"), now()
         with self.db.tx() as c:
             self._check_quota(c, principal)
-            if bound_key:
+            if idempotency_key:
                 existing = c.execute(
                     "SELECT result_json FROM idempotency WHERE client=? AND key=?",
-                    (principal["id"], bound_key),
+                    (principal["id"], idempotency_key),
                 ).fetchone()
                 if existing:
-                    return dict(json.loads(existing["result_json"]), idempotent_replay=True)
+                    data = json.loads(existing["result_json"])
+                    if isinstance(data, dict) and data.get("_fp") == fingerprint and isinstance(data.get("body"), dict):
+                        return dict(data["body"], idempotent_replay=True)
+                    raise AMError("idempotency_key was already used with a different request")
             art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
             if art and art["deleting_at"]:
                 raise AMError("artifact is being deleted")
@@ -445,10 +456,10 @@ class Service:
                 "model": model,
                 "status": "queued",
             }
-            if bound_key:
+            if idempotency_key:
                 c.execute(
                     "INSERT INTO idempotency VALUES (?,?,?,?)",
-                    (principal["id"], bound_key, json.dumps(result), t),
+                    (principal["id"], idempotency_key, self._idem_payload(fingerprint, result), t),
                 )
         self.audit(principal, "edit", artifact_id=a["id"], version=newv, base_version=base_version, model=model)
         self._enqueue(jid)
@@ -461,16 +472,9 @@ class Service:
 
     def start_workers(self) -> None:
         self.bind_loop(asyncio.get_running_loop())
-        # Requeue only idle queued jobs and stale building jobs (past the build deadline).
-        # Fresh building rows may belong to another process; do not steal them.
-        stale_before = now() - CFG.build_timeout_s
-        for j in self.db.all(
-            "SELECT id, status, started_at FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"
-        ):
-            if j["status"] == "building":
-                started = j.get("started_at")
-                if started is not None and float(started) > stale_before:
-                    continue
+        # One process per data directory: requeue every queued/building job.
+        # Claim stays atomic (UPDATE … WHERE status='queued'), so a mid-build restart finishes.
+        for j in self.db.all("SELECT id FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"):
             self.db.exec(
                 "UPDATE jobs SET status='queued', progress='re-queued after restart' WHERE id=?",
                 j["id"],
@@ -1089,7 +1093,15 @@ class Service:
                     payload = json.loads(row["result_json"])
                 except (TypeError, json.JSONDecodeError):
                     continue
-                if isinstance(payload, dict) and payload.get("artifact_id") == a["id"]:
+                body = payload.get("body") if isinstance(payload, dict) else None
+                aid_hit: str | None = None
+                if isinstance(body, dict):
+                    raw_aid = body.get("artifact_id")
+                    aid_hit = raw_aid if isinstance(raw_aid, str) else None
+                elif isinstance(payload, dict):
+                    raw_aid = payload.get("artifact_id")
+                    aid_hit = raw_aid if isinstance(raw_aid, str) else None
+                if aid_hit == a["id"]:
                     c.execute("DELETE FROM idempotency WHERE client=? AND key=?", (row["client"], row["key"]))
             c.execute("DELETE FROM artifacts WHERE id=?", (a["id"],))
         self.audit(principal, "delete", artifact_id=a["id"], slug=a["slug"], purged_objects=purged)

@@ -145,16 +145,18 @@ def test_create_idempotent_and_duplicate_slug(svc):
     )
     assert replay["idempotent_replay"] is True
     assert replay["artifact_id"] == first["artifact_id"]
-    # Same client key with a different request fingerprint does not replay.
-    with pytest.raises(AMError, match="already exists"):
+    # Same client key with a different request is a conflict, not a second build.
+    with pytest.raises(AMError, match="idempotency_key was already used"):
         svc.create(
             p,
-            slug="pilot-store",
-            display_name="Pilot",
+            slug="other-slug",
+            display_name="Other",
             kind="web_static",
             verbatim_request="again",
             idempotency_key="k1",
         )
+    with pytest.raises(AMError, match="already exists"):
+        svc.create(p, slug="pilot-store", display_name="Pilot", kind="web_static", verbatim_request="again")
 
 
 def test_quota(svc, monkeypatch):
@@ -450,8 +452,8 @@ async def test_start_workers_requeues(svc, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_workers_skips_fresh_building(svc, monkeypatch):
-    """A live building job within the build deadline must not be stolen on restart."""
+async def test_start_workers_requeues_mid_build(svc, monkeypatch):
+    """A restart during a build requeues the job so claim can finish it."""
     from artifactsmith.service import now
 
     p = _principal()
@@ -463,59 +465,31 @@ async def test_start_workers_skips_fresh_building(svc, monkeypatch):
         jid,
     )
     monkeypatch.setattr(CFG, "max_concurrent_builds", 1)
-    monkeypatch.setattr(CFG, "build_timeout_s", 900)
 
-    async def idle():
-        await asyncio.sleep(3600)
+    claimed: list[str] = []
 
-    monkeypatch.setattr(svc, "_worker", idle)
-    # Drain any prior enqueue from create.
+    async def claim_once():
+        jid2 = await svc.queue.get()
+        claimed.append(jid2)
+        # Atomic claim path used by _run_job.
+        with svc.db.tx() as c:
+            n = c.execute(
+                "UPDATE jobs SET status='building', started_at=? WHERE id=? AND status='queued'",
+                (now(), jid2),
+            ).rowcount
+            assert n == 1
+        svc.queue.task_done()
+
+    monkeypatch.setattr(svc, "_worker", claim_once)
     while not svc.queue.empty():
         svc.queue.get_nowait()
         svc.queue.task_done()
     svc.start_workers()
+    await asyncio.wait_for(svc._workers[0], timeout=2)
     job = svc.db.one("SELECT status, progress FROM jobs WHERE id=?", jid)
+    assert claimed == [jid]
     assert job["status"] == "building"
-    assert job["progress"] == "in flight"
-    assert svc.queue.empty()
-    svc._workers[0].cancel()
-    try:
-        await svc._workers[0]
-    except asyncio.CancelledError:
-        pass
-
-
-@pytest.mark.asyncio
-async def test_start_workers_requeues_stale_building(svc, monkeypatch):
-    from artifactsmith.service import now
-
-    p = _principal()
-    created = svc.create(p, slug="stale-build", display_name="S", kind="web_static", verbatim_request="x")
-    jid = created["job_id"]
-    monkeypatch.setattr(CFG, "build_timeout_s", 60)
-    svc.db.exec(
-        "UPDATE jobs SET status='building', started_at=?, progress='old' WHERE id=?",
-        now() - 120,
-        jid,
-    )
-    monkeypatch.setattr(CFG, "max_concurrent_builds", 1)
-
-    async def idle():
-        await asyncio.sleep(3600)
-
-    monkeypatch.setattr(svc, "_worker", idle)
-    while not svc.queue.empty():
-        svc.queue.get_nowait()
-        svc.queue.task_done()
-    svc.start_workers()
-    job = svc.db.one("SELECT status, progress FROM jobs WHERE id=?", jid)
-    assert job["status"] == "queued"
     assert "re-queued" in (job["progress"] or "")
-    svc._workers[0].cancel()
-    try:
-        await svc._workers[0]
-    except asyncio.CancelledError:
-        pass
 
 
 def test_inspect_scrubs_store_errors(svc, monkeypatch):

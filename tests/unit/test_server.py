@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -258,3 +259,28 @@ def test_missing_openai_key_warning_uses_hostname():
     assert server.missing_openai_key_warning("https://api.openai.com.evil.example", "") is False
     assert server.missing_openai_key_warning("https://api.openai.com", "sk-x") is False
     assert server.missing_openai_key_warning("http://mock-llm:8080", "") is False
+
+
+@pytest.mark.asyncio
+async def test_main_boots_and_shuts_down(svc, monkeypatch):
+    """server.main binds the loop, starts workers, and shuts down cleanly."""
+    started: list[str] = []
+
+    class _FakeServer:
+        def __init__(self, config):
+            self.config = config
+
+        async def serve(self):
+            started.append(f"{self.config.host}:{self.config.port}")
+            await asyncio.sleep(0)
+
+    async def _no_delay(_seconds: float = 0):
+        return None
+
+    monkeypatch.setattr(server, "Service", lambda: svc)
+    monkeypatch.setattr(server.uvicorn, "Server", _FakeServer)
+    monkeypatch.setattr(server.asyncio, "sleep", _no_delay)
+
+    await server.main()
+    assert len(started) == 2
+    assert server.SVC is None

@@ -44,7 +44,7 @@ That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a
 
 `docs/` covers architecture, the threat model, operations, and formats.
 
-Prefer focused modules. New renderers belong in `src/artifactsmith/renderers/`, not in `builder.py`. `service.py` is still a large single-process orchestration module; do not grow it further without extracting a coherent slice. The server is one process per data directory (SQLite single-writer).
+Prefer focused modules. New renderers belong in `src/artifactsmith/renderers/`, not in `builder.py`. Keep orchestration changes in `service.py` small, or extract a coherent slice when a change does not fit. The server is one process per data directory (SQLite single-writer).
 
 ## Pull requests
 

@@ -111,3 +111,22 @@ def test_ensure_bucket_requires_versioning(monkeypatch):
     monkeypatch.setattr(store_mod.boto3, "client", lambda *a, **k: fake)
     with pytest.raises(StoreError, match="versioning"):
         Store().ensure_bucket()
+
+
+def test_ensure_bucket_does_not_create_on_403(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    class _Forbidden(_FakeS3):
+        def head_bucket(self, Bucket):
+            raise ClientError({"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadBucket")
+
+        def create_bucket(self, Bucket):
+            raise AssertionError("must not create on 403")
+
+    fake = _Forbidden()
+    monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")
+    monkeypatch.setattr(store_mod.CFG, "store_credentials", lambda: ("ak", "sk"))
+    monkeypatch.setattr(store_mod.CFG, "store_bucket", "artifacts")
+    monkeypatch.setattr(store_mod.boto3, "client", lambda *a, **k: fake)
+    with pytest.raises(StoreError, match="head_bucket failed: 403"):
+        Store().ensure_bucket()

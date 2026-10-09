@@ -59,7 +59,7 @@ if ! printf '%s\n' "$server_cfg" | grep -q "http://probe.example/${marker}"; the
   exit 1
 fi
 # Compose v2 renders published ports in long form (host_ip / published), not "ip:port:port".
-if ! printf '%s\n' "$cfg" | grep -Eq 'host_ip:[[:space:]]*127\.0\.0\.66'; then
+if ! printf '%s\n' "$server_cfg" | grep -Eq 'host_ip:[[:space:]]*127\.0\.0\.66'; then
   echo "check-compose-env: AM_BIND_ADDRESS from .env did not reach published ports via compose config" >&2
   exit 1
 fi
