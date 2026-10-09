@@ -1,7 +1,6 @@
 name: artifactsmith
 
 # Object-store credentials come from .env (see .env.example and scripts/ensure-local-env.sh).
-# Compose interpolates them here; they are not hard-coded.
 x-store: &store-env
   AM_STORE_ENDPOINT: ${AM_STORE_ENDPOINT:-http://storage:9000}
   AM_STORE_KEY: ${AM_STORE_KEY:?Set AM_STORE_KEY in .env (run ./scripts/ensure-local-env.sh)}
@@ -10,7 +9,8 @@ x-store: &store-env
 
 services:
   storage:
-    image: rustfs/rustfs:1.0.1
+    # rustfs/rustfs:1.0.1
+    image: rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
     # Internal only: no published ports. The object store is reachable only on the compose network.
     environment:
       RUSTFS_ACCESS_KEY: ${AM_STORE_KEY:?Set AM_STORE_KEY in .env (run ./scripts/ensure-local-env.sh)}
@@ -40,9 +40,6 @@ services:
     ports:
       - "127.0.0.1:8780:8780"   # MCP API (bearer auth)
       - "127.0.0.1:8781:8781"   # cookieless preview / share origin
-    env_file:
-      - path: .env
-        required: false
     environment:
       <<: *store-env
       AM_LLM_API: ${AM_LLM_API:-chat}

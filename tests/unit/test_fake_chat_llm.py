@@ -1,4 +1,4 @@
-from tests.support.mock_llm import _reply
+from tests.support.fake_chat_llm import _reply
 
 
 def test_html_reply_echoes_fact():

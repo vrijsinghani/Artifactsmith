@@ -35,18 +35,22 @@ jobs:
           ruff check src tests examples
           ruff format --check src tests examples
       - name: Mypy
-        run: mypy
+        run: mypy --strict src
       - name: Denylist
         run: bash scripts/denylist.sh
 
   test:
-    name: unit tests
+    name: unit tests (py${{ matrix.python-version }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: WeasyPrint system libraries
         run: |
           sudo apt-get update
@@ -63,7 +67,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: coverage-xml
+          name: coverage-xml-py${{ matrix.python-version }}
           path: coverage.xml
 
   docker:
@@ -123,9 +127,9 @@ jobs:
       - name: Start test stack
         run: docker compose -f compose.yaml -f compose.test.yaml up -d --build
       - name: End-to-end smoke
-        run: python tests/e2e/test_end_to_end.py
+        run: python -m tests.e2e.test_end_to_end
       - name: Format smoke
-        run: python tests/e2e/test_formats.py
+        run: python -m tests.e2e.test_formats
       - name: Compose logs on failure
         if: failure()
         run: docker compose -f compose.yaml -f compose.test.yaml logs --no-color | tail -n 200

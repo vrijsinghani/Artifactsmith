@@ -11,13 +11,14 @@ import json
 import secrets
 import sys
 import time
+from collections.abc import Callable
 
+from .db import DB
 from .service import ALL_PERMS
 
 
-def _make_db():
+def _make_db() -> DB:
     from .config import CFG
-    from .db import DB
 
     return DB(CFG.db_path)
 
@@ -128,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if getattr(args, "cmd", None) == "token":
-        return args.fn(args)
+        fn: Callable[[argparse.Namespace], int] = args.fn
+        return fn(args)
     return {"serve": cmd_serve, "storage-init": cmd_storage_init}[args.cmd](args)
 
 

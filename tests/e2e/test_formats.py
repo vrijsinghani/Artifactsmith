@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Format smoke: create markdown/pdf/docx/xlsx against the test compose stack."""
+"""Format smoke: create markdown/pdf/docx/xlsx against the test compose stack.
+
+python -m tests.e2e.test_formats
+"""
 
 from __future__ import annotations
 
@@ -7,15 +10,12 @@ import asyncio
 import os
 import sys
 import time
-from pathlib import Path
 
 import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
-_REPO = Path(__file__).resolve().parents[2]
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
-
-from tests.e2e.stack import API, MCP_URL, Fail, call, check, provision, wait_health  # noqa: E402
+from tests.e2e.stack import API, MCP_URL, Fail, call, check, provision, wait_health
 
 FORMATS = ("markdown", "pdf", "docx", "xlsx")
 MAGIC = {
@@ -30,9 +30,6 @@ async def main() -> int:
     await wait_health(API)
     run_id = f"{int(time.time())}{os.getpid() % 1000}"
     token = provision(f"fmt-{run_id}", "formats", "create,read,edit,export,share,delete")
-
-    from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
 
     async with streamablehttp_client(
         MCP_URL,

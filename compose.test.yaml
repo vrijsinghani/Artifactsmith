@@ -3,7 +3,7 @@
 name: artifactsmith
 
 services:
-  test-llm:
+  fake-chat-llm:
     build:
       context: .
       dockerfile: tests/support/Dockerfile
@@ -23,7 +23,7 @@ services:
   server:
     environment:
       AM_LLM_API: chat
-      AM_LLM_BASE: http://test-llm:8080
+      AM_LLM_BASE: http://fake-chat-llm:8080
       AM_LLM_KEY: test
       OPENAI_API_KEY: test
       AM_DEFAULT_MODEL: test-echo
@@ -32,5 +32,5 @@ services:
         condition: service_started
       storage-init:
         condition: service_completed_successfully
-      test-llm:
-        condition: service_started
+      fake-chat-llm:
+        condition: service_healthy

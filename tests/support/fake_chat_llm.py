@@ -1,4 +1,4 @@
-"""Test-only OpenAI Chat Completions stand-in.
+"""Test-only fake OpenAI Chat Completions endpoint.
 
 Used by compose.test.yaml and unit tests. Not part of the shipped package.
 
@@ -102,20 +102,24 @@ async def chat_completions(request: Request) -> JSONResponse:
         body = await request.json()
     except Exception:  # noqa: BLE001
         return JSONResponse({"error": "invalid json"}, status_code=400)
-    messages = body.get("messages", []) if isinstance(body, dict) else []
+    payload = body if isinstance(body, dict) else {}
+    messages = payload.get("messages", [])
+    if not isinstance(messages, list):
+        messages = []
     content = _reply(messages)
+    model = payload.get("model", "test-echo")
     return JSONResponse(
         {
-            "id": "test-llm",
+            "id": "fake-chat",
             "object": "chat.completion",
-            "model": body.get("model", "test-echo"),
+            "model": model,
             "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
         }
     )
 
 
 async def healthz(request: Request) -> JSONResponse:
-    return JSONResponse({"ok": True, "service": "test-llm"})
+    return JSONResponse({"ok": True, "service": "fake-chat-llm"})
 
 
 app = Starlette(

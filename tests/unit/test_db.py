@@ -1,3 +1,5 @@
+import pytest
+
 from artifactsmith.db import DB, jloads
 
 
@@ -18,12 +20,8 @@ def test_one_all_exec(tmp_path):
     assert rows == [{"id": "tok_1"}]
     assert db.one("SELECT id FROM tokens WHERE id=?", "missing") is None
     assert db.must("SELECT name FROM tokens WHERE id=?", "tok_1")["name"] == "agent"
-    try:
+    with pytest.raises(RuntimeError, match="expected a row"):
         db.must("SELECT id FROM tokens WHERE id=?", "missing")
-    except RuntimeError as e:
-        assert "expected a row" in str(e)
-    else:
-        raise AssertionError("must() should raise")
 
 
 def test_tx_rollback(tmp_path):

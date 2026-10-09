@@ -9,6 +9,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from . import llm
 from .config import CFG
@@ -189,7 +190,7 @@ def needs_input(text: str) -> str | None:
     return None
 
 
-def source_block(source: dict | None) -> str:
+def source_block(source: dict[str, Any] | None) -> str:
     if not source:
         return "\n<source_material>\n(none supplied: use only facts stated in the request itself)\n</source_material>\n"
     parts = []
@@ -209,7 +210,7 @@ def build_user_prompt(
     base_source: str | None,
     base_version: int | None,
     history: list[str],
-    source: dict | None = None,
+    source: dict[str, Any] | None = None,
 ) -> str:
     if base_source is None:
         return (
@@ -288,7 +289,7 @@ async def run_build(
     base_version: int | None,
     history: list[str],
     progress: Callable[[str], None],
-    source: dict | None = None,
+    source: dict[str, Any] | None = None,
     render_timeout: int = 120,
     format: str = "html",
 ) -> BuildResult:

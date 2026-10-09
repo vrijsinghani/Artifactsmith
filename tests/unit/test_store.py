@@ -89,5 +89,7 @@ def test_ensure_put_get_purge(monkeypatch):
             "DeleteMarkers": [{"Key": "ws/a/gone", "VersionId": "d1"}],
         }
     ]
-    assert s.purge_prefix("ws/a/") == 2
     assert s.count_prefix_versions("ws/a/") == 2
+    assert s.purge_prefix("ws/a/") == 2
+    fake.pages = [{"Versions": [], "DeleteMarkers": []}]
+    assert s.count_prefix_versions("ws/a/") == 0

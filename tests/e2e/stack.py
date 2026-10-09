@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 from mcp import ClientSession
@@ -21,13 +25,13 @@ class Fail(Exception):
     pass
 
 
-def check(cond, msg):
+def check(cond: object, msg: str) -> None:
     if not cond:
         raise Fail(msg)
     print(f"  ok: {msg}")
 
 
-def compose(*args, capture=True) -> str:
+def compose(*args: str) -> str:
     r = subprocess.run(["docker", "compose", *COMPOSE, *args], cwd=REPO, capture_output=True, text=True)
     if r.returncode != 0:
         raise Fail(f"docker compose {' '.join(args)} failed: {r.stderr.strip() or r.stdout.strip()}")
@@ -58,7 +62,7 @@ def provision(name: str, workspace: str, perms: str) -> str:
     raise Fail(f"could not parse token add output: {out!r}")
 
 
-def parse(res) -> dict:
+def parse(res: Any) -> dict[str, Any]:
     if res.structuredContent is not None:
         return res.structuredContent
     if res.content and getattr(res.content[0], "text", None):
@@ -66,16 +70,12 @@ def parse(res) -> dict:
     return {"error": "no content"}
 
 
-async def call(session, name, args, read_timeout: int = 120):
-    from datetime import timedelta
-
+async def call(session: ClientSession, name: str, args: dict[str, Any], read_timeout: int = 120) -> dict[str, Any]:
     res = await session.call_tool(name, args, read_timeout_seconds=timedelta(seconds=read_timeout))
     return parse(res)
 
 
-async def wait_health(url: str, tries: int = 90):
-    import asyncio
-
+async def wait_health(url: str, tries: int = 90) -> None:
     for _ in range(tries):
         try:
             if httpx.get(f"{url}/healthz", timeout=3).status_code == 200:
@@ -86,7 +86,7 @@ async def wait_health(url: str, tries: int = 90):
     raise Fail(f"server never became healthy at {url}")
 
 
-async def phase(token, fn):
+async def phase(token: str, fn: Callable[[ClientSession], Awaitable[Any]]) -> Any:
     async with streamablehttp_client(
         MCP_URL, headers={"Authorization": f"Bearer {token}"}, timeout=60, sse_read_timeout=120
     ) as (r, w, _):

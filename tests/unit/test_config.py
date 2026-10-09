@@ -81,3 +81,12 @@ def test_signing_key_persists(tmp_path, monkeypatch):
     second = cfg.signing_key()
     assert first == second
     assert (tmp_path / "secrets" / "signing.key").is_file()
+
+
+def test_normalized_llm_base_strips_v1(monkeypatch):
+    monkeypatch.setenv("AM_LLM_BASE", "https://api.openai.com/v1/")
+    assert Config().normalized_llm_base() == "https://api.openai.com"
+    monkeypatch.setenv("AM_LLM_BASE", "https://gateway.example/v1")
+    assert Config().normalized_llm_base() == "https://gateway.example"
+    monkeypatch.setenv("AM_LLM_BASE", "https://api.openai.com")
+    assert Config().normalized_llm_base() == "https://api.openai.com"

@@ -35,6 +35,8 @@ HTML uses the house-style system prompt and stores `index.html`. Markdown, PDF, 
 | `llm` | Chat Completions or Responses adapter |
 | `db` / `store` / `config` / `cli` | Persistence, settings, operator tools |
 
+A fake chat model for local and CI end-to-end tests lives under `tests/support/` and is started only by `compose.test.yaml`.
+
 ## Trust boundaries
 
 The API origin authenticates every call except `/healthz`.

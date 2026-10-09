@@ -22,7 +22,7 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300) ->
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0,
     }
-    url = CFG.llm_base.rstrip("/") + "/v1/chat/completions"
+    url = CFG.normalized_llm_base() + "/v1/chat/completions"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         r = await client.post(url, json=payload, headers=headers)
     if r.status_code != 200:
@@ -46,7 +46,7 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
         "model": model,
         "input": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
-    url = CFG.llm_base.rstrip("/") + "/v1/responses"
+    url = CFG.normalized_llm_base() + "/v1/responses"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         r = await client.post(url, json=payload, headers=headers)
     if r.status_code != 200:

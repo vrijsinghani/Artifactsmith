@@ -120,18 +120,18 @@ class DB:
                 self.conn.execute("ROLLBACK")
                 raise
 
-    def one(self, sql: str, *args: Any) -> dict | None:
+    def one(self, sql: str, *args: Any) -> dict[str, Any] | None:
         with self.lock:
             r = self.conn.execute(sql, args).fetchone()
         return dict(r) if r else None
 
-    def must(self, sql: str, *args: Any) -> dict:
+    def must(self, sql: str, *args: Any) -> dict[str, Any]:
         row = self.one(sql, *args)
         if row is None:
             raise RuntimeError(f"expected a row for {sql!r}")
         return row
 
-    def all(self, sql: str, *args: Any) -> list[dict]:
+    def all(self, sql: str, *args: Any) -> list[dict[str, Any]]:
         with self.lock:
             return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 

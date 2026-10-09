@@ -50,14 +50,14 @@ def shortid(n: int = 12) -> str:
 
 
 # ---------- signed short-lived tokens for private preview / download ----------
-def sign(payload: dict, ttl_s: int) -> str:
+def sign(payload: dict[str, Any], ttl_s: int) -> str:
     payload = dict(payload, exp=int(now() + ttl_s))
     body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
     mac = hmac.new(CFG.signing_key(), body.encode(), hashlib.sha256).digest()[:16]
     return body + "." + base64.urlsafe_b64encode(mac).decode().rstrip("=")
 
 
-def unsign(token: str) -> dict | None:
+def unsign(token: str) -> dict[str, Any] | None:
     try:
         body, mac = token.split(".", 1)
         want = (
@@ -68,6 +68,8 @@ def unsign(token: str) -> dict | None:
         if not hmac.compare_digest(want, mac):
             return None
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        if not isinstance(payload, dict):
+            return None
         if payload.get("exp", 0) < now():
             return None
         return payload
@@ -88,19 +90,23 @@ class Service:
 
     # ---------------- access ----------------
     @staticmethod
-    def require(principal: dict, perm: str) -> None:
+    def require(principal: dict[str, Any], perm: str) -> None:
         if perm not in principal["perms"]:
             raise AMError(f"token '{principal['name']}' is not permitted to {perm}")
 
     @staticmethod
-    def check_access(principal: dict, workspace: str) -> None:
+    def check_access(principal: dict[str, Any], workspace: str) -> None:
         """A token reaches only its own workspace. Knowing an id is not access."""
         if workspace != principal["workspace"]:
             raise AMError("forbidden: the artifact belongs to a different workspace")
 
     def get_artifact(
-        self, principal: dict, artifact_id: str | None = None, slug: str | None = None, workspace: str | None = None
-    ) -> dict:
+        self,
+        principal: dict[str, Any],
+        artifact_id: str | None = None,
+        slug: str | None = None,
+        workspace: str | None = None,
+    ) -> dict[str, Any]:
         if artifact_id:
             a = self.db.one("SELECT * FROM artifacts WHERE id=?", artifact_id)
         elif slug and workspace:
@@ -112,13 +118,13 @@ class Service:
         self.check_access(principal, a["workspace"])
         return a
 
-    def _idem_get(self, principal: dict, key: str | None) -> dict | None:
+    def _idem_get(self, principal: dict[str, Any], key: str | None) -> dict[str, Any] | None:
         if not key:
             return None
         r = self.db.one("SELECT result_json FROM idempotency WHERE client=? AND key=?", principal["id"], key)
         return json.loads(r["result_json"]) if r else None
 
-    def _quota(self, principal: dict) -> None:
+    def _quota(self, principal: dict[str, Any]) -> None:
         n = self.db.must("SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?", principal["id"], now() - 3600)[
             "n"
         ]
@@ -151,7 +157,7 @@ class Service:
             raise AMError(f"source material is {size} bytes; the cap is {SOURCE_CAP_BYTES} (200 KB) total")
         return {"source_content": content, "source_files": files, "bytes": size}
 
-    def _put_source(self, workspace: str, aid: str, version: int, bundle: dict | None) -> str | None:
+    def _put_source(self, workspace: str, aid: str, version: int, bundle: dict[str, Any] | None) -> str | None:
         if not bundle:
             return None
         key = Store.prefix(workspace, aid, version) + "_input/source.json"
@@ -161,7 +167,7 @@ class Service:
     # ---------------- create ----------------
     def create(
         self,
-        principal: dict,
+        principal: dict[str, Any],
         *,
         slug: str,
         display_name: str,
@@ -174,7 +180,7 @@ class Service:
         source_files: list[dict[str, Any]] | None = None,
         capabilities: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         self.require(principal, "create")
         prior = self._idem_get(principal, idempotency_key)
         if prior:
@@ -257,7 +263,7 @@ class Service:
     # ---------------- edit ----------------
     def edit(
         self,
-        principal: dict,
+        principal: dict[str, Any],
         *,
         base_version: int,
         verbatim_request: str,
@@ -267,7 +273,7 @@ class Service:
         source_content: str | None = None,
         source_files: list[dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         self.require(principal, "edit")
         prior = self._idem_get(principal, idempotency_key)
         if prior:
@@ -384,7 +390,7 @@ class Service:
                 missing=missing[:300],
             )
 
-    def _source_name(self, a: dict, v: dict) -> str:
+    def _source_name(self, a: dict[str, Any], v: dict[str, Any]) -> str:
         files = [f["name"] for f in jloads(v["files_json"], [])]
         src = builder.source_name(a["kind"], a["format"])
         return src if src in files else v["primary_file"]
@@ -521,7 +527,7 @@ class Service:
         self.audit_by_client(j["client"], "build_done", artifact_id=a["id"], version=v["version"], sha256=primary_sha)
 
     # ---------------- read paths ----------------
-    def preview_link(self, a: dict, version: int, ttl_s: int = 86400) -> str:
+    def preview_link(self, a: dict[str, Any], version: int, ttl_s: int = 86400) -> str:
         r = self.db.one(
             "SELECT id FROM short_links WHERE artifact_id=? AND version=? AND expires_at>? "
             "ORDER BY expires_at DESC LIMIT 1",
@@ -537,13 +543,13 @@ class Service:
             self.db.exec("DELETE FROM short_links WHERE expires_at<?", now())
         return f"{CFG.preview_url}/p/{sid}"
 
-    def short_lookup(self, sid: str) -> dict | None:
+    def short_lookup(self, sid: str) -> dict[str, Any] | None:
         return self.db.one("SELECT * FROM short_links WHERE id=? AND expires_at>?", sid, now())
 
-    def download_link(self, a: dict, version: int, fname: str, as_name: str, ttl_s: int = 900) -> str:
+    def download_link(self, a: dict[str, Any], version: int, fname: str, as_name: str, ttl_s: int = 900) -> str:
         return f"{CFG.preview_url}/dl/{sign({'a': a['id'], 'v': version, 'f': fname, 'n': as_name}, ttl_s)}"
 
-    def card(self, a: dict, v: dict) -> dict:
+    def card(self, a: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
         j = self.db.one("SELECT * FROM jobs WHERE id=?", v["job_id"]) or {}
         card = {
             "title": a["display_name"],
@@ -586,8 +592,8 @@ class Service:
         return card
 
     async def status(
-        self, principal: dict, artifact_id: str | None = None, job_id: str | None = None, wait: int = 0
-    ) -> dict:
+        self, principal: dict[str, Any], artifact_id: str | None = None, job_id: str | None = None, wait: int = 0
+    ) -> dict[str, Any]:
         self.require(principal, "read")
         if job_id:
             j = self.db.one("SELECT * FROM jobs WHERE id=?", job_id)
@@ -610,7 +616,7 @@ class Service:
         out["share"] = self._share_state(a["id"], version)
         return out
 
-    def _share_state(self, aid: str, version: int) -> dict:
+    def _share_state(self, aid: str, version: int) -> dict[str, Any]:
         s = self.db.one(
             "SELECT * FROM shares WHERE artifact_id=? AND version=? AND revoked_at IS NULL AND expires_at>? "
             "ORDER BY created_at DESC LIMIT 1",
@@ -631,12 +637,12 @@ class Service:
 
     def list(
         self,
-        principal: dict,
+        principal: dict[str, Any],
         workspace: str | None = None,
         kind: str | None = None,
         query: str | None = None,
         limit: int = 50,
-    ) -> dict:
+    ) -> dict[str, Any]:
         self.require(principal, "read")
         ws = workspace or principal["workspace"]
         self.check_access(principal, ws)
@@ -670,7 +676,7 @@ class Service:
             )
         return {"workspace": ws, "count": len(items), "artifacts": items}
 
-    def inspect(self, principal: dict, artifact_id: str, version: int | None = None) -> dict:
+    def inspect(self, principal: dict[str, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
         self.require(principal, "read")
         a = self.get_artifact(principal, artifact_id)
         vs = self.db.all("SELECT * FROM versions WHERE artifact_id=? ORDER BY version", a["id"])
@@ -715,7 +721,7 @@ class Service:
             out["share"] = self._share_state(a["id"], int(target))
         return out
 
-    def _done_version(self, a: dict, version: int | None) -> dict:
+    def _done_version(self, a: dict[str, Any], version: int | None) -> dict[str, Any]:
         if version:
             v = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], int(version))
         else:
@@ -728,7 +734,7 @@ class Service:
             raise AMError(f"v{v['version']} is {v['status']}, not done")
         return v
 
-    def export(self, principal: dict, artifact_id: str, version: int | None = None) -> dict:
+    def export(self, principal: dict[str, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
         self.require(principal, "export")
         a = self.get_artifact(principal, artifact_id)
         v = self._done_version(a, version)
@@ -758,7 +764,9 @@ class Service:
         days = max(1, min(int(ttl_days or policy), cap))
         return t + days * 86400
 
-    def share(self, principal: dict, artifact_id: str, version: int | None = None, ttl_days: int | None = None) -> dict:
+    def share(
+        self, principal: dict[str, Any], artifact_id: str, version: int | None = None, ttl_days: int | None = None
+    ) -> dict[str, Any]:
         """Publish a public link for one exact version. create never does this. unshare revokes at once."""
         self.require(principal, "share")
         a = self.get_artifact(principal, artifact_id)
@@ -801,7 +809,7 @@ class Service:
             "revoke": "unshare(artifact_id) takes effect immediately",
         }
 
-    def unshare(self, principal: dict, artifact_id: str, version: int | None = None) -> dict:
+    def unshare(self, principal: dict[str, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
         self.require(principal, "share")
         a = self.get_artifact(principal, artifact_id)
         t = now()
@@ -819,7 +827,7 @@ class Service:
         return {"artifact_id": a["id"], "revoked_links": n, "state": "not_shared"}
 
     # ---------------- delete ----------------
-    def delete(self, principal: dict, artifact_id: str, confirm_token: str | None = None) -> dict:
+    def delete(self, principal: dict[str, Any], artifact_id: str, confirm_token: str | None = None) -> dict[str, Any]:
         self.require(principal, "delete")
         a = self.get_artifact(principal, artifact_id)
         if not confirm_token:
@@ -868,11 +876,11 @@ class Service:
         data, ct = self.store.get(Store.prefix(a["workspace"], aid, version) + fname)
         return data, names[fname]["content_type"] or ct, fname
 
-    def share_lookup(self, sid: str) -> dict | None:
+    def share_lookup(self, sid: str) -> dict[str, Any] | None:
         return self.db.one("SELECT * FROM shares WHERE id=? AND revoked_at IS NULL AND expires_at>?", sid, now())
 
     # ---------------- audit ----------------
-    def audit(self, principal: dict, action: str, **fields: Any) -> None:
+    def audit(self, principal: dict[str, Any], action: str, **fields: Any) -> None:
         self._audit(principal["name"], action, **fields)
 
     def audit_by_client(self, client_id: str, action: str, **fields: Any) -> None:

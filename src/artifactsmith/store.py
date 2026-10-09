@@ -54,7 +54,8 @@ class Store:
 
     def put(self, key: str, data: bytes, content_type: str) -> str:
         r = self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
-        return r.get("VersionId", "")
+        vid = r.get("VersionId")
+        return "" if vid is None else str(vid)
 
     def get(self, key: str) -> tuple[bytes, str]:
         r = self.s3.get_object(Bucket=self.bucket, Key=key)

@@ -8,8 +8,8 @@ help:
 	@echo "make install     create .venv and install the package plus dev tools"
 	@echo "make lint        ruff check"
 	@echo "make format      ruff format"
-	@echo "make typecheck   mypy"
-	@echo "make test        unit tests with coverage"
+	@echo "make typecheck   mypy --strict src"
+	@echo "make test        unit tests with coverage (same command as CI)"
 	@echo "make smoke       test compose stack + end-to-end smoke"
 	@echo "make denylist    scan tracked files for private identifiers"
 	@echo "make docker-build  build the server image"
@@ -24,22 +24,22 @@ install: venv
 	$(PYTHON) -m pre_commit install || true
 
 lint:
-	$(PYTHON) -m ruff check src tests examples
+	ruff check src tests examples
 
 format:
-	$(PYTHON) -m ruff format src tests examples
+	ruff format src tests examples
 
 typecheck:
-	$(PYTHON) -m mypy
+	mypy --strict src
 
 test:
-	$(PYTHON) -m pytest
+	pytest --cov=artifactsmith --cov-report=term-missing --cov-fail-under=80
 
 smoke:
 	bash scripts/ensure-local-env.sh
 	docker compose -f compose.yaml -f compose.test.yaml up -d --build
-	$(PYTHON) tests/e2e/test_end_to_end.py
-	$(PYTHON) tests/e2e/test_formats.py
+	python -m tests.e2e.test_end_to_end
+	python -m tests.e2e.test_formats
 
 denylist:
 	bash scripts/denylist.sh

@@ -100,6 +100,17 @@ class Config:
     def llm_key(self) -> str:
         return _setting("AM_LLM_KEY") or _setting("OPENAI_API_KEY")
 
+    def normalized_llm_base(self) -> str:
+        """Host root without a trailing slash or trailing /v1.
+
+        Callers append /v1/chat/completions or /v1/responses themselves, so
+        both https://api.openai.com and https://api.openai.com/v1 are accepted.
+        """
+        base = self.llm_base.strip().rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3].rstrip("/")
+        return base
+
     def signing_key(self) -> bytes:
         """Stable HMAC key generated on first boot and persisted under the secrets dir."""
         p = self.secrets_dir / "signing.key"

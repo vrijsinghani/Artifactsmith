@@ -3,7 +3,7 @@
 
     ./scripts/ensure-local-env.sh
     docker compose -f compose.yaml -f compose.test.yaml up -d --build
-    python tests/e2e/test_end_to_end.py
+    python -m tests.e2e.test_end_to_end
 
 Exits 0 when every step passes. Uses a real MCP client (mcp streamable-http) plus httpx for the
 preview/share origins, and provisions tokens through the operator CLI inside the server container.
@@ -15,15 +15,10 @@ import asyncio
 import os
 import sys
 import time
-from pathlib import Path
 
 import httpx
 
-_REPO = Path(__file__).resolve().parents[2]
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
-
-from tests.e2e.stack import (  # noqa: E402
+from tests.e2e.stack import (
     API,
     MCP_URL,
     PREVIEW,

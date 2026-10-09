@@ -49,15 +49,15 @@ def _svc() -> Service:
     return SVC
 
 
-def _principal(ctx: Context) -> dict:
+def _principal(ctx: Context[Any, Any, Any]) -> dict[str, Any]:
     req = ctx.request_context.request
     principal = req.scope.get("am_principal") if req is not None else None
-    if not principal:
+    if not isinstance(principal, dict):
         raise AMError("unauthenticated")
     return principal
 
 
-def _run(fn: Callable[..., dict], *a: Any, **k: Any) -> dict:
+def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]:
     try:
         return fn(*a, **k)
     except AMError as e:
@@ -66,7 +66,7 @@ def _run(fn: Callable[..., dict], *a: Any, **k: Any) -> dict:
 
 @mcp.tool()
 def create(
-    ctx: Context,
+    ctx: Context[Any, Any, Any],
     slug: str,
     display_name: str,
     kind: str,
@@ -78,7 +78,7 @@ def create(
     model: str | None = None,
     capabilities: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Queue a new artifact (kind=web_static). Returns artifact_id, version, and job_id immediately.
     Then call status(job_id, wait=90).
 
@@ -116,7 +116,7 @@ def create(
 
 @mcp.tool()
 def edit(
-    ctx: Context,
+    ctx: Context[Any, Any, Any],
     artifact_id: str,
     base_version: int,
     verbatim_request: str,
@@ -125,7 +125,7 @@ def edit(
     workspace: str | None = None,
     model: str | None = None,
     idempotency_key: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Build a new version from base_version (the latest done version) using the user's exact change request.
     Returns a conflict if base_version is stale. Inspect, then edit from the latest.
 
@@ -148,7 +148,9 @@ def edit(
 
 
 @mcp.tool()
-async def status(ctx: Context, artifact_id: str | None = None, job_id: str | None = None, wait: int = 0) -> dict:
+async def status(
+    ctx: Context[Any, Any, Any], artifact_id: str | None = None, job_id: str | None = None, wait: int = 0
+) -> dict[str, Any]:
     """Build state (queued, building, done, failed, or needs_input). needs_input includes a missing message.
     Also returns progress and the presentation card. wait (0 to 90 seconds) holds the call open until the
     build finishes."""
@@ -160,26 +162,32 @@ async def status(ctx: Context, artifact_id: str | None = None, job_id: str | Non
 
 @mcp.tool()
 def list_artifacts(
-    ctx: Context, workspace: str | None = None, kind: str | None = None, query: str | None = None, limit: int = 50
-) -> dict:
+    ctx: Context[Any, Any, Any],
+    workspace: str | None = None,
+    kind: str | None = None,
+    query: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
     """Catalog of artifacts in your workspace, newest first. Optional kind filter and text query on slug or title."""
     return _run(_svc().list, _principal(ctx), workspace=workspace, kind=kind, query=query, limit=limit)
 
 
 @mcp.tool()
-def inspect(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
+def inspect(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
     """Manifest, files, build log, request history, and share state. Defaults to the latest done version."""
     return _run(_svc().inspect, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
-def export(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
+def export(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
     """Download link for the rendered file (html, md, pdf, docx, or xlsx). Valid for 15 minutes."""
     return _run(_svc().export, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
-def share(ctx: Context, artifact_id: str, version: int | None = None, ttl_days: int | None = None) -> dict:
+def share(
+    ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None, ttl_days: int | None = None
+) -> dict[str, Any]:
     """Publish a public link for one exact version (default: the latest done version). Anyone with the link
     can open it. Lifetime follows AM_SHARE_TTL_DAYS (0 means until revoked; otherwise capped by
     AM_SHARE_TTL_MAX_DAYS). The link stays on that version. unshare revokes it immediately."""
@@ -187,13 +195,13 @@ def share(ctx: Context, artifact_id: str, version: int | None = None, ttl_days: 
 
 
 @mcp.tool()
-def unshare(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
+def unshare(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
     """Revoke share links for an artifact, or for one version. Takes effect immediately."""
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
-def delete(ctx: Context, artifact_id: str, confirm_token: str | None = None) -> dict:
+def delete(ctx: Context[Any, Any, Any], artifact_id: str, confirm_token: str | None = None) -> dict[str, Any]:
     """Two-step delete. The first call returns a confirm_token. The second call with that token purges every
     stored version and all links. Warn the user before the second call."""
     return _run(_svc().delete, _principal(ctx), artifact_id, confirm_token)
@@ -201,12 +209,13 @@ def delete(ctx: Context, artifact_id: str, confirm_token: str | None = None) -> 
 
 # ---------------- bearer auth + per-token permissions for the API origin ----------------
 class BearerAuth:
-    def __init__(self, app):
+    def __init__(self, app: Any) -> None:
         self.app = app
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] != "http" or scope["path"] in ("/healthz",):
-            return await self.app(scope, receive, send)
+            await self.app(scope, receive, send)
+            return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         auth = headers.get("authorization", "")
         principal = None
@@ -222,9 +231,11 @@ class BearerAuth:
                 }
         if not principal:
             resp = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
-            return await resp(scope, receive, send)
-        scope["am_principal"] = principal
-        return await self.app(scope, receive, send)
+            await resp(scope, receive, send)
+            return
+        scope.update({"am_principal": principal})
+        await self.app(scope, receive, send)
+        return
 
 
 async def healthz(request: Request) -> JSONResponse:
@@ -309,6 +320,12 @@ async def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    log = logging.getLogger("artifactsmith")
+    if not CFG.llm_key() and "api.openai.com" in CFG.normalized_llm_base():
+        log.warning(
+            "OPENAI_API_KEY / AM_LLM_KEY is empty while AM_LLM_BASE points at api.openai.com; "
+            "create will fail with HTTP 401 until you set a key or point AM_LLM_BASE at a local gateway"
+        )
     svc = Service()
     SVC = svc
     svc.store.ensure_bucket()

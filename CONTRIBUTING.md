@@ -20,7 +20,7 @@ make test
 make denylist
 ```
 
-`make ci` runs those in one go.
+`make ci` runs those in one go. `make typecheck` is `mypy --strict src`. `make test` is the same `pytest` line CI runs; use plain `pytest` before you push.
 
 `tests/unit/test_house_style.py` locks the house-style prompt. Do not reword `SYSTEM` in `builder.py` unless you mean to change the style and you update that test.
 
@@ -30,7 +30,7 @@ Compose smoke (needs Docker):
 make smoke
 ```
 
-That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a canned Chat Completions stand-in from `tests/support/` so the suite can run without a live API key.
+That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a fake chat model from `tests/support/` so the suite can run without a live API key.
 
 ## Layout
 
