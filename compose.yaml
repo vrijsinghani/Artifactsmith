@@ -39,9 +39,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    # Host publish bind. Default loopback-only. Set AM_BIND_ADDRESS=0.0.0.0 (or an
+    # interface IP) to reach the API/preview ports from another machine. Also set
+    # AM_API_URL / AM_PREVIEW_URL / AM_SHARE_URL to the address clients will use.
     ports:
-      - "127.0.0.1:8780:8780"   # MCP API (bearer auth)
-      - "127.0.0.1:8781:8781"   # cookieless preview / share origin
+      - "${AM_BIND_ADDRESS:-127.0.0.1}:8780:8780"   # MCP API (bearer auth)
+      - "${AM_BIND_ADDRESS:-127.0.0.1}:8781:8781"   # cookieless preview / share origin
     # Bring every documented setting (AM_SHARE_URL, AM_MAX_BUILDS, *_FILE, …) from .env.
     # Explicit environment entries below override when set; they supply defaults for LLM/store.
     env_file:
@@ -57,6 +60,11 @@ services:
       AM_SHARE_TTL_MAX_DAYS: ${AM_SHARE_TTL_MAX_DAYS:-365}
       AM_BLOCK_PRIVATE_LINKS: ${AM_BLOCK_PRIVATE_LINKS:-true}
       AM_ALLOWED_LINK_DOMAINS: ${AM_ALLOWED_LINK_DOMAINS:-}
+      AM_API_URL: ${AM_API_URL:-http://127.0.0.1:8780}
+      AM_PREVIEW_URL: ${AM_PREVIEW_URL:-http://127.0.0.1:8781}
+      AM_SHARE_URL: ${AM_SHARE_URL:-}
+      AM_ALLOWED_HOSTS: ${AM_ALLOWED_HOSTS:-127.0.0.1:8780,localhost:8780}
+      AM_ALLOWED_ORIGINS: ${AM_ALLOWED_ORIGINS:-}
     volumes:
       - am-data:/data
       - am-secrets:/secrets

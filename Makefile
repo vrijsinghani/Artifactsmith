@@ -40,6 +40,7 @@ smoke:
 	docker compose -f compose.yaml -f compose.test.yaml up -d --build
 	python -m tests.e2e.test_end_to_end
 	python -m tests.e2e.test_formats
+	python -m tests.e2e.test_bind_address
 
 denylist:
 	bash scripts/denylist.sh

@@ -10,7 +10,70 @@ docker compose up -d --build
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
-`compose.yaml` reads LLM and object-store settings from `.env`. Every `docker compose` command needs those store keys set, including `docker compose down`. Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781`. Put a TLS reverse proxy in front if you expose them past the host.
+`compose.yaml` reads LLM and object-store settings from `.env`. Every `docker compose` command needs those store keys set, including `docker compose down`. Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781` via `AM_BIND_ADDRESS`. Put a TLS reverse proxy in front if you expose them past the host. Exposing the ports without TLS puts bearer tokens and artifact content on the wire in cleartext.
+
+## Serving on your network or behind a proxy
+
+Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (default `127.0.0.1`). Cards and links use `AM_API_URL`, `AM_PREVIEW_URL`, and `AM_SHARE_URL` (empty `AM_SHARE_URL` falls back to `AM_PREVIEW_URL`). `AM_ALLOWED_HOSTS` / `AM_ALLOWED_ORIGINS` enable MCP DNS-rebinding protection when either is set.
+
+### LAN access
+
+```bash
+# .env
+AM_BIND_ADDRESS=0.0.0.0
+AM_API_URL=http://192.168.1.40:8780
+AM_PREVIEW_URL=http://192.168.1.40:8781
+AM_SHARE_URL=http://192.168.1.40:8781
+AM_ALLOWED_HOSTS=192.168.1.40:8780,127.0.0.1:8780,localhost:8780
+```
+
+Clients open `http://192.168.1.40:8780/mcp`. Preview and share links use the LAN host, not `127.0.0.1`.
+
+### Reverse proxy with TLS
+
+Keep the bind on loopback and terminate TLS on the proxy:
+
+```bash
+# .env
+AM_BIND_ADDRESS=127.0.0.1
+AM_API_URL=https://artifacts.example.com
+AM_PREVIEW_URL=https://preview.artifacts.example.com
+AM_SHARE_URL=https://preview.artifacts.example.com
+AM_ALLOWED_HOSTS=artifacts.example.com
+AM_ALLOWED_ORIGINS=https://artifacts.example.com
+```
+
+Caddy:
+
+```caddy
+artifacts.example.com {
+  reverse_proxy 127.0.0.1:8780
+}
+preview.artifacts.example.com {
+  reverse_proxy 127.0.0.1:8781
+}
+```
+
+nginx (API host):
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name artifacts.example.com;
+  location / {
+    proxy_pass http://127.0.0.1:8780;
+    proxy_set_header Host $host;
+    proxy_set_header Authorization $http_authorization;
+  }
+}
+```
+
+### MCP client on another machine
+
+```text
+URL:    {AM_API_URL}/mcp
+Header: Authorization: Bearer <token from artifactsmith token add>
+```
 
 ## Backups
 

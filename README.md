@@ -30,6 +30,74 @@ Host ports bind to `127.0.0.1`:
 - `http://127.0.0.1:8780/mcp` is the MCP API (bearer token required)
 - `http://127.0.0.1:8781/` is the cookieless preview and share origin (`/p/…`, `/s/…`)
 
+## Serving on your network or behind a proxy
+
+Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (default `127.0.0.1`). Cards and links use `AM_API_URL`, `AM_PREVIEW_URL`, and `AM_SHARE_URL` (empty `AM_SHARE_URL` falls back to `AM_PREVIEW_URL`). Exposing the ports without TLS puts bearer tokens and artifact content on the wire in cleartext.
+
+### LAN access
+
+Bind on all interfaces (or a specific NIC IP) and point the public URL variables at the address clients will open:
+
+```bash
+# .env
+AM_BIND_ADDRESS=0.0.0.0
+AM_API_URL=http://192.168.1.40:8780
+AM_PREVIEW_URL=http://192.168.1.40:8781
+AM_SHARE_URL=http://192.168.1.40:8781
+AM_ALLOWED_HOSTS=192.168.1.40:8780,127.0.0.1:8780,localhost:8780
+```
+
+Then `docker compose up -d --build`. Clients open `http://192.168.1.40:8780/mcp` and preview/share links use `192.168.1.40`, not `127.0.0.1`.
+
+### Reverse proxy with TLS
+
+Keep the host bind on loopback and terminate TLS on nginx or Caddy. Set the public URLs and allow-lists to the external hostname:
+
+```bash
+# .env
+AM_BIND_ADDRESS=127.0.0.1
+AM_API_URL=https://artifacts.example.com
+AM_PREVIEW_URL=https://preview.artifacts.example.com
+AM_SHARE_URL=https://preview.artifacts.example.com
+AM_ALLOWED_HOSTS=artifacts.example.com
+AM_ALLOWED_ORIGINS=https://artifacts.example.com
+```
+
+Minimal Caddy example (API on 443, preview on a second hostname):
+
+```caddy
+artifacts.example.com {
+  reverse_proxy 127.0.0.1:8780
+}
+preview.artifacts.example.com {
+  reverse_proxy 127.0.0.1:8781
+}
+```
+
+Minimal nginx snippet for the API host:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name artifacts.example.com;
+  # ssl_certificate / ssl_certificate_key omitted
+  location / {
+    proxy_pass http://127.0.0.1:8780;
+    proxy_set_header Host $host;
+    proxy_set_header Authorization $http_authorization;
+  }
+}
+```
+
+### MCP client on another machine
+
+Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Example:
+
+```text
+URL:    http://192.168.1.40:8780/mcp
+Header: Authorization: Bearer am_…
+```
+
 ## How it works
 
 Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link.
@@ -100,8 +168,11 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_MAX_BUILDS` | `2` | Concurrent workers. |
 | `AM_BUILDS_PER_HOUR` | `20` | Per-token quota. |
 | `AM_HOST` | `0.0.0.0` | Bind address inside the container. |
+| `AM_BIND_ADDRESS` | `127.0.0.1` | Host publish bind for ports `8780` and `8781` in `compose.yaml`. |
 | `AM_API_PORT` / `AM_PREVIEW_PORT` | `8780` / `8781` | Listen ports. |
-| `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. |
+| `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. Empty `AM_SHARE_URL` uses `AM_PREVIEW_URL`. |
+| `AM_ALLOWED_HOSTS` | empty (compose default: `127.0.0.1:8780,localhost:8780`) | Comma-separated Host values for MCP DNS-rebinding protection. |
+| `AM_ALLOWED_ORIGINS` | empty | Comma-separated Origin values for MCP DNS-rebinding protection. |
 | `AM_DATA_DIR` / `AM_SECRETS_DIR` | `/data` / `/secrets` | SQLite and the HMAC signing key. |
 
 Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empty `AM_STORE_KEY` and `AM_STORE_SECRET`. The storage image is `rustfs/rustfs:1.0.1` (pinned by digest in `compose.yaml`).
@@ -149,6 +220,7 @@ End-to-end tests use `compose.test.yaml`, which adds a fake chat model from `tes
 docker compose -f compose.yaml -f compose.test.yaml up -d --build
 python -m tests.e2e.test_end_to_end
 python -m tests.e2e.test_formats
+python -m tests.e2e.test_bind_address   # AM_BIND_ADDRESS=0.0.0.0 via non-loopback IP
 ```
 
 `make smoke` runs the same stack and scripts. Compose commands need a `.env` with `AM_STORE_KEY` and `AM_STORE_SECRET` set (including `docker compose down`), because those variables are required by `compose.yaml`.

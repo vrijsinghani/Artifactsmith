@@ -138,3 +138,27 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f compose.yaml -f compose.test.yaml down -v
+
+  bind-smoke:
+    name: bind address smoke
+    runs-on: ubuntu-24.04
+    needs: [lint-typecheck, test]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install client extras
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+      - name: Local object-store credentials
+        run: bash scripts/ensure-local-env.sh
+      - name: Bind-address smoke (0.0.0.0 + public URLs)
+        run: python -m tests.e2e.test_bind_address
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml -f compose.test.yaml logs --no-color | tail -n 200
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yaml -f compose.test.yaml down -v

@@ -9,6 +9,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - The canned Chat Completions endpoint from the shipped package, the CLI, `compose.yaml`, and the server image. Tests keep a fake chat model under `tests/support/` started by `compose.test.yaml`.
 
+### Added
+
+- `AM_BIND_ADDRESS` (default `127.0.0.1`) configures the compose host publish bind for API and preview ports. README and operations cover LAN access, TLS reverse proxy, and remote MCP clients. CI runs a bind-address smoke against a non-loopback host IP.
+
 ### Changed
 
 - `compose.yaml` restores `env_file: .env` so documented settings (`AM_SHARE_URL`, limits, `*_FILE`) reach the server.
