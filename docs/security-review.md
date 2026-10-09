@@ -15,49 +15,38 @@ run time; the index is `.cursor/skills/trail-of-bits.md`.
 Prerequisites: `git`, `bash`, `jq`, `python3`, Semgrep, bandit, gitleaks,
 pip-audit, Trivy, and Docker (for the image scan). `docker` and `trivy image`
 need permission to the Docker socket (membership in the `docker` group, or
-the equivalent). `uv` is optional for the supply-chain collector. Activate
-`.venv` when this repo has one.
+the equivalent). `uv` is optional for an app-only requirements export and for
+the supply-chain collector. Activate `.venv` when this repo has one.
 
 ## 1. Semgrep
 
-Install Semgrep. Fetch the skill, then use its `run-scans.sh`. Do not
-hand-write `semgrep` lines. Third-party rulesets are cloned at the commits
-pinned in `fetch-upstream.sh`.
+Install Semgrep. Fetch the Trail of Bits skill, then use its `run-scans.sh`.
+Do not hand-write `semgrep` lines.
+
+Third-party rules (trailofbits/semgrep-rules, elttam/semgrep-rules,
+apiiro/malicious-code-ruleset) are **moving upstream sources**. The runner
+requires `third_party` entries to be `https://` git URLs and shallow-clones
+HEAD. Those scans are not pinned. Registry packs (`p/…`) also move.
+
+`run-scans.sh` exits 0 if any single scan succeeds. `partial=true`, `failed`,
+`skipped`, `coveredNothing`, and `oversized` in `scans.json` must each be
+disposed of before calling a review complete. The wrapper below fails if any
+of those are present.
+
+Run this step as written:
 
 ```bash
-SKILL=$(bash .cursor/skills/fetch-upstream.sh semgrep)
-mapfile -t RULE_DIRS < <(bash .cursor/skills/fetch-upstream.sh semgrep-rulesets)
-OUTPUT="${OUTPUT:-$PWD/security-audit/semgrep}"
-mkdir -p "$OUTPUT"
-jq -n \
-  --arg tob "${RULE_DIRS[0]}" \
-  --arg elttam "${RULE_DIRS[1]}" \
-  --arg apiiro "${RULE_DIRS[2]}" \
-  '{
-    baseline: ["p/owasp-top-ten", "p/secrets", "p/python"],
-    python: ["p/python"],
-    docker: ["p/dockerfile"],
-    yaml: ["p/docker-compose"],
-    "github-actions": ["p/github-actions"],
-    third_party: [$tob, $elttam, $apiiro]
-  }' > "$OUTPUT/rulesets.json"
-bash "$SKILL/scripts/run-scans.sh" \
-  --target "$(pwd)" \
-  --output-dir "$OUTPUT" \
-  --mode run-all \
-  --rulesets "$OUTPUT/rulesets.json"
-python3 "$SKILL/scripts/merge_sarif.py" \
-  "$OUTPUT/raw" "$OUTPUT/results/results.sarif" --scans "$OUTPUT/scans.json"
+bash scripts/run-security-semgrep.sh
 ```
 
-Pins (also in `fetch-upstream.sh`):
-
-- trailofbits/semgrep-rules `31390b3a99c04c81522d1b37c8d1900aa2dd4094`
-- elttam/semgrep-rules `244268562cc92d33f54b8a60a187df5520f91b26`
-- apiiro/malicious-code-ruleset `a21246b666f34db899f0e33add7237ed70fab790`
+The wrapper writes `security-audit/semgrep/rulesets.json` with https URLs
+(not local paths), runs `run-scans.sh`, writes cloned commits and tool
+versions to `security-audit/semgrep/revisions.json`, warns on stderr when a
+clone differs from the revisions listed in `docs/security-audit-2026-10-09.md`,
+and runs the completeness check. Fetch uses a file plus exit-status check,
+not `mapfile` on a process substitution.
 
 Fetch `sarif-parsing` and follow its `SKILL.md` to summarize the merged SARIF.
-Report `failed`, `skipped`, `coveredNothing`, and `oversized` from `scans.json`.
 
 ## 2. Threat model (`security-threat-model`)
 
@@ -94,7 +83,8 @@ claim/delete, store credentials.
 
 Follow `artifactsmith-security-checklist`. Reproduce each class (sanitizer
 payloads in headless Chromium without CSP, openpyxl formula round-trip, race
-tests with barriers). Do not pass an item from unit tests alone.
+tests with barriers, stored Markdown in pandoc or GFM). Do not pass an item
+from unit tests alone.
 
 ## 6. False-positive check
 
@@ -110,19 +100,35 @@ Keep only what survives. One-line each discarded item.
 Put outputs under `security-audit/` (gitignored) or attach them as a CI artifact.
 Do not commit SARIF or JSON.
 
+bandit and pip-audit exit 1 when they report findings. That means "findings
+listed", not "the command failed to run". Read the report.
+
 ```bash
 mkdir -p security-audit
 
-# bandit 1.9.x on application code
+# bandit 1.9.x on application code (exit 1 = findings)
 python3 -m bandit -r src -f json -o security-audit/bandit.json
 python3 -m bandit -r src
 
 # gitleaks 8.x on full git history
 gitleaks detect --source . --report-format json --report-path security-audit/gitleaks.json
 
-# pip-audit 2.x on the installed package (activate .venv first)
-python3 -m pip install -e .
-python3 -m pip_audit --desc
+# pip-audit 2.x on the app's resolved runtime requirements, not the review venv.
+# uv export if you have uv; otherwise a throwaway venv that only installs the app.
+# Exit 1 = findings.
+if command -v uv >/dev/null; then
+  uv export --no-dev --no-emit-project -o security-audit/requirements.app.txt
+else
+  python3 -m venv security-audit/app-deps
+  security-audit/app-deps/bin/pip install -U pip
+  security-audit/app-deps/bin/pip install .
+  security-audit/app-deps/bin/pip freeze > security-audit/requirements.app.txt
+fi
+python3 -m pip_audit -r security-audit/requirements.app.txt --desc
+
+# Optional: the review venv (dev tools). Record as environment findings,
+# not as application noise.
+# python3 -m pip_audit --desc
 
 # Trivy 0.75.x on the built image, not only the filesystem
 docker build -t artifactsmith:review -f docker/Dockerfile .
@@ -144,4 +150,5 @@ fi
 Record tool versions next to the outputs.
 
 The 9 October 2026 review of `a2b873c56365445d3443efb992eda480dafa593e` is
-`docs/security-audit-2026-10-09.md`.
+`docs/security-audit-2026-10-09.md`. Run a fresh review with the commands
+above; do not treat that document as a replay of the same scanner bytes.

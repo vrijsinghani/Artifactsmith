@@ -106,6 +106,11 @@ Also fail if:
 
 Standalone exports and Markdown/PDF/DOCX/XLSX bodies are in scope, not only hosted preview. Public `http(s)` citations to global hosts may stay.
 
+Also open the stored Markdown in at least one outside renderer (pandoc
+`--from gfm` / `--to html`, or GitHub-flavored Markdown preview). Fail if
+that renderer linkifies or restores a destination this repo's parser
+neutralized. Do not pass the item from this repo's markdown-it path alone.
+
 ## How to record a result
 
 For each item: payload or race setup, file:line of the sink, whether the control held, and one concrete fix if it failed.

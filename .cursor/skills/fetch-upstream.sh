@@ -2,27 +2,25 @@
 # Fetch pinned upstream skill trees at run time. Does not vendor them in git.
 # Trail of Bits material stays in their repo (CC-BY-SA-4.0). This script is
 # original to ArtifactSmith (MIT).
+#
+# Third-party Semgrep *rules* are not fetched here. run-scans.sh clones those
+# from https git URLs at whatever HEAD it gets; see scripts/run-security-semgrep.sh.
 set -euo pipefail
 shopt -s inherit_errexit
 
-readonly TOB_URL=https://github.com/trailofbits/skills.git
-readonly TOB_SHA=82fe8226252622fa807643bdca1710901198553a
-readonly OA_URL=https://github.com/openai/skills.git
-readonly OA_SHA=49f948faa9258a0c61caceaf225e179651397431
-readonly TOB_RULES_URL=https://github.com/trailofbits/semgrep-rules.git
-readonly TOB_RULES_SHA=31390b3a99c04c81522d1b37c8d1900aa2dd4094
-readonly ELTTAM_RULES_URL=https://github.com/elttam/semgrep-rules.git
-readonly ELTTAM_RULES_SHA=244268562cc92d33f54b8a60a187df5520f91b26
-readonly APIIRO_RULES_URL=https://github.com/apiiro/malicious-code-ruleset.git
-readonly APIIRO_RULES_SHA=a21246b666f34db899f0e33add7237ed70fab790
+readonly TOB_URL="${ARTIFACTSMITH_TOB_URL:-https://github.com/trailofbits/skills.git}"
+readonly TOB_SHA="${ARTIFACTSMITH_TOB_SHA:-82fe8226252622fa807643bdca1710901198553a}"
+readonly OA_URL="${ARTIFACTSMITH_OA_URL:-https://github.com/openai/skills.git}"
+readonly OA_SHA="${ARTIFACTSMITH_OA_SHA:-49f948faa9258a0c61caceaf225e179651397431}"
 readonly CACHE="${ARTIFACTSMITH_SKILL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/artifactsmith-skills}"
 
 usage() {
   cat <<'USAGE'
 Usage: fetch-upstream.sh NAME [NAME...]
 
-Prints the directory that holds the fetched files (one line per NAME).
-Exits non-zero if a fetch fails or a required file is missing or changed.
+Prints the directory that holds the fetched files (one line per NAME),
+only after every requested NAME succeeds. Exits non-zero if a fetch fails
+or a required file is missing or changed.
 
 Trail of Bits skills (pin 82fe8226252622fa807643bdca1710901198553a):
   semgrep
@@ -32,9 +30,6 @@ Trail of Bits skills (pin 82fe8226252622fa807643bdca1710901198553a):
   supply-chain-risk-auditor
   fp-check
   tob                      all of the above (prints the clone root)
-
-Semgrep third-party rulesets (pinned commits):
-  semgrep-rulesets         prints three clone directories, one per line
 
 OpenAI curated (pin 49f948faa9258a0c61caceaf225e179651397431):
   openai-best-practices    framework notes (SKILL.md is already in git)
@@ -47,34 +42,45 @@ die() {
   exit 1
 }
 
-# Return 0 only when dest is at sha, the worktree is clean, and each required
-# relative path exists and matches the blob at HEAD.
+# Return 0 only when dest is at sha, the worktree is clean (no staged, unstaged,
+# untracked, or ignored files), and each required relative path exists and
+# matches the blob at HEAD.
 cache_ok() {
   local dest=$1 sha=$2
   shift 2
-  local head exp act f
+  local head exp act f status
   [ -d "$dest/.git" ] || return 1
-  head=$(git -C "$dest" rev-parse HEAD) || return 1
+  head=$(git -C "$dest" rev-parse HEAD 2>/dev/null) || return 1
   [ "$head" = "$sha" ] || return 1
-  git -C "$dest" diff-index --quiet HEAD -- || return 1
+  git -C "$dest" diff-index --quiet HEAD -- 2>/dev/null || return 1
+  status=$(git -C "$dest" status --porcelain --untracked-files=all --ignored 2>/dev/null) || return 1
+  [ -z "$status" ] || return 1
   for f in "$@"; do
     [ -f "$dest/$f" ] || return 1
-    exp=$(git -C "$dest" rev-parse "HEAD:$f") || return 1
-    act=$(git -C "$dest" hash-object "$dest/$f") || return 1
+    exp=$(git -C "$dest" rev-parse "HEAD:$f" 2>/dev/null) || return 1
+    act=$(git -C "$dest" hash-object "$dest/$f" 2>/dev/null) || return 1
     [ "$exp" = "$act" ] || return 1
   done
   return 0
 }
 
-# Clone or reuse dest at sha.
+# Clone into a new directory. On success, replace dest with that directory.
+# Never wipe dest and reuse it in place.
+install_fresh() {
+  local dest=$1 fresh=$2
+  rm -rf "$dest"
+  mv "$fresh" "$dest"
+}
+
 # Arguments after sha: sparse-checkout paths, then --, then required files
 # (relative to dest) that must exist and match HEAD blobs.
+# Prints dest on stdout.
 sparse_pin() {
   local name=$1 url=$2 sha=$3
   shift 3
   local dest="$CACHE/$name"
   local sparse=() required=()
-  local seen_sep=0 arg
+  local seen_sep=0 arg fresh
   for arg in "$@"; do
     if [ "$arg" = "--" ]; then
       seen_sep=1
@@ -93,33 +99,25 @@ sparse_pin() {
     printf '%s\n' "$dest"
     return 0
   fi
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  git -C "$dest" init -q
-  git -C "$dest" remote add origin "$url"
-  git -C "$dest" fetch --depth 1 origin "$sha" || die "fetch failed for $name ($url @$sha)"
-  git -C "$dest" sparse-checkout init --no-cone
-  git -C "$dest" sparse-checkout set "${sparse[@]}"
-  git -C "$dest" checkout -q FETCH_HEAD || die "checkout failed for $name"
-  cache_ok "$dest" "$sha" "${required[@]}" || die "required files missing or changed after fetch ($name)"
-  printf '%s\n' "$dest"
-}
-
-# Full (non-sparse) pin for ruleset repos. Requires at least one file path.
-clone_pin() {
-  local name=$1 url=$2 sha=$3
-  shift 3
-  local dest="$CACHE/$name"
-  if cache_ok "$dest" "$sha" "$@"; then
-    printf '%s\n' "$dest"
-    return 0
-  fi
-  rm -rf "$dest"
   mkdir -p "$CACHE"
-  git clone --filter=blob:none "$url" "$dest" || die "clone failed for $name ($url)"
-  git -C "$dest" fetch --depth 1 origin "$sha" || die "fetch failed for $name ($url @$sha)"
-  git -C "$dest" checkout -q "$sha" || die "checkout failed for $name"
-  cache_ok "$dest" "$sha" "$@" || die "required files missing or changed after fetch ($name)"
+  fresh=$(mktemp -d "$CACHE/$name.refetch.XXXXXX")
+  git -C "$fresh" init -q
+  git -C "$fresh" remote add origin "$url"
+  if ! git -C "$fresh" fetch --depth 1 origin "$sha"; then
+    rm -rf "$fresh"
+    die "fetch failed for $name ($url @$sha)"
+  fi
+  git -C "$fresh" sparse-checkout init --no-cone
+  git -C "$fresh" sparse-checkout set "${sparse[@]}"
+  if ! git -C "$fresh" checkout -q FETCH_HEAD; then
+    rm -rf "$fresh"
+    die "checkout failed for $name"
+  fi
+  if ! cache_ok "$fresh" "$sha" "${required[@]}"; then
+    rm -rf "$fresh"
+    die "required files missing or changed after fetch ($name)"
+  fi
+  install_fresh "$dest" "$fresh"
   printf '%s\n' "$dest"
 }
 
@@ -133,6 +131,7 @@ require_file() {
   [ -f "$path" ] || die "$label missing: $path"
 }
 
+# Prints the skill (or clone-root) path on stdout. No other stdout.
 fetch_one() {
   local root skill
   case "$1" in
@@ -249,14 +248,6 @@ fetch_one() {
       require_file "$skill/security-controls-and-assets.md" "security-controls-and-assets.md"
       printf '%s\n' "$skill"
       ;;
-    semgrep-rulesets)
-      clone_pin tob-semgrep-rules "$TOB_RULES_URL" "$TOB_RULES_SHA" README.md \
-        || die "trailofbits/semgrep-rules fetch failed"
-      clone_pin elttam-semgrep-rules "$ELTTAM_RULES_URL" "$ELTTAM_RULES_SHA" README.md \
-        || die "elttam/semgrep-rules fetch failed"
-      clone_pin apiiro-malicious-code-ruleset "$APIIRO_RULES_URL" "$APIIRO_RULES_SHA" README.md \
-        || die "apiiro/malicious-code-ruleset fetch failed"
-      ;;
     *)
       die "unknown name: $1"
       ;;
@@ -269,6 +260,9 @@ if [ "$#" -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+collected=()
 for name in "$@"; do
-  fetch_one "$name"
+  path=$(fetch_one "$name") || die "fetch failed: $name"
+  collected+=("$path")
 done
+printf '%s\n' "${collected[@]}"

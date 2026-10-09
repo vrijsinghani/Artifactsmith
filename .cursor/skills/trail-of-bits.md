@@ -14,7 +14,7 @@ ROOT=$(bash .cursor/skills/fetch-upstream.sh NAME)
 
 | Name | Upstream path | How to run after fetch |
 |---|---|---|
-| `semgrep` | `plugins/static-analysis/skills/semgrep` | `bash "$ROOT/scripts/run-scans.sh" --target "$(pwd)" --output-dir "$OUT" --mode run-all --rulesets "$OUT/rulesets.json"` then `python3 "$ROOT/scripts/merge_sarif.py" "$OUT/raw" "$OUT/results/results.sarif" --scans "$OUT/scans.json"`. Every `semgrep` line must pass `--metrics=off`. Pin third-party rules with `fetch-upstream.sh semgrep-rulesets`. |
+| `semgrep` | `plugins/static-analysis/skills/semgrep` | `bash scripts/run-security-semgrep.sh`. That wrapper passes https third-party URLs (moving upstream sources, not pinned), records cloned commits, and fails the review if `scans.json` is incomplete. Every `semgrep` line must pass `--metrics=off`. |
 | `sarif-parsing` | `plugins/static-analysis/skills/sarif-parsing` | Follow `$ROOT/SKILL.md` on the merged SARIF. |
 | `differential-review` | `plugins/differential-review/skills/differential-review` | Follow `$ROOT/SKILL.md` on `git diff main...HEAD`. |
 | `sharp-edges` | `plugins/sharp-edges/skills/sharp-edges` | Follow `$ROOT/SKILL.md`. Probe config/compose zero and empty defaults. |
