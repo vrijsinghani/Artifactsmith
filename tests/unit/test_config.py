@@ -91,7 +91,12 @@ def test_compose_and_image_set_in_container_host():
     assert "AM_HOST: ${AM_HOST:-0.0.0.0}" in compose or "AM_HOST: 0.0.0.0" in compose
     assert "AM_HOST=0.0.0.0" in dockerfile
     # No floating :latest tags in compose or support Dockerfiles.
-    for path in (Path("compose.yaml"), Path("compose.test.yaml"), Path("tests/support/Dockerfile"), Path("docker/Dockerfile")):
+    for path in (
+        Path("compose.yaml"),
+        Path("compose.test.yaml"),
+        Path("tests/support/Dockerfile"),
+        Path("docker/Dockerfile"),
+    ):
         text = path.read_text()
         assert ":latest" not in text, f"{path} still pins :latest"
 
