@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -181,15 +182,57 @@ def _chrome_dump_dom(html: str) -> str:
     return proc.stdout
 
 
-def _chrome_netlog_urls(html: str) -> list[str]:
-    """Open sanitized HTML with no CSP; return request URLs from the netlog."""
+class _ProxyRecorder:
+    """Minimal HTTP proxy that records CONNECT/GET targets. Fail-closed network harness."""
+
+    def __init__(self) -> None:
+        self.targets: list[str] = []
+        self._lock = threading.Lock()
+        recorder = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+            def _record(self, target: str) -> None:
+                with recorder._lock:
+                    recorder.targets.append(target)
+
+            def do_CONNECT(self) -> None:  # noqa: N802
+                self._record("https://" + self.path)
+                self.send_error(502, "denied")
+
+            def do_GET(self) -> None:  # noqa: N802
+                host = self.headers.get("Host", "")
+                self._record(f"http://{host}{self.path}")
+                self.send_error(502, "denied")
+
+            def do_HEAD(self) -> None:  # noqa: N802
+                self.do_GET()
+
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        host, port = self._httpd.server_address
+        self.url = f"http://{host}:{port}"
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+
+    def __enter__(self) -> _ProxyRecorder:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._httpd.shutdown()
+        self._httpd.server_close()
+        self._thread.join(timeout=5)
+
+
+def _chrome_open_via_proxy(html: str, proxy_url: str) -> None:
+    """Load HTML in headless Chrome forced through ``proxy_url`` (no CSP)."""
     chrome = _chrome()
     assert chrome is not None
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         html_path = root / "export.html"
         html_path.write_text(html, encoding="utf-8")
-        netlog = root / "netlog.json"
         profile = root / "chrome-profile"
         profile.mkdir()
         subprocess.run(
@@ -201,8 +244,9 @@ def _chrome_netlog_urls(html: str) -> list[str]:
                 "--disable-gpu",
                 "--no-sandbox",
                 f"--user-data-dir={profile}",
-                f"--log-net-log={netlog}",
-                "--net-log-capture-mode=Everything",
+                f"--proxy-server={proxy_url}",
+                # Do not bypass proxy for localhost; we need every remote attempt recorded.
+                "--proxy-bypass-list=<-loopback>",
                 "--virtual-time-budget=3000",
                 "--timeout=5000",
                 "--dump-dom",
@@ -213,23 +257,6 @@ def _chrome_netlog_urls(html: str) -> list[str]:
             timeout=40,
             check=False,
         )
-        assert netlog.is_file(), "chrome netlog file was not created"
-        assert netlog.stat().st_size > 0, "chrome netlog file is empty"
-        raw = netlog.read_text(encoding="utf-8", errors="replace")
-        assert raw.strip(), "chrome netlog file has no content"
-        # Netlog is JSON; collect string values that look like absolute URLs.
-        urls: list[str] = []
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            # Partial netlog on timeout — still scan text (file exists and is non-empty).
-            for m in __import__("re").findall(r"https?://[^\s\"']+", raw):
-                urls.append(m)
-            return urls
-        blob = json.dumps(data)
-        for m in __import__("re").findall(r"https?://[^\s\"'\\]+", blob):
-            urls.append(m)
-        return urls
 
 
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
@@ -259,6 +286,20 @@ def test_standalone_export_style_breakout_does_not_run_in_chrome():
 
 
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
+def test_harness_proxy_records_remote_img_fetch():
+    """Positive control: a live remote <img> must produce a proxy hit (harness works)."""
+    evil = (
+        "<!DOCTYPE html><html><body>"
+        '<img src="https://evil.example/tracker.png" alt="t">'
+        "</body></html>"
+    )
+    with _ProxyRecorder() as proxy:
+        _chrome_open_via_proxy(evil, proxy.url)
+        hits = [t for t in proxy.targets if "evil.example" in t]
+        assert hits, f"proxy harness recorded no fetch; targets={proxy.targets!r}"
+
+
+@pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
 def test_html_export_with_public_link_does_not_fetch_remote():
     """Opening an export with a public <a href> must not phone home (no CSP)."""
     raw = """<!DOCTYPE html><html><body>
@@ -270,8 +311,9 @@ def test_html_export_with_public_link_does_not_fetch_remote():
     assert 'href="https://example.com/paper"' in cleaned
     assert "evil.example" not in cleaned
     assert 'src="https://' not in cleaned.lower()
-    urls = _chrome_netlog_urls(cleaned)
     watched = ("example.com", "example.org", "evil.example")
-    remote = [u for u in urls if u.startswith(("http://", "https://")) and any(h in u for h in watched)]
-    # Anchors must not be fetched on open; stripped img must not appear.
-    assert remote == [], remote
+    with _ProxyRecorder() as proxy:
+        _chrome_open_via_proxy(cleaned, proxy.url)
+        remote = [t for t in proxy.targets if any(h in t for h in watched)]
+        # Anchors must not be fetched on open; stripped img must not appear.
+        assert remote == [], remote
