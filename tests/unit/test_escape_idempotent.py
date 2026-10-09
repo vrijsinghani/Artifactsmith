@@ -28,6 +28,19 @@ def test_escape_md_text_escapes_raw_token_content_once():
     assert escape_md_text("hello[world]") == r"hello\[world\]"
 
 
+def test_fail_closed_escapes_colon_and_at():
+    """Scheme/authority markers must be escaped so readers cannot re-linkify."""
+    once = escape_all_md_punctuation("https://127.0.0.1/x user@host")
+    assert once == r"https\://127\.0\.0\.1/x user\@host"
+    assert escape_all_md_punctuation(once) == once
+    # TAB-split scheme cannot reassemble into a live URL after fail-closed.
+    tricky = "https:\t//127.0.0.1/x"
+    esc = escape_all_md_punctuation(tricky)
+    assert "https://" not in esc
+    assert r"https\:" in esc
+    assert escape_all_md_punctuation(esc) == esc
+
+
 def test_sanitize_idempotent_with_fallback_shaped_escapes():
     raw = r"text with \\[not a link]"
     once = sanitize_markdown(raw)

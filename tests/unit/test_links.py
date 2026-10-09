@@ -303,8 +303,10 @@ def test_linkify_markdown_wraps_bare_public_urls():
     assert "[x](https://example.org/b)" in out
     private = sanitize_markdown("go http://127.0.0.1/x now")
     assert "](http://127.0.0.1" not in private
-    # Bare private URL stays visible as text (not a destination).
-    assert "http://127.0.0.1/x" in private
+    # Visible but inert: code span or escaped; no reader link destination.
+    assert "http://127.0.0.1/x" in private.replace("\\", "")
+    assert "`http://127.0.0.1/x`" in private or r"http\://" in private
+    assert collect_link_destinations(private) == []
 
 
 def test_blocked_angle_autolinks_become_inline_code():
@@ -315,6 +317,35 @@ def test_blocked_angle_autolinks_become_inline_code():
     assert "<javascript" not in out
     assert "](javascript:" not in out
     assert "](http://127.0.0.1" not in out
+
+
+def test_blocked_autolink_backtick_runs_and_email():
+    """Inline-code fence grows past content ticks; email autolinks stay non-mailto."""
+    one = sanitize_markdown("go <a`b@127.0.0.1> now")
+    assert "``a`b@127.0.0.1``" in one
+    assert "mailto:" not in one.lower()
+    assert collect_link_destinations(one) == []
+
+    two = sanitize_markdown("go <a``b@127.0.0.1> now")
+    assert "```a``b@127.0.0.1```" in two
+    assert "mailto:" not in two.lower()
+    assert collect_link_destinations(two) == []
+
+    mail = sanitize_markdown("contact <x@127.0.0.1> please")
+    assert "`x@127.0.0.1`" in mail
+    assert "mailto:" not in mail.lower()
+    assert collect_link_destinations(mail) == []
+
+
+def test_inline_code_pads_when_content_touches_backtick():
+    from markdown_it.token import Token
+
+    from artifactsmith.renderers.md_serialize import serialize_inline
+
+    tok = Token("code_inline", "code", 0)
+    tok.markup = "``"
+    tok.content = "`tail"
+    assert serialize_inline([tok]) == "`` `tail ``"
 
 
 def test_https_markdown_link_survives_byte_for_byte():

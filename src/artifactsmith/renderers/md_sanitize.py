@@ -48,8 +48,17 @@ def _text_token(content: str) -> Token:
 
 
 def _code_inline_token(content: str) -> Token:
+    """Inline code with a backtick run longer than any run inside ``content``."""
+    longest = 0
+    run = 0
+    for ch in content:
+        if ch == "`":
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
     t = Token("code_inline", "code", 0)
-    t.markup = "`"
+    t.markup = "`" * (longest + 1)
     t.content = content
     return t
 
@@ -114,13 +123,11 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
                     out.append(open_t)
                     out.extend(_rewrite_inline(inner))
                     out.append(Token("link_close", "a", -1))
-                elif _label_is_destination(label, href_raw):
-                    # Blocked <url> autolink: keep readable as inline code (not a link).
+                elif link_markup in ("autolink", "linkify") or _label_is_destination(label, href_raw):
+                    # Never emit a blocked destination as plain text (re-linkifies).
+                    # Autolink / linkify / mirrored dest → inline code (incl. mailto).
                     if label:
-                        if link_markup == "autolink":
-                            out.append(_code_inline_token(label))
-                        else:
-                            out.append(_text_token(label))
+                        out.append(_code_inline_token(label))
                 elif inner:
                     out.extend(_rewrite_inline(inner))
                 elif label:
@@ -158,7 +165,10 @@ def _linkify_text_token(text: str) -> list[Token]:
             if trailing:
                 parts.append(_text_token(trailing))
         else:
-            parts.append(_text_token(raw))
+            # Blocked bare URL in residual text → inline code (not re-linkifiable).
+            parts.append(_code_inline_token(core))
+            if trailing:
+                parts.append(_text_token(trailing))
         pos = m.end()
     if pos < len(text):
         parts.append(_text_token(text[pos:]))
@@ -185,7 +195,13 @@ def _linkify_prose_urls(text: str) -> str:
             if trailing:
                 parts.append(trailing)
         else:
-            parts.append(raw)
+            # Inline code so a later linkify pass cannot revive the destination.
+            tick_len = max((len(m.group(0)) for m in re.finditer(r"`+", core)), default=0) + 1
+            ticks = "`" * tick_len
+            pad = " " if core.startswith("`") or core.endswith("`") else ""
+            parts.append(f"{ticks}{pad}{core}{pad}{ticks}")
+            if trailing:
+                parts.append(trailing)
         pos = m.end()
     parts.append(text[pos:])
     return "".join(parts)
@@ -194,10 +210,10 @@ def _linkify_prose_urls(text: str) -> str:
 def _destinations_policy_clean(md_text: str) -> bool:
     """True when re-parsed output has no images and only allowed link destinations.
 
-    Linkify is off: after sanitize, intended links are already markdown links;
-    re-linkifying bare text would treat kept private URL text as a new destination.
+    Uses the same linkify-enabled parser as sanitize so bare private URLs that
+    would re-linkify fail closed instead of slipping through.
     """
-    md = _parser(linkify=False)
+    md = _parser()
     tokens = md.parse(md_text)
 
     def walk(children: list[Token] | None) -> bool:

@@ -18,6 +18,7 @@ from . import builder
 from .config import CFG
 from .db import DB, jloads
 from .renderers import EXTENSION, SUPPORTED_FORMATS
+from .renderers.safety import strip_ooxml_controls
 from .store import Store
 
 log = logging.getLogger("artifactsmith.service")
@@ -212,7 +213,9 @@ class Service:
 
     @staticmethod
     def _validate_display_name(display_name: str, slug: str) -> str:
-        name = (display_name or slug or "").strip() or slug
+        name = strip_ooxml_controls((display_name or slug or "").strip() or slug)
+        if not name:
+            name = slug
         if len(name) > DISPLAY_NAME_CAP_CHARS:
             raise AMError(f"display_name exceeds {DISPLAY_NAME_CAP_CHARS} characters")
         return name

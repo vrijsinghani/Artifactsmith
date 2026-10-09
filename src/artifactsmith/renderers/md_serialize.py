@@ -8,9 +8,10 @@ from markdown_it.token import Token
 
 # Inline text: escape characters that can open links, images, emphasis, or HTML.
 _MD_TEXT_ESCAPE_RE = re.compile(r"([\\`*_{}\[\]()!<>])")
-# Fail-closed: every CommonMark-special character.
-_MD_FAIL_CLOSED_SPECIALS = "\\`*_{}[]()#+.!|<>~-"
-_MD_FAIL_CLOSED_RE = re.compile(r"([\\`*_{}\[\]()#+.!|<>~-])")
+# Fail-closed: every CommonMark-special character, plus :/@ so scheme/authority
+# fragments (e.g. ``https:<TAB>//127.0.0.1``) cannot be re-linkified.
+_MD_FAIL_CLOSED_SPECIALS = "\\`*_{}[]()#+.!|<>~-:@"
+_MD_FAIL_CLOSED_RE = re.compile(r"([\\`*_{}\[\]()#+.!|<>~:@\-])")
 
 
 def _unescape_md_specials(text: str, specials: str) -> str:
@@ -73,7 +74,11 @@ def serialize_inline(children: list[Token] | None) -> str:
             parts.append(escape_md_text(tok.content or ""))
         elif tok.type == "code_inline":
             tick = tok.markup or "`"
-            parts.append(f"{tick}{tok.content}{tick}")
+            content = tok.content or ""
+            # CommonMark: pad when content starts/ends with a backtick.
+            if content.startswith("`") or content.endswith("`"):
+                content = f" {content} "
+            parts.append(f"{tick}{content}{tick}")
         elif tok.type == "softbreak":
             parts.append("\n")
         elif tok.type == "hardbreak":
@@ -128,13 +133,18 @@ def _serialize_list(tokens: list[Token], start: int, end: int, *, ordered: bool)
             body, _ = serialize_blocks(tokens, i + 1, close)
             bullet = f"{n}. " if ordered else "- "
             n += 1
+            # Continuations need indent ≥ marker width (ordered ``1. `` is 3 spaces).
+            indent = " " * len(bullet)
             lines = body.strip("\n").split("\n")
             if not lines:
                 parts.append(bullet + "\n")
             else:
                 parts.append(bullet + lines[0] + "\n")
                 for ln in lines[1:]:
-                    parts.append("  " + ln + "\n")
+                    if ln == "":
+                        parts.append("\n")
+                    else:
+                        parts.append(indent + ln + "\n")
             i = close + 1
         else:
             i += 1

@@ -20,7 +20,8 @@ _SHEET_SAFE = re.compile(r"[\[\]\*\:\/\\\?]")
 
 
 def _sheet_name(title: str, used: set[str], index: int) -> str:
-    base = _SHEET_SAFE.sub("", title).strip() or f"Sheet{index}"
+    cleaned = strip_ooxml_controls(title)
+    base = _SHEET_SAFE.sub("", cleaned).strip() or f"Sheet{index}"
     base = base[:28]
     name = base
     n = 2
@@ -76,6 +77,7 @@ class XlsxRenderer:
         used: set[str] = set()
         notes: list[str] = []
         table_i = 0
+        title = strip_ooxml_controls(title)
         if title:
             notes.append(title)
         for b in parse_blocks(body):

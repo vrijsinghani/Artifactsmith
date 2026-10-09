@@ -51,17 +51,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: WeasyPrint system libraries and Chromium
+      - name: WeasyPrint system libraries, Chromium, and pandoc
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
             libgdk-pixbuf-2.0-0 libffi8 libjpeg-turbo8 libopenjp2-7 \
-            shared-mime-info fonts-liberation
+            shared-mime-info fonts-liberation pandoc
           sudo apt-get install -y --no-install-recommends chromium-browser \
             || sudo apt-get install -y --no-install-recommends chromium
           CHROME="$(command -v chromium-browser || command -v chromium || true)"
           echo "CHROME_BIN=${CHROME}" >> "$GITHUB_ENV"
+          pandoc --version | head -n 1
       - name: Install
         run: |
           python -m pip install -U pip
