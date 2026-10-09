@@ -237,12 +237,13 @@ class _ProxyRecorder:
         self._thread.join(timeout=5)
 
 
-def _chrome_open_via_proxy(html: str, proxy_url: str) -> None:
+def _chrome_open_via_proxy(html: str, proxy_url: str) -> str:
     """Serve HTML over local HTTP and open it through ``proxy_url`` (no CSP).
 
     ``file://`` pages block remote subresources in Chromium, so the document must
     be http(s) for a remote ``<img>`` to attempt a fetch the proxy can record.
     Localhost stays on the default proxy bypass list so the document loads.
+    Returns Chrome ``--dump-dom`` stdout so callers can assert the DOM loaded.
     """
     from http.server import SimpleHTTPRequestHandler
 
@@ -268,7 +269,7 @@ def _chrome_open_via_proxy(html: str, proxy_url: str) -> None:
         thread.start()
         try:
             page = f"http://{host}:{port}/export.html"
-            subprocess.run(
+            proc = subprocess.run(
                 [
                     "timeout",
                     "25",
@@ -295,6 +296,8 @@ def _chrome_open_via_proxy(html: str, proxy_url: str) -> None:
             origin.shutdown()
             origin.server_close()
             thread.join(timeout=5)
+    assert "<html" in proc.stdout.lower(), proc.stderr[-2000:]
+    return proc.stdout
 
 
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
@@ -349,7 +352,9 @@ def test_html_export_with_public_link_does_not_fetch_remote():
     assert 'src="https://' not in cleaned.lower()
     watched = ("example.com", "example.org", "cdn.example.net")
     with _ProxyRecorder() as proxy:
-        _chrome_open_via_proxy(cleaned, proxy.url)
+        dom = _chrome_open_via_proxy(cleaned, proxy.url)
+        assert "<html" in dom.lower()
+        assert "paper" in dom.lower()
         remote = [t for t in proxy.targets if any(h in t for h in watched)]
         # Anchors (including rewritten images) must not be fetched on open.
         assert remote == [], remote

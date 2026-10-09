@@ -58,6 +58,134 @@ def test_markdown_remote_image_becomes_clickable_link():
     assert "![" not in empty_alt
 
 
+# Table-driven CommonMark link/image forms (token-level sanitizer).
+# Each row: (name, input, must_contain, must_not_contain_substrings)
+_COMMONMARK_CASES: list[tuple[str, str, list[str], list[str]]] = [
+    (
+        "titled_image_becomes_link",
+        '![alt](https://example.com/x.png "My Title")',
+        ["[alt](https://example.com/x.png)"],
+        ["![alt]", "!["],
+    ),
+    (
+        "titled_image_whitespace_in_parens",
+        '![a]( https://example.com/x.png "t" )',
+        ["[a](https://example.com/x.png)"],
+        ["![a]", "!["],
+    ),
+    (
+        "inline_js_leading_whitespace",
+        "[x]( javascript:alert(1) )",
+        ["x"],
+        ["javascript:", "]("],
+    ),
+    (
+        "inline_js_with_title",
+        '[x](javascript:alert(1) "t")',
+        ["x"],
+        ["javascript:", "]("],
+    ),
+    (
+        "inline_js_angle_dest",
+        "[x](<javascript:alert(1)>)",
+        ["x"],
+        ["javascript:"],
+    ),
+    (
+        "ref_def_js",
+        "[lab][ref]\n\n[ref]: javascript:alert(1)\n",
+        ["lab"],
+        ["javascript:", "][ref]"],
+    ),
+    (
+        "ref_def_js_whitespace_and_title",
+        '[lab][ref]\n\n[ref]:  javascript:alert(1)  "title"\n',
+        ["lab"],
+        ["javascript:"],
+    ),
+    (
+        "autolink_js_dropped",
+        "go <javascript:alert(1)> now",
+        ["go", "now"],
+        ["javascript:", "<javascript"],
+    ),
+    (
+        "autolink_https_kept",
+        "see <https://example.com/a>",
+        ["[https://example.com/a](https://example.com/a)"],
+        [],
+    ),
+    (
+        "empty_angle_dest",
+        "[x](<>)",
+        ["x"],
+        ["]("],
+    ),
+    (
+        "empty_parens_dest",
+        "[x]()",
+        ["x"],
+        ["]("],
+    ),
+    (
+        "stray_parens_not_a_link",
+        "text (not a link)",
+        ["text (not a link)"],
+        ["]("],
+    ),
+    (
+        "protocol_relative_upgraded",
+        "[NSF](//www.nsf.gov/)",
+        ["[NSF](https://www.nsf.gov/)"],
+        ["](//"],
+    ),
+    (
+        "public_https_survives",
+        "[National Science Foundation](https://www.nsf.gov/)",
+        ["[National Science Foundation](https://www.nsf.gov/)"],
+        ["](//"],
+    ),
+    (
+        "reference_image_public",
+        '![alt][r]\n\n[r]: https://example.com/x.png "title"',
+        ["[alt](https://example.com/x.png)"],
+        ["![alt]", "!["],
+    ),
+    (
+        "vbscript_inline",
+        "[x](vbscript:msgbox(1))",
+        ["x"],
+        ["vbscript:"],
+    ),
+    (
+        "data_inline",
+        "[x](data:text/html,hi)",
+        ["x"],
+        ["data:"],
+    ),
+    (
+        "file_inline",
+        "[x](file:///etc/passwd)",
+        ["x"],
+        ["file:"],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "name,raw,must_contain,must_not",
+    _COMMONMARK_CASES,
+    ids=[c[0] for c in _COMMONMARK_CASES],
+)
+def test_commonmark_link_image_forms(name, raw, must_contain, must_not):
+    out = sanitize_markdown(raw)
+    for needle in must_contain:
+        assert needle in out, f"{name}: expected {needle!r} in {out!r}"
+    for banned in must_not:
+        assert banned not in out, f"{name}: banned {banned!r} in {out!r}"
+        assert banned.lower() not in out.lower(), f"{name}: banned {banned!r} in {out!r}"
+
+
 def test_dangerous_markdown_destinations_neutralized():
     cases = [
         ("[x](javascript:alert(1))", "x", "javascript:"),

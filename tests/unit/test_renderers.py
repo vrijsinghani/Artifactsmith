@@ -55,19 +55,10 @@ def test_pdf_magic_and_source():
 
 def test_pdf_embeds_public_link_annotation_without_fetch():
     """WeasyPrint writes /URI annotations; DenyAllURLFetcher means nothing is fetched."""
-    import re
-    import zlib
-
     out = get_renderer("pdf").render(title="Sources", body=MD_WITH_LINK)
     pdf = out.files["document.pdf"]
     assert pdf.startswith(b"%PDF")
-    uris: list[bytes] = []
-    for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", pdf, re.S):
-        try:
-            dec = zlib.decompress(m.group(1))
-        except zlib.error:
-            continue
-        uris.extend(re.findall(rb"/URI\s*\(([^)]+)\)", dec))
+    uris = _pdf_uris(pdf)
     assert b"https://example.com/paper" in uris
     assert b"https://example.org/notes" in uris
 
@@ -107,6 +98,45 @@ def test_docx_has_external_hyperlinks():
     assert "https://example.com/paper" in rels
     assert "https://example.org/notes" in rels
     assert 'TargetMode="External"' in rels
+
+
+def _pdf_uris(pdf: bytes) -> list[bytes]:
+    import re
+    import zlib
+
+    uris: list[bytes] = []
+    for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", pdf, re.S):
+        try:
+            dec = zlib.decompress(m.group(1))
+        except zlib.error:
+            continue
+        uris.extend(re.findall(rb"/URI\s*\(([^)]+)\)", dec))
+    return uris
+
+
+def test_pdf_and_docx_do_not_hyperlink_urls_inside_code():
+    """URLs in fenced or inline code must stay plain text in PDF and DOCX."""
+    body = (
+        "Cite [paper](https://example.com/paper) outside.\n\n"
+        "```\nhttps://example.com/in-fence\n```\n\n"
+        "Inline `https://example.com/inline` stays code.\n"
+    )
+    pdf = get_renderer("pdf").render(title="Code", body=body).files["document.pdf"]
+    uris = _pdf_uris(pdf)
+    assert b"https://example.com/paper" in uris
+    assert b"https://example.com/in-fence" not in uris
+    assert b"https://example.com/inline" not in uris
+
+    docx = get_renderer("docx").render(title="Code", body=body).files["document.docx"]
+    with zipfile.ZipFile(io.BytesIO(docx)) as zf:
+        rels = "\n".join(zf.read(n).decode("utf-8", errors="replace") for n in zf.namelist() if n.endswith(".rels"))
+        document = zf.read("word/document.xml").decode("utf-8", errors="replace")
+    assert "https://example.com/paper" in rels
+    assert "https://example.com/in-fence" not in rels
+    assert "https://example.com/inline" not in rels
+    # Visible as text, not as a hyperlink relationship.
+    assert "https://example.com/in-fence" in document or "in-fence" in document
+    assert "https://example.com/inline" in document or "inline" in document
 
 
 def test_xlsx_has_workbook():

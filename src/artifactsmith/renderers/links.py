@@ -1,7 +1,8 @@
 """Public http(s) link policy shared by sanitizer and renderers.
 
-Allows navigational links to global hosts. Blocks private/loopback hosts,
-dangerous schemes, and protocol-relative URLs. Does not fetch anything.
+Allows navigational links to global hosts. Blocks private/loopback hosts and
+dangerous schemes. Protocol-relative ``//host`` is upgraded to ``https://`` when
+the host is public (via ``public_href_or_none``). Does not fetch anything.
 Markdown images pointing at remote URLs become normal links (nothing loads on open).
 """
 
@@ -18,15 +19,6 @@ from .safety import URL_RE, _host_is_private, _url_host
 HrefClass = Literal["fragment", "relative", "public", "blocked"]
 
 _DANGEROUS_PREFIXES = ("javascript:", "vbscript:", "data:", "file:", "blob:")
-
-# Images, inline links, reference defs/uses, angle autolinks.
-_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
-_MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)\s]+)\)")
-_MD_REF_DEF_RE = re.compile(r"^\[([^\]]+)\]:\s*(\S+)\s*$", re.M)
-_MD_REF_USE_RE = re.compile(r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]")
-_MD_AUTOLINK_RE = re.compile(r"<([^>\s]+)>")
-_FENCE_RE = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~)")
-_INLINE_CODE_RE = re.compile(r"`+[^`]+`+")
 
 
 def _strip_format_chars(s: str) -> str:
@@ -80,7 +72,8 @@ def public_href_or_none(url: str) -> str | None:
     """Return a normalized public http(s) URL, or None if not allowed.
 
     Protocol-relative ``//host/path`` is upgraded to ``https://host/path`` when the
-    host is public, so citations stay clickable.
+    host is public, so citations stay clickable. Private or dangerous destinations
+    return None (they are not upgraded).
     """
     raw = normalize_href(url)
     if raw.startswith("//") and not raw.lower().startswith(("///",)):
@@ -90,134 +83,11 @@ def public_href_or_none(url: str) -> str | None:
     return raw
 
 
-def _label_or_image(alt: str) -> str:
-    return alt.strip() or "image"
-
-
-def _rewrite_prose(text: str) -> str:
-    """Rewrite images, neutralize bad destinations, linkify bare URLs (no code)."""
-    # Reference definitions first so uses can resolve.
-    defs: dict[str, str] = {}
-    for m in _MD_REF_DEF_RE.finditer(text):
-        defs[m.group(1).strip().lower()] = m.group(2).strip()
-
-    def repl_image(m: re.Match[str]) -> str:
-        alt, dest = m.group(1), m.group(2)
-        href = public_href_or_none(dest)
-        if href:
-            return f"[{_label_or_image(alt)}]({href})"
-        return _label_or_image(alt)
-
-    def repl_link(m: re.Match[str]) -> str:
-        label, dest = m.group(1), m.group(2)
-        href = public_href_or_none(dest)
-        if href:
-            return f"[{label}]({href})"
-        # Relative/fragment stay; dangerous/private → label only.
-        kind = classify_href(dest)
-        if kind in ("relative", "fragment"):
-            return m.group(0)
-        return label
-
-    def repl_ref_use(m: re.Match[str]) -> str:
-        label, ref = m.group(1), (m.group(2) or m.group(1)).strip()
-        dest = defs.get(ref.lower(), "")
-        if not dest:
-            return m.group(0)
-        href = public_href_or_none(dest)
-        if href:
-            return f"[{label}]({href})"
-        kind = classify_href(dest)
-        if kind in ("relative", "fragment"):
-            return m.group(0)
-        return label
-
-    def repl_ref_def(m: re.Match[str]) -> str:
-        ident, dest = m.group(1), m.group(2)
-        href = public_href_or_none(dest)
-        if href:
-            return f"[{ident}]: {href}"
-        kind = classify_href(dest)
-        if kind in ("relative", "fragment"):
-            return m.group(0)
-        # Drop dangerous/private definitions (uses already neutralized to label).
-        return ""
-
-    def repl_autolink(m: re.Match[str]) -> str:
-        inner = m.group(1)
-        href = public_href_or_none(inner)
-        if href:
-            return f"[{href}]({href})"
-        kind = classify_href(inner)
-        if kind in ("relative", "fragment"):
-            return m.group(0)
-        # Dangerous or private autolink → plain text without angle brackets if URL-like.
-        if ":" in inner or inner.startswith("//"):
-            return ""
-        return m.group(0)
-
-    out = _MD_IMAGE_RE.sub(repl_image, text)
-    out = _MD_LINK_RE.sub(repl_link, out)
-    out = _MD_REF_USE_RE.sub(repl_ref_use, out)
-    out = _MD_REF_DEF_RE.sub(repl_ref_def, out)
-    out = _MD_AUTOLINK_RE.sub(repl_autolink, out)
-    # Collapse blank lines left by removed ref defs.
-    out = re.sub(r"\n{3,}", "\n\n", out)
-
-    # Linkify bare public URLs (skip anything already inside ](url) by scanning).
-    parts: list[str] = []
-    pos = 0
-    for m in URL_RE.finditer(out):
-        # Skip if this URL is a markdown destination: ...](URL
-        start = m.start()
-        if start >= 2 and out[start - 2 : start] == "](":
-            continue
-        parts.append(out[pos:start])
-        raw = m.group(0)
-        core = raw.rstrip(".,;:)")
-        trailing = raw[len(core) :]
-        href = public_href_or_none(core)
-        if href:
-            parts.append(f"[{href}]({href})")
-            if trailing:
-                parts.append(trailing)
-        else:
-            parts.append(raw)
-        pos = m.end()
-    parts.append(out[pos:])
-    return "".join(parts)
-
-
 def sanitize_markdown(text: str) -> str:
-    """Apply link policy to markdown: images→links, neutralize bad dests, linkify.
+    """Apply link policy to markdown via CommonMark tokens (see ``md_sanitize``)."""
+    from .md_sanitize import sanitize_markdown as _sanitize_markdown
 
-    Code fences and inline code are left untouched (no linkify inside code).
-    """
-    if not text:
-        return text
-
-    def protect_inline(chunk: str) -> str:
-        slots: list[str] = []
-
-        def stash(m: re.Match[str]) -> str:
-            slots.append(m.group(0))
-            return f"\x00C{len(slots) - 1}\x00"
-
-        protected = _INLINE_CODE_RE.sub(stash, chunk)
-        rewritten = _rewrite_prose(protected)
-        for i, original in enumerate(slots):
-            rewritten = rewritten.replace(f"\x00C{i}\x00", original)
-        return rewritten
-
-    chunks = _FENCE_RE.split(text)
-    out: list[str] = []
-    for i, chunk in enumerate(chunks):
-        if i % 2 == 1:
-            # Fenced code — unchanged.
-            out.append(chunk)
-        else:
-            out.append(protect_inline(chunk))
-    return "".join(out)
+    return _sanitize_markdown(text)
 
 
 def linkify_markdown(text: str) -> str:
@@ -226,52 +96,34 @@ def linkify_markdown(text: str) -> str:
 
 
 def iter_inline_segments(text: str) -> list[tuple[str, str | None]]:
-    """Split text into (display, href|None) segments for renderers.
+    """Split markdown into (display, href|None) for PDF/DOCX/XLSX renderers."""
+    from .md_sanitize import iter_inline_segments as _iter_inline_segments
 
-    Assumes sanitize_markdown already ran on stored bodies; still classifies
-    destinations so dangerous leftovers never become hyperlinks.
-    """
+    return _iter_inline_segments(text)
+
+
+def _plain_url_segments(text: str) -> list[tuple[str, str | None]]:
+    """Bare-URL segments for HTML text nodes (not markdown-parsed)."""
     if not text:
         return []
     parts: list[tuple[str, str | None]] = []
     pos = 0
-    while pos < len(text):
-        md = _MD_LINK_RE.search(text, pos)
-        bare = URL_RE.search(text, pos)
-        next_md = md.start() if md else len(text) + 1
-        next_bare = bare.start() if bare else len(text) + 1
-        if md and next_md <= next_bare:
-            if md.start() > pos:
-                parts.append((text[pos : md.start()], None))
-            label, dest = md.group(1), md.group(2)
-            href = public_href_or_none(dest)
-            if href:
-                parts.append((label, href))
-            else:
-                kind = classify_href(dest)
-                if kind in ("relative", "fragment"):
-                    parts.append((md.group(0), None))
-                else:
-                    parts.append((label, None))
-            pos = md.end()
-            continue
-        if bare and next_bare < next_md:
-            if bare.start() > pos:
-                parts.append((text[pos : bare.start()], None))
-            raw = bare.group(0)
-            core = raw.rstrip(".,;:)")
-            trailing = raw[len(core) :]
-            href = public_href_or_none(core)
-            if href:
-                parts.append((core, href))
-                if trailing:
-                    parts.append((trailing, None))
-            else:
-                parts.append((raw, None))
-            pos = bare.end()
-            continue
+    for m in URL_RE.finditer(text):
+        if m.start() > pos:
+            parts.append((text[pos : m.start()], None))
+        raw = m.group(0)
+        core = raw.rstrip(".,;:)")
+        trailing = raw[len(core) :]
+        href = public_href_or_none(core)
+        if href:
+            parts.append((core, href))
+            if trailing:
+                parts.append((trailing, None))
+        else:
+            parts.append((raw, None))
+        pos = m.end()
+    if pos < len(text):
         parts.append((text[pos:], None))
-        break
     return parts
 
 
@@ -321,7 +173,7 @@ def linkify_html_text(html: str) -> str:
             out.append(part)
             continue
         buf: list[str] = []
-        for display, href in iter_inline_segments(part):
+        for display, href in _plain_url_segments(part):
             if href is None:
                 buf.append(display)
             else:

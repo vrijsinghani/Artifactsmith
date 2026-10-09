@@ -36,7 +36,7 @@ The configured LLM endpoint. Its output is untrusted.
 | Stale public page | Shares pin version and sha256. `unshare` sets `revoked_at` immediately. |
 | Token theft | Tokens stored as SHA-256. The operator can revoke. Prefer `NAME_FILE` for secrets. |
 | XSS / drive-by JS | HTML passes an nh3 allowlist; CSS passes a tinycss2 allowlist. CSP `script-src 'none'`. Separate cookieless origin. |
-| SSRF / phone-home via output | Public http(s) `<a href>` citations allowed; private/loopback/link-local hosts rejected. Dangerous schemes and protocol-relative URLs stripped. Images, CSS `url()`, fonts, and iframes stay self-contained — no remote subresources. Renderers do not fetch (WeasyPrint deny-all fetcher). |
+| SSRF / phone-home via output | Public http(s) `<a href>` citations allowed; private/loopback/link-local hosts rejected. Dangerous schemes stripped. Protocol-relative `//host` upgraded to `https://` only when the host is public; otherwise neutralized. Images, CSS `url()`, fonts, and iframes stay self-contained — no remote subresources. Renderers do not fetch (WeasyPrint deny-all fetcher). |
 | Secret leakage in pages | Secret-shaped strings fail the build. |
 | Oversize / hang | Field size caps, `AM_MAX_OUTPUT_BYTES`, render timeout, build timeout, per-token quota. |
 | Guessed preview | Short database ids plus expiry. `/dl/` download links are HMAC-signed and last 15 minutes. `/p/` links are not HMAC-signed. |
