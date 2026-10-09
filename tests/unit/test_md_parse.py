@@ -21,5 +21,5 @@ code
     assert kinds == ["heading", "paragraph", "list", "code", "table"]
     html = blocks_to_simple_html("Doc", parse_blocks(text))
     assert "<table>" in html
-    assert "&lt;" not in html or True
+    assert "&lt;" not in html
     assert "<script" not in html

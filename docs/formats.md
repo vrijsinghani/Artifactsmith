@@ -1,6 +1,6 @@
 # Output formats
 
-You pick a format when you create an artifact. HTML is the default. Markdown, PDF, Word (DOCX), and Excel (XLSX) are also available. Every format runs the same checks: scripts and remote URLs are stripped, private-link hosts and likely secrets fail the build, and size and time caps apply.
+You pick a format when you create an artifact. HTML is the default. Markdown, PDF, Word (DOCX), and Excel (XLSX) are also available. Every format runs the same checks: scripts are stripped, public http(s) citations may remain as clickable links, private-link hosts and likely secrets fail the build, and size and time caps apply. Images and other subresources stay self-contained so a file opens offline.
 
 ## How a file is produced
 
@@ -22,7 +22,7 @@ The model writes content. A renderer on the server turns that content into bytes
 | ------ | ------- | ------- | ----- |
 | HTML | none (sanitize, then store) | | The house-style prompt already emits a complete document. |
 | Markdown | stdlib | | Stored as UTF-8 text. |
-| PDF | WeasyPrint ≥62 | BSD-3-Clause | HTML and CSS to PDF through Pango and Cairo. |
+| PDF | WeasyPrint ≥70 | BSD-3-Clause | HTML and CSS to PDF through Pango and Cairo. ObjectFetcher is the object API. |
 | DOCX | python-docx | MIT | Writes Office Open XML. |
 | XLSX | openpyxl | MIT | Markdown tables become sheets. Remaining prose goes on a Notes sheet. |
 
@@ -48,8 +48,8 @@ When `AM_BLOCK_PRIVATE_LINKS=true`, private, loopback, and link-local hosts fail
 
 When `AM_ALLOWED_LINK_DOMAINS` is set, any other host fails the build.
 
-`<script>` tags and `http(s)` / `ftp` URLs are stripped. After that, HTML still has to be a complete document.
+`<script>` tags are stripped. Public `http://` and `https://` links to global hosts are kept so research write-ups can cite sources. HTML adds `rel="noopener noreferrer nofollow"` and `target="_blank"`. Markdown may linkify bare URLs outside code. Protocol-relative `//host` is upgraded to `https://` when the host is public. Remote image syntax (`![…](https://…)`) and remote `<img src>` become a normal clickable link to the image URL (alt text, or `image`, as the label) in HTML, Markdown, PDF, DOCX, and XLSX — nothing loads the image on open. PDF emits link annotations without fetching. DOCX and XLSX write plain hyperlinks (XLSX never uses `=HYPERLINK()` formulas; when a cell has several public URLs, the first is the cell hyperlink and the others stay visible as text). `javascript:`, `vbscript:`, `data:`, `file:`, and obfuscated forms of those schemes are neutralized. CSS `url()`, fonts, and iframes are not allowed — documents stay self-contained. HTML still has to be a complete document.
 
 `AM_RENDER_TIMEOUT` caps one renderer call. `AM_MAX_OUTPUT_BYTES` caps stored bytes.
 
-Renderers do not call `httpx` and do not open sockets. WeasyPrint receives an in-memory HTML string with `base_url="."` and no remote stylesheets.
+Renderers do not call `httpx` and do not open sockets. WeasyPrint receives an in-memory HTML string with `base_url="."`, a deny-all URL fetcher, and no remote stylesheets.

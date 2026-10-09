@@ -14,3 +14,14 @@ adapted from third-party works:
    Copyright (c) 2025 Siqi Chen. Licensed under the MIT License (copy in licenses/MIT-humanizer.txt). Changes: condensed a subset of its writing-pattern rules into prompt rules.
 
 Renderers (see docs/formats.md) use WeasyPrint (BSD-3-Clause), python-docx (MIT), and openpyxl (MIT).
+
+Markdown link sanitization uses:
+
+3. markdown-it-py, from https://github.com/executablebooks/markdown-it-py
+   Copyright (c) 2020 ExecutableBookProject. Licensed under the MIT License
+   (copy in licenses/MIT-markdown-it-py.txt). Also includes the original markdown-it
+   JavaScript license text in that project's distribution.
+
+4. linkify-it-py, from https://github.com/tsutsu3/linkify-it-py
+   Copyright (c) 2020 tsutsu3. Licensed under the MIT License
+   (copy in licenses/MIT-linkify-it-py.txt).

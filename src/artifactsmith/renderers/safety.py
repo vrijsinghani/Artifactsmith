@@ -1,13 +1,24 @@
-"""Shared output safety: no scripts, no remote fetches, private-link and secret checks, size limits."""
+"""Shared output safety: no scripts, private-link and secret checks, size limits.
+
+Public http(s) links to global hosts are allowed in document bodies. Private and
+loopback hosts fail the build. Images, CSS, fonts, and iframes stay self-contained
+(see html_sanitize); renderers never fetch the network.
+"""
 
 from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import urlparse
+import socket
+import unicodedata
+from urllib.parse import unquote, urlparse
 
-# Remote URL references (also used by HTML sanitizer).
-URL_RE = re.compile(r"""(?:https?|ftp)://[^\s"'<>()\]]+""", re.I)
+# http(s)/ftp URL references in prose (also used by linkify and private-link checks).
+# Allow IPv6 bracket hosts: http://[::1]/path
+URL_RE = re.compile(
+    r"""(?:https?|ftp)://(?:\[[0-9A-Fa-f:.]+\]|[^\s"'<>()\[\]]+)[^\s"'<>()\]]*""",
+    re.I,
+)
 SCRIPT_RE = re.compile(
     r"<script\b[^>]*>.*?</script\s*>|<script\b[^>]*/>|</?\s*script\b[^>]*>",
     re.I | re.S,
@@ -32,18 +43,54 @@ PRIVATE_HOST_NAMES = frozenset(
     }
 )
 
+# Reserved / site-local DNS suffixes (RFC 6761/6762 and common intranet TLDs).
+PRIVATE_DNS_SUFFIXES = (
+    ".local",
+    ".localhost",
+    ".localdomain",
+    ".home.arpa",
+    ".lan",
+    ".corp",
+    ".internal",
+    ".intranet",
+    ".private",
+)
+
+# Wildcard DNS products that commonly alias private/loopback addresses into public DNS.
+WILDCARD_DNS_SUFFIXES = (
+    ".sslip.io",
+    ".nip.io",
+    ".xip.io",
+    ".localtest.me",
+    ".lvh.me",
+    ".vcap.me",
+    ".traefik.me",
+)
+
 
 def strip_scripts(text: str) -> str:
     return SCRIPT_RE.sub("", text)
 
 
 def strip_remote_urls(text: str) -> str:
-    return URL_RE.sub("", text)
+    """Remove non-public URL references from prose. Public http(s) hosts stay."""
+    from .links import is_public_http_url
+
+    def repl(m: re.Match[str]) -> str:
+        raw = m.group(0)
+        core = raw.rstrip(".,;:)")
+        if is_public_http_url(core):
+            return raw
+        return ""
+
+    return URL_RE.sub(repl, text)
 
 
 def sanitize_text(text: str) -> str:
-    """Remove executable markup and remote URL references from any textual body."""
-    return strip_remote_urls(strip_scripts(text))
+    """Remove executable markup; sanitize markdown links/images; linkify bare URLs."""
+    from .links import sanitize_markdown
+
+    return sanitize_markdown(strip_scripts(text))
 
 
 def find_secrets(text: str) -> list[str]:
@@ -54,20 +101,99 @@ def find_secrets(text: str) -> list[str]:
     return hits
 
 
-def _host_is_private(host: str) -> bool:
-    h = host.strip(".").lower()
-    if not h or h in PRIVATE_HOST_NAMES or h.endswith(".local") or h.endswith(".internal"):
-        return True
-    if h.endswith(".localhost"):
-        return True
+def _normalize_host(host: str) -> str:
+    """Percent-decode, NFKC-normalize, and IDNA-encode a host before IP/name checks."""
+    h = unquote(host or "").strip().strip("[]")
+    h = unicodedata.normalize("NFKC", h)
+    if not h:
+        return ""
     try:
-        ip = ipaddress.ip_address(h)
+        # idna encodes Unicode labels; leave ASCII alone (including dotted IPs).
+        return h.encode("idna").decode("ascii").lower().rstrip(".")
+    except UnicodeError:
+        return h.lower().rstrip(".")
+
+
+def _parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a host as an IP, including short/hex/octal/integer IPv4 forms browsers accept."""
+    h = host.strip().strip("[]")
+    if not h:
+        return None
+    try:
+        return ipaddress.ip_address(h)
     except ValueError:
-        # Bare hostnames without a dot are treated as local/private.
-        return "." not in h
-    return bool(
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified
-    )
+        pass
+    # socket.inet_aton accepts many historical IPv4 spellings (127.1, 0x7f.0.0.1, 0177.0.0.1, 2130706433).
+    if re.fullmatch(r"[0-9a-fxA-FX.]+", h):
+        try:
+            return ipaddress.IPv4Address(socket.inet_aton(h))
+        except OSError:
+            return None
+    return None
+
+
+def _ip_is_private(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when the address (or an embedded IPv4) is not global unicast."""
+    if not ip.is_global:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address):
+        mapped = ip.ipv4_mapped
+        if mapped is not None:
+            return not mapped.is_global
+        # Deprecated IPv4-compatible form ::a.b.c.d (e.g. [::10.0.0.1]).
+        if ip.packed[:12] == b"\x00" * 12:
+            embedded = ipaddress.IPv4Address(ip.packed[12:])
+            return not embedded.is_global
+    return False
+
+
+def _host_is_private(host: str) -> bool:
+    """True when the host is not a global unicast address, or a known private/wildcard alias.
+
+    Fail closed: unparseable address-like hosts and bare single-label names are private.
+    Uses ``not ip.is_global`` so CGNAT (100.64.0.0/10) and similar ranges are blocked.
+    """
+    h = _normalize_host(host)
+    if not h or h in PRIVATE_HOST_NAMES:
+        return True
+    for suf in PRIVATE_DNS_SUFFIXES:
+        if h == suf.lstrip(".") or h.endswith(suf):
+            return True
+    for suf in WILDCARD_DNS_SUFFIXES:
+        if h == suf.lstrip(".") or h.endswith(suf):
+            return True
+    ip = _parse_ip(h)
+    if ip is not None:
+        return _ip_is_private(ip)
+    # Bare hostnames without a dot are treated as local/private.
+    if "." not in h:
+        return True
+    # Looks like a dotted address we failed to parse (fail closed).
+    if re.fullmatch(r"[0-9a-fxA-FX.:]+", h):
+        return True
+    return False
+
+
+def _url_host(raw: str) -> str | None:
+    """Extract the host from a URL. Returns None only when there is no host authority."""
+    try:
+        parsed = urlparse(raw)
+    except Exception:  # noqa: BLE001 — fail closed below
+        return ""
+    host = parsed.hostname
+    if host is not None:
+        return host
+    # urlparse can leave netloc empty for odd forms; try a manual bracket extract.
+    if "://" in raw:
+        rest = raw.split("://", 1)[1]
+        authority = rest.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        if authority.startswith("["):
+            end = authority.find("]")
+            if end > 0:
+                return authority[1:end]
+        if authority:
+            return authority.split("@")[-1].split(":")[0]
+    return ""
 
 
 def find_private_links(text: str) -> list[str]:
@@ -75,13 +201,13 @@ def find_private_links(text: str) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        try:
-            parsed = urlparse(raw)
-        except Exception:  # noqa: BLE001
+        host = _url_host(raw)
+        if host is None:
             continue
-        host = parsed.hostname or ""
-        if host and _host_is_private(host):
-            problems.append(f"private or local link host: {host}")
+        # Empty host after a scheme (unparseable) → fail closed.
+        if host == "" or _host_is_private(host):
+            label = host or raw
+            problems.append(f"private or local link host: {label}")
     return problems
 
 
@@ -93,14 +219,39 @@ def find_disallowed_links(text: str, allowed_domains: list[str]) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        try:
-            host = (urlparse(raw).hostname or "").lower()
-        except Exception:  # noqa: BLE001
-            continue
+        host = (_url_host(raw) or "").lower()
         if not host:
+            problems.append(f"link host not on allow-list: {raw}")
             continue
         if not any(host == d or host.endswith("." + d) for d in allowed):
             problems.append(f"link host not on allow-list: {host}")
+    return problems
+
+
+def check_fields(
+    *parts: str,
+    block_private_links: bool = True,
+    allowed_link_domains: list[str] | None = None,
+    max_chars: int = 8_000,
+    label: str = "field",
+) -> list[str]:
+    """Heuristic secret/private-link checks for titles, summaries, and other card fields.
+
+    Secret detection is a best-effort pattern match, not a guarantee.
+    """
+    problems: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if len(part) > max_chars:
+            problems.append(f"{label} exceeds {max_chars} characters")
+        for hit in find_secrets(part):
+            problems.append(f"{label}: {hit}")
+        if block_private_links:
+            for hit in find_private_links(part):
+                problems.append(f"{label}: {hit}")
+        for hit in find_disallowed_links(part, allowed_link_domains or []):
+            problems.append(f"{label}: {hit}")
     return problems
 
 
@@ -112,7 +263,10 @@ def check_content(
     allowed_link_domains: list[str] | None = None,
     max_chars: int = 2_000_000,
 ) -> list[str]:
-    """Return human-readable problems that must be fixed before rendering."""
+    """Return human-readable problems that must be fixed before rendering.
+
+    Secret detection is a heuristic, not a guarantee that no secrets remain.
+    """
     problems: list[str] = []
     if len(text) > max_chars:
         problems.append(f"content exceeds {max_chars} characters")
@@ -124,13 +278,9 @@ def check_content(
         low = text.lower()
         if "<script" in low:
             problems.append("script tag present in sanitized output")
-        if URL_RE.search(text):
-            problems.append("remote http(s) URL present in sanitized output")
         if "<html" not in low or "</html>" not in low:
             problems.append("not a complete HTML document")
     elif fmt in ("markdown", "pdf", "docx", "xlsx"):
-        if URL_RE.search(text):
-            problems.append("remote http(s) URL present in sanitized output")
         if "<script" in text.lower():
             problems.append("script tag present in sanitized output")
     return problems

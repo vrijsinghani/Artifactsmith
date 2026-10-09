@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL,
+  deleting_at REAL,
   UNIQUE(workspace, slug)
 );
 CREATE TABLE IF NOT EXISTS versions (
@@ -97,7 +100,7 @@ CREATE INDEX IF NOT EXISTS versions_artifact ON versions(artifact_id, version);
 
 
 class DB:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         self.conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
@@ -105,10 +108,16 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.lock = threading.RLock()
 
+    def _migrate(self) -> None:
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(artifacts)").fetchall()}
+        if "deleting_at" not in cols:
+            self.conn.execute("ALTER TABLE artifacts ADD COLUMN deleting_at REAL")
+
     @contextmanager
-    def tx(self):
+    def tx(self) -> Iterator[sqlite3.Connection]:
         with self.lock:
             self.conn.execute("BEGIN IMMEDIATE")
             try:
@@ -118,21 +127,31 @@ class DB:
                 self.conn.execute("ROLLBACK")
                 raise
 
-    def one(self, sql: str, *args) -> dict | None:
+    def one(self, sql: str, *args: Any) -> dict[str, Any] | None:
         with self.lock:
             r = self.conn.execute(sql, args).fetchone()
         return dict(r) if r else None
 
-    def all(self, sql: str, *args) -> list[dict]:
+    def must(self, sql: str, *args: Any) -> dict[str, Any]:
+        row = self.one(sql, *args)
+        if row is None:
+            raise RuntimeError(f"expected a row for {sql!r}")
+        return row
+
+    def all(self, sql: str, *args: Any) -> list[dict[str, Any]]:
         with self.lock:
             return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
-    def exec(self, sql: str, *args) -> None:
+    def exec(self, sql: str, *args: Any) -> None:
         with self.tx() as c:
             c.execute(sql, args)
 
+    def close(self) -> None:
+        with self.lock:
+            self.conn.close()
 
-def jloads(s: str | None, default=None):
+
+def jloads(s: str | None, default: Any = None) -> Any:
     if not s:
         return default
     try:

@@ -1,12 +1,15 @@
 """Minimal markdown → structure helpers shared by PDF, DOCX and XLSX renderers.
 
 No network, no plugins. Supports headings, paragraphs, lists, fenced code, and pipe tables.
+Public http(s) links become clickable anchors in the PDF HTML path.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+from .links import iter_inline_segments
 
 
 @dataclass
@@ -96,8 +99,30 @@ def parse_blocks(text: str) -> list[Block]:
     return blocks
 
 
+def _esc(s: str) -> str:
+    from html import escape, unescape
+
+    # Unescape first so labels are not double-escaped when entities were already present.
+    return escape(unescape(s), quote=True)
+
+
+def _inline_html(text: str) -> str:
+    """Escape text and turn public http(s) segments into <a href> (PDF annotations)."""
+    parts: list[str] = []
+    for display, href in iter_inline_segments(text):
+        if href is None:
+            parts.append(_esc(display))
+        else:
+            parts.append(f'<a href="{_esc(href)}">{_esc(display)}</a>')
+    return "".join(parts)
+
+
 def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
-    """Self-contained HTML for PDF (WeasyPrint). No scripts, no remote resources."""
+    """Self-contained HTML for PDF (WeasyPrint). No scripts, no remote resources.
+
+    Public http(s) links become ``<a href>`` so WeasyPrint emits link annotations
+    without fetching the destination.
+    """
     parts = [
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">',
         f"<title>{_esc(title)}</title>",
@@ -113,23 +138,19 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
     for b in blocks:
         if b.kind == "heading":
             lvl = min(max(b.level, 1), 6)
-            parts.append(f"<h{lvl}>{_esc(b.text)}</h{lvl}>")
+            parts.append(f"<h{lvl}>{_inline_html(b.text)}</h{lvl}>")
         elif b.kind == "paragraph":
-            parts.append(f"<p>{_esc(b.text)}</p>")
+            parts.append(f"<p>{_inline_html(b.text)}</p>")
         elif b.kind == "list":
-            parts.append("<ul>" + "".join(f"<li>{_esc(it)}</li>" for it in b.items) + "</ul>")
+            parts.append("<ul>" + "".join(f"<li>{_inline_html(it)}</li>" for it in b.items) + "</ul>")
         elif b.kind == "code":
             parts.append(f"<pre><code>{_esc(b.text)}</code></pre>")
         elif b.kind == "table":
             parts.append("<table><thead><tr>")
-            parts.extend(f"<th>{_esc(h)}</th>" for h in b.headers)
+            parts.extend(f"<th>{_inline_html(h)}</th>" for h in b.headers)
             parts.append("</tr></thead><tbody>")
             for row in b.rows:
-                parts.append("<tr>" + "".join(f"<td>{_esc(c)}</td>" for c in row) + "</tr>")
+                parts.append("<tr>" + "".join(f"<td>{_inline_html(c)}</td>" for c in row) + "</tr>")
             parts.append("</tbody></table>")
     parts.append("</body></html>")
     return "".join(parts)
-
-
-def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")

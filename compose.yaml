@@ -1,19 +1,20 @@
 name: artifactsmith
 
-# Local object-store credentials for this stack. Generated locally; deliberately NOT the well-known admin pair.
+# Object-store credentials come from .env (see .env.example and scripts/ensure-local-env.sh).
 x-store: &store-env
-  AM_STORE_ENDPOINT: http://storage:9000
-  AM_STORE_KEY: am-local-access-key
-  AM_STORE_SECRET: am-local-secret-key-not-the-default-pair
-  AM_STORE_BUCKET: artifacts
+  AM_STORE_ENDPOINT: ${AM_STORE_ENDPOINT:-http://storage:9000}
+  AM_STORE_KEY: ${AM_STORE_KEY:?Set AM_STORE_KEY in .env (run ./scripts/ensure-local-env.sh)}
+  AM_STORE_SECRET: ${AM_STORE_SECRET:?Set AM_STORE_SECRET in .env (run ./scripts/ensure-local-env.sh)}
+  AM_STORE_BUCKET: ${AM_STORE_BUCKET:-artifacts}
 
 services:
   storage:
-    image: rustfs/rustfs:latest
+    # rustfs/rustfs:1.0.1
+    image: rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
     # Internal only: no published ports. The object store is reachable only on the compose network.
     environment:
-      RUSTFS_ACCESS_KEY: am-local-access-key
-      RUSTFS_SECRET_KEY: am-local-secret-key-not-the-default-pair
+      RUSTFS_ACCESS_KEY: ${AM_STORE_KEY:?Set AM_STORE_KEY in .env (run ./scripts/ensure-local-env.sh)}
+      RUSTFS_SECRET_KEY: ${AM_STORE_SECRET:?Set AM_STORE_SECRET in .env (run ./scripts/ensure-local-env.sh)}
       RUSTFS_CONSOLE_ENABLE: "false"
     volumes:
       - rustfs-data:/data
@@ -25,6 +26,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     command: ["artifactsmith", "storage-init"]
+    env_file:
+      - .env
     environment: *store-env
     depends_on:
       storage:
@@ -36,18 +39,34 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    # Host publish bind. Default loopback-only. Set AM_BIND_ADDRESS=0.0.0.0 (or an
+    # interface IP) to reach the API/preview ports from another machine. Also set
+    # AM_API_URL / AM_PREVIEW_URL / AM_SHARE_URL to the address clients will use.
     ports:
-      - "127.0.0.1:8780:8780"   # MCP API (bearer auth)
-      - "127.0.0.1:8781:8781"   # cookieless preview / share origin
+      - "${AM_BIND_ADDRESS:-127.0.0.1}:8780:8780"   # MCP API (bearer auth)
+      - "${AM_BIND_ADDRESS:-127.0.0.1}:8781:8781"   # cookieless preview / share origin
+    # Bring every documented setting (AM_SHARE_URL, AM_MAX_BUILDS, *_FILE, …) from .env.
+    # Explicit environment entries below override when set; they supply defaults for LLM/store.
+    env_file:
+      - .env
     environment:
       <<: *store-env
-      AM_LLM_API: chat
-      AM_LLM_BASE: http://mock-llm:8080
-      AM_DEFAULT_MODEL: mock-echo
-      AM_SHARE_TTL_DAYS: "30"
-      AM_SHARE_TTL_MAX_DAYS: "365"
-      AM_BLOCK_PRIVATE_LINKS: "true"
-      AM_ALLOWED_LINK_DOMAINS: ""
+      # Listen on all interfaces inside the container; host publish bind is AM_BIND_ADDRESS.
+      AM_HOST: ${AM_HOST:-0.0.0.0}
+      AM_LLM_API: ${AM_LLM_API:-chat}
+      AM_LLM_BASE: ${AM_LLM_BASE:-https://api.openai.com}
+      AM_LLM_KEY: ${AM_LLM_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AM_DEFAULT_MODEL: ${AM_DEFAULT_MODEL:-gpt-4o-mini}
+      AM_SHARE_TTL_DAYS: ${AM_SHARE_TTL_DAYS:-30}
+      AM_SHARE_TTL_MAX_DAYS: ${AM_SHARE_TTL_MAX_DAYS:-365}
+      AM_BLOCK_PRIVATE_LINKS: ${AM_BLOCK_PRIVATE_LINKS:-true}
+      AM_ALLOWED_LINK_DOMAINS: ${AM_ALLOWED_LINK_DOMAINS:-}
+      AM_API_URL: ${AM_API_URL:-http://127.0.0.1:8780}
+      AM_PREVIEW_URL: ${AM_PREVIEW_URL:-http://127.0.0.1:8781}
+      AM_SHARE_URL: ${AM_SHARE_URL:-}
+      AM_ALLOWED_HOSTS: ${AM_ALLOWED_HOSTS:-127.0.0.1:8780,localhost:8780}
+      AM_ALLOWED_ORIGINS: ${AM_ALLOWED_ORIGINS:-}
     volumes:
       - am-data:/data
       - am-secrets:/secrets
@@ -56,15 +75,6 @@ services:
         condition: service_started
       storage-init:
         condition: service_completed_successfully
-    networks: [am]
-
-  # Canned OpenAI Chat Completions replies so the flow runs with no real API key.
-  mock-llm:
-    profiles: [test]
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    command: ["artifactsmith", "mock-llm"]
     networks: [am]
 
 volumes:

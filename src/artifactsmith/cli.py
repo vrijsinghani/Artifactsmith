@@ -1,4 +1,4 @@
-"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke | mock-llm
+"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke
 
 Tokens are stored only as sha256 hashes in SQLite. `token add` prints the raw token once.
 """
@@ -8,16 +8,20 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import secrets
 import sys
 import time
+from collections.abc import Callable
 
-from .service import ALL_PERMS
+from .db import DB
+from .service import ALL_PERMS, WS_RE
+
+_TOKEN_MIN = 24
 
 
-def _make_db():
+def _make_db() -> DB:
     from .config import CFG
-    from .db import DB
 
     return DB(CFG.db_path)
 
@@ -28,13 +32,24 @@ def _token_value() -> str:
 
 def cmd_token_add(args: argparse.Namespace) -> int:
     db = _make_db()
-    perms = sorted({p.strip() for p in args.perms.split(",") if p.strip()} & ALL_PERMS)
+    if not WS_RE.match(args.workspace or ""):
+        print(json.dumps({"error": "workspace must be 2-41 chars of a-z, 0-9 and '-'"}))
+        return 2
+    if not re.match(r"^[A-Za-z0-9._-]{1,64}$", args.name or ""):
+        print(json.dumps({"error": "name must be 1-64 chars of A-Za-z0-9._-"}))
+        return 2
+    requested = [p.strip() for p in args.perms.split(",") if p.strip()]
+    unknown = sorted({p for p in requested if p not in ALL_PERMS})
+    if unknown:
+        print(json.dumps({"error": f"unknown perms: {unknown}; allowed: {sorted(ALL_PERMS)}"}))
+        return 2
+    perms = sorted(set(requested))
     if not perms:
         print(json.dumps({"error": f"no valid perms in {args.perms}; allowed: {sorted(ALL_PERMS)}"}))
         return 2
     raw = args.token or _token_value()
-    if not raw or len(raw) < 8:
-        print(json.dumps({"error": "token must be at least 8 characters"}))
+    if not raw or len(raw) < _TOKEN_MIN:
+        print(json.dumps({"error": f"token must be at least {_TOKEN_MIN} characters"}))
         return 2
     tok_id = "tok_" + secrets.token_urlsafe(8)
     db.exec(
@@ -62,12 +77,26 @@ def cmd_token_list(args: argparse.Namespace) -> int:
 def cmd_token_revoke(args: argparse.Namespace) -> int:
     db = _make_db()
     if args.id:
-        row = db.one("SELECT id FROM tokens WHERE id=?", args.id)
+        rows = db.all("SELECT id FROM tokens WHERE id=?", args.id)
+    elif args.name:
+        rows = db.all("SELECT id FROM tokens WHERE name=?", args.name)
     else:
-        row = db.one("SELECT id FROM tokens WHERE name=?", args.name)
-    if not row:
+        print(json.dumps({"error": "pass --id or --name"}))
+        return 2
+    if not rows:
         print(json.dumps({"error": "no such token"}))
         return 1
+    if len(rows) > 1:
+        print(
+            json.dumps(
+                {
+                    "error": "name matches multiple tokens; revoke by --id",
+                    "ids": [r["id"] for r in rows],
+                }
+            )
+        )
+        return 2
+    row = rows[0]
     db.exec("UPDATE tokens SET revoked_at=? WHERE id=?", time.time(), row["id"])
     print(json.dumps({"revoked": row["id"]}))
     return 0
@@ -101,13 +130,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_mock_llm(args: argparse.Namespace) -> int:
-    from .mock_llm import run
-
-    run()
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
@@ -118,7 +140,6 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("serve", help="run the API + preview server")
     sub.add_parser("storage-init", help="create the object-store bucket and enable versioning")
-    sub.add_parser("mock-llm", help="run the dev/test mock chat-completions endpoint")
 
     tok = sub.add_parser("token", help="manage access tokens").add_subparsers(dest="token_cmd", required=True)
     add = tok.add_parser("add", help="add a token")
@@ -136,8 +157,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if getattr(args, "cmd", None) == "token":
-        return args.fn(args)
-    return {"serve": cmd_serve, "storage-init": cmd_storage_init, "mock-llm": cmd_mock_llm}[args.cmd](args)
+        fn: Callable[[argparse.Namespace], int] = args.fn
+        return fn(args)
+    return {"serve": cmd_serve, "storage-init": cmd_storage_init}[args.cmd](args)
 
 
 if __name__ == "__main__":

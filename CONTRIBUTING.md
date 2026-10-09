@@ -20,7 +20,7 @@ make test
 make denylist
 ```
 
-`make ci` runs those in one go.
+`make ci` runs those in one go. `make typecheck` is `mypy --strict src`. `make test` is the same `pytest` line CI runs; use plain `pytest` before you push.
 
 `tests/unit/test_house_style.py` locks the house-style prompt. Do not reword `SYSTEM` in `builder.py` unless you mean to change the style and you update that test.
 
@@ -30,7 +30,7 @@ Compose smoke (needs Docker):
 make smoke
 ```
 
-That command uses the compose `test` profile and the bundled mock LLM. It does not need an API key.
+That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a fake chat model from `tests/support/` so the suite can run without a live API key.
 
 ## Layout
 
@@ -40,11 +40,11 @@ That command uses the compose `test` profile and the bundled mock LLM. It does n
 
 `tests/unit/` is what `pytest` runs by default.
 
-`tests/smoke/` talks to the compose stack.
+`tests/e2e/` talks to the test compose stack.
 
 `docs/` covers architecture, the threat model, operations, and formats.
 
-Keep new modules under about 300 lines. Add a renderer module instead of growing `builder.py`.
+Prefer focused modules. New renderers belong in `src/artifactsmith/renderers/`, not in `builder.py`. Keep orchestration changes in `service.py` small, or extract a coherent slice when a change does not fit. The server is one process per data directory (SQLite single-writer).
 
 ## Pull requests
 

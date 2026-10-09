@@ -1,4 +1,5 @@
-FROM python:3.12-slim-bookworm
+# python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint needs Pango/Cairo (no headless browser). fonts-liberation covers PDF text.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -10,12 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
+COPY LICENSE NOTICE ./
+COPY licenses ./licenses
 RUN pip install --no-cache-dir . \
     && useradd -u 10001 -m asm \
     && mkdir -p /data /secrets \
     && chown -R asm:asm /data /secrets
 USER asm
-ENV AM_DATA_DIR=/data AM_SECRETS_DIR=/secrets
+ENV AM_DATA_DIR=/data AM_SECRETS_DIR=/secrets AM_HOST=0.0.0.0
 EXPOSE 8780 8781
 HEALTHCHECK --interval=10s --timeout=5s --retries=30 CMD curl -fsS http://127.0.0.1:8780/healthz || exit 1
 CMD ["artifactsmith", "serve"]

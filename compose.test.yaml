@@ -1,0 +1,36 @@
+# Test-only override. Used by CI and `make smoke`. Do not use this file for a real deploy.
+#   docker compose -f compose.yaml -f compose.test.yaml up -d --build
+name: artifactsmith
+
+services:
+  fake-chat-llm:
+    build:
+      context: .
+      dockerfile: tests/support/Dockerfile
+    networks: [am]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    environment:
+      AM_LLM_API: chat
+      AM_LLM_BASE: http://fake-chat-llm:8080
+      AM_LLM_KEY: test
+      OPENAI_API_KEY: test
+      AM_DEFAULT_MODEL: test-echo
+    depends_on:
+      storage:
+        condition: service_started
+      storage-init:
+        condition: service_completed_successfully
+      fake-chat-llm:
+        condition: service_healthy

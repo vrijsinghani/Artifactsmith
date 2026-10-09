@@ -3,13 +3,37 @@ that the builder parses; this module never executes model output."""
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from .config import CFG
 
+log = logging.getLogger("artifactsmith.llm")
+
+# Cap the raw HTTP response body while streaming so a runaway reply cannot fill memory.
+LLM_RESPONSE_CAP_BYTES = 2_000_000
+
 
 class LLMError(RuntimeError):
     pass
+
+
+def _scrub_http_error(status: int, body: str) -> LLMError:
+    log.warning("LLM HTTP %s body_prefix=%r", status, body[:200])
+    return LLMError(f"LLM HTTP {status}")
+
+
+async def _read_capped(response: httpx.Response) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > LLM_RESPONSE_CAP_BYTES:
+            await response.aclose()
+            raise LLMError(f"model response exceeds {LLM_RESPONSE_CAP_BYTES} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def call_chat(model: str, system: str, user: str, timeout: float = 300) -> str:
@@ -22,16 +46,18 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300) ->
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0,
     }
-    url = CFG.llm_base.rstrip("/") + "/v1/chat/completions"
+    url = CFG.normalized_llm_base() + "/v1/chat/completions"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
-        r = await client.post(url, json=payload, headers=headers)
-    if r.status_code != 200:
-        raise LLMError(f"LLM HTTP {r.status_code}: {r.text[:400]}")
-    data = r.json()
+        async with client.stream("POST", url, json=payload, headers=headers) as r:
+            body = await _read_capped(r)
+            if r.status_code != 200:
+                raise _scrub_http_error(r.status_code, body.decode("utf-8", errors="replace"))
+    data = httpx.Response(200, content=body).json()
     try:
         text = data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
-        raise LLMError(f"unexpected chat-completions response: {str(data)[:400]}") from e
+        log.warning("unexpected chat-completions shape: %s", type(data).__name__)
+        raise LLMError("unexpected chat-completions response") from e
     if not text.strip():
         raise LLMError("empty model output")
     return text
@@ -46,12 +72,13 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
         "model": model,
         "input": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
-    url = CFG.llm_base.rstrip("/") + "/v1/responses"
+    url = CFG.normalized_llm_base() + "/v1/responses"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
-        r = await client.post(url, json=payload, headers=headers)
-    if r.status_code != 200:
-        raise LLMError(f"LLM HTTP {r.status_code}: {r.text[:400]}")
-    data = r.json()
+        async with client.stream("POST", url, json=payload, headers=headers) as r:
+            body = await _read_capped(r)
+            if r.status_code != 200:
+                raise _scrub_http_error(r.status_code, body.decode("utf-8", errors="replace"))
+    data = httpx.Response(200, content=body).json()
     text = "".join(
         c.get("text", "")
         for item in data.get("output", [])

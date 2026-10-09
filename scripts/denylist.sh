@@ -1,43 +1,57 @@
 #!/usr/bin/env bash
-# Scan tracked files for private identifiers that must never be copied out of the private reference.
-# Patterns are assembled from fragments at run time so this file never contains a forbidden string itself.
-# Exits 1 on any hit.
+# Scan tracked files for high-signal secrets and generic private-looking identifiers.
+# Exit 1 on hits; exit 2 on scan failures; exit 0 when clean.
+# Scans every tracked file (including tests/ and examples/). Fixture strings must
+# use short placeholders so they do not match the value-length floors below.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Fragments (individually harmless; only the runtime combination is a private identifier).
-o1=192
-o2=168
-o3=172
-o4=100
-o5=10
-dom_a=neur
-dom_b=alami
-nm_a=Vi
-nm_b=kas
-ts_a=ts
+# Secret-shaped credentials that must never be committed.
+SECRET_RE='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}'
 
-domain="${dom_a}${dom_b}"                 # the reference provider domain
-name="${nm_a}${nm_b}"                    # an operator's personal name
-tsnet=".${ts_a}.net"                     # tailnet host suffix
-ip160="${o1}.${o2}.1.160"                # reference internal proxy host
-ip101="${o1}.${o2}.30.101"               # reference internal host
-
-# Extended regex: RFC1918 / CGNAT hosts, tailnet suffix, the provider domain, the personal name, specific hosts.
-RE="(${o1}\.${o2}\.|(^|[^0-9])${o5}\.[0-9]|(^|[^0-9])${o3}\.(1[6-9]|2[0-9]|3[01])\.|(^|[^0-9])${o4}\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|${tsnet}|${domain}|${name}|${ip160}|${ip101})"
+# Generic private identifiers: absolute home paths, and env assignments whose
+# values look like real credentials (length floor avoids docs/test placeholders).
+PRIVATE_RE='(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|C:\\Users\\[A-Za-z0-9._-]+)|(AM_[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)|OPENAI_API_KEY)=[A-Za-z0-9+/=_-]{16,}'
 
 hit=0
-for f in $(git ls-files); do
-    [ "$f" = "scripts/denylist.sh" ] && continue   # patterns live only here, assembled from fragments
-    if matches=$(grep -nEi -- "$RE" "$f" 2>/dev/null); then
-        echo "$matches"
-        hit=1
-    fi
-done
+scan_fail=0
+scanned=0
+tmp="$(mktemp)"
+git ls-files -z >"$tmp"
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  [ "$f" = "scripts/denylist.sh" ] && continue
+  scanned=$((scanned + 1))
+  set +e
+  secret_matches=$(grep -nE -- "$SECRET_RE" "$f" 2>/dev/null)
+  secret_status=$?
+  private_matches=$(grep -nE -- "$PRIVATE_RE" "$f" 2>/dev/null)
+  private_status=$?
+  set -e
+  if [ "$secret_status" -eq 0 ]; then
+    printf '%s (secret):\n%s\n' "$f" "$secret_matches"
+    hit=1
+  elif [ "$secret_status" -gt 1 ]; then
+    echo "denylist: grep failed on $f (exit $secret_status)" >&2
+    scan_fail=1
+  fi
+  if [ "$private_status" -eq 0 ]; then
+    printf '%s (private-identifier):\n%s\n' "$f" "$private_matches"
+    hit=1
+  elif [ "$private_status" -gt 1 ]; then
+    echo "denylist: grep failed on $f (exit $private_status)" >&2
+    scan_fail=1
+  fi
+done <"$tmp"
+rm -f "$tmp"
 
-if [ "$hit" -ne 0 ]; then
-    echo "DENYLIST: forbidden private identifier(s) found in tracked files above." >&2
-    exit 1
+if [ "$scan_fail" -ne 0 ]; then
+  echo "DENYLIST: scan failure(s) above." >&2
+  exit 2
 fi
-echo "denylist: clean ($(git ls-files | wc -l | tr -d ' ') tracked files scanned)."
+if [ "$hit" -ne 0 ]; then
+  echo "DENYLIST: secret-shaped or private identifier(s) found in tracked files above." >&2
+  exit 1
+fi
+echo "denylist: clean (${scanned} tracked files scanned)."
