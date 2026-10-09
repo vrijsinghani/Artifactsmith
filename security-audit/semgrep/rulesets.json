@@ -1,0 +1,12 @@
+{
+  "baseline": ["p/security-audit", "p/owasp-top-ten", "p/secrets", "p/python"],
+  "python": ["p/python"],
+  "docker": ["p/dockerfile"],
+  "yaml": ["p/yaml"],
+  "github-actions": ["p/github-actions"],
+  "third_party": [
+    "https://github.com/trailofbits/semgrep-rules",
+    "https://github.com/elttam/semgrep-rules",
+    "https://github.com/apiiro/malicious-code-ruleset"
+  ]
+}

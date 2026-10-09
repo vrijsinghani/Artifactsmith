@@ -1,0 +1,40 @@
+{"item": "html:style-breakout-script", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n<title>t</title>\\n</head>\\n<body>\\n<p>x</p>\\n</body>\\n</html>\\n'"}
+{"item": "html:entity-encoded-closer", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n</head>\\n<body>\\n<p>ok</p>\\n</body>\\n</html>\\n'"}
+{"item": "html:backslash-href", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n<title>t</title>\\n</head>\\n<body>\\n<a>x</a><a>y</a>\\n</body>\\n</html>\\n'"}
+{"item": "html:js-and-proto-relative", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n<title>t</title>\\n</head>\\n<body>\\n<a>j</a><a>p</a>\\n</body>\\n</html>\\n'"}
+{"item": "html:style-block-url", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n</head>\\n<body>\\n<p>ok</p>\\n</body>\\n</html>\\n'"}
+{"item": "html:inline-style-url", "held": false, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n<title>t</title>\\n</head>\\n<body>\\n<p style=\"background-color:url()\">x</p><p style=\"font-family:url()\">y</p><p style=\"wi'"}
+{"item": "html:img-src-remote", "held": true, "detail": "out_has_evil=False snippet='<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n<meta charset=\"utf-8\">\\n<title>t</title>\\n</head>\\n<body>\\n<img alt=\"a\">\\n</body>\\n</html>\\n'"}
+{"item": "html:css-escape-url", "held": true, "detail": "u\\72l dropped"}
+{"item": "html:css-import-escape", "held": true, "detail": "@\\69mport dropped"}
+{"item": "html:css-image-set", "held": true, "detail": "image-set dropped"}
+{"item": "html:css-font-face", "held": true, "detail": "@font-face dropped"}
+{"item": "html:css-raw-url", "held": true, "detail": "url() dropped"}
+{"item": "html:css-tag-open", "held": true, "detail": "raw < rejected"}
+{"item": "html:chrome-entity-breakout", "held": true, "detail": "dom_len=104 has_html=True"}
+{"item": "html:inline-style-after-sanitize", "held": true, "detail": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>t</title>\n</head>\n<body>\n<p style=\"\">x</p>\n</body>\n</html>\n"}
+{"item": "xlsx:formula-prefix", "held": true, "detail": "problems=[] sheets=['h1', 'Notes'] strings_has_eq=False"}
+{"item": "xlsx:numbers-as-strings", "held": false, "detail": "007_in_shared=False"}
+{"item": "private:http://127.0.0.1/admin", "held": true, "detail": "find_private=['private or local link host: 127.0.0.1'] fields=['metadata: private or local link host: 127.0.0.1']"}
+{"item": "private:http://localhost/x", "held": true, "detail": "find_private=['private or local link host: localhost'] fields=['metadata: private or local link host: localhost']"}
+{"item": "private:http://[::1]/x", "held": false, "detail": "find_private=[] fields=[]"}
+{"item": "private:http://127.1/x", "held": false, "detail": "find_private=[] fields=[]"}
+{"item": "private:http://0x7f.0.0.1/x", "held": false, "detail": "find_private=[] fields=[]"}
+{"item": "private:http://2130706433/x", "held": true, "detail": "find_private=['private or local link host: 2130706433'] fields=['metadata: private or local link host: 2130706433']"}
+{"item": "private:http://169.254.169.254/latest/meta-data", "held": true, "detail": "find_private=['private or local link host: 169.254.169.254'] fields=['metadata: private or local link host: 169.254.169.254']"}
+{"item": "private:http://metadata.google.internal/", "held": true, "detail": "find_private=['private or local link host: metadata.google.internal'] fields=['metadata: private or local link host: metadata.google.internal']"}
+{"item": "private:http://10.0.0.5/x", "held": true, "detail": "find_private=['private or local link host: 10.0.0.5'] fields=['metadata: private or local link host: 10.0.0.5']"}
+{"item": "private:http://evil.127.0.0.1.nip.io/x", "held": false, "detail": "find_private=[] fields=[]"}
+{"item": "private:http://127.0.0.1.sslip.io/x", "held": false, "detail": "find_private=[] fields=[]"}
+{"item": "secret:sk-aaaaaaaaaaaaaaaaa", "held": true, "detail": "hits=['metadata: possible secret (openai_sk)']"}
+{"item": "secret:ghp_AAAAAAAAAAAAAAAA", "held": true, "detail": "hits=['metadata: possible secret (github_pat)']"}
+{"item": "secret:-----BEGIN RSA PRIVA", "held": true, "detail": "hits=['metadata: possible secret (pem_private_key)']"}
+{"item": "secret:AKIAAAAAAAAAAAAAAAAA", "held": true, "detail": "hits=['metadata: possible secret (aws_access_key)']"}
+{"item": "secret:xoxb-aaaaaaaaaaaa", "held": true, "detail": "hits=['metadata: possible secret (slack_token)']"}
+{"item": "secret:Bearer abcdefghij012", "held": true, "detail": "hits=['metadata: possible secret (generic_bearer)']"}
+{"item": "secret:gho_AAAAAAAAAAAAAAAA", "held": false, "detail": "hits=[]"}
+{"item": "secret:glpat-AAAAAAAAAAAAAA", "held": false, "detail": "hits=[]"}
+{"item": "secret:aws secret FAKESECRE", "held": false, "detail": "hits=[]"}
+{"item": "race:claim-once", "held": true, "detail": "claimed=[1, 0]"}
+{"item": "race:reset-then-double-claim-window", "held": true, "detail": "after reset claimed=[1, 0] (one winner expected)"}
+{"item": "limits:constants", "held": true, "detail": "llm_cap=500000 source=204800 verbatim=32000 render=120 build=900 out=52428800 host='0.0.0.0' block_private=True allowed_hosts=[] allowed_origins=[]"}

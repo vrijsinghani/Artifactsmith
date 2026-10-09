@@ -1,0 +1,74 @@
+Run started:2026-10-09 13:04:56.321415+00:00
+
+Test results:
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: /tmp/audit-target/src/artifactsmith/config.py:65:66
+64	    secrets_dir: Path = field(default_factory=lambda: Path(_setting("AM_SECRETS_DIR", "/secrets")))
+65	    host: str = field(default_factory=lambda: _setting("AM_HOST", "0.0.0.0"))
+66	    api_port: int = field(default_factory=lambda: _setting_int("AM_API_PORT", 8780, minimum=1, maximum=65535))
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html
+   Location: /tmp/audit-target/src/artifactsmith/renderers/safety.py:80:8
+79	            parsed = urlparse(raw)
+80	        except Exception:  # noqa: BLE001
+81	            continue
+82	        host = parsed.hostname or ""
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html
+   Location: /tmp/audit-target/src/artifactsmith/renderers/safety.py:98:8
+97	            host = (urlparse(raw).hostname or "").lower()
+98	        except Exception:  # noqa: BLE001
+99	            continue
+100	        if not host:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: /tmp/audit-target/src/artifactsmith/renderers/subprocess_render.py:67:8
+66	            conn.close()
+67	        except Exception:  # noqa: BLE001
+68	            pass
+69	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: /tmp/audit-target/src/artifactsmith/service.py:1067:28
+1066	            for tbl in ("versions", "jobs", "shares", "delete_tokens", "short_links"):
+1067	                c.execute(f"DELETE FROM {tbl} WHERE artifact_id=?", (a["id"],))
+1068	            for row in c.execute("SELECT client, key, result_json FROM idempotency").fetchall():
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 3205
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 3
+		Medium: 2
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 2
+		High: 3
+Files skipped (0):

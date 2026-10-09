@@ -96,4 +96,7 @@ what survives. One-line each discarded item.
 - supply-chain collector: `uv run .cursor/skills/supply-chain-risk-auditor/scripts/collect.py`
 
 Record tool versions next to the outputs.
+
+An example read-only run against PR #2 (`a2b873c`) is in
+`docs/security-audit-2026-10-09.md` with raw SARIF/JSON under `security-audit/`.
 EOF
