@@ -20,17 +20,17 @@ Raw scanner output is kept out of git. Store a copy as a CI artifact, or under
 
 | Finding | Severity | Status |
 |---|---|---|
-| Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts | Medium | Fixed in `3ef385a` on PR #2 |
-| `artifactsmith serve` listens on all interfaces by default | Medium | Fixed in `3ef385a` on PR #2 |
-| MCP DNS-rebinding protection is off until an allow-list is set | Low | Fixed in `3ef385a` on PR #2 |
-| `inspect` can return raw object-store exceptions | Low | Fixed in `3ef385a` on PR #2 |
-| `start_workers` re-queues in-flight `building` jobs | Low | Fixed in `3ef385a` on PR #2 |
+| Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts | Medium | Fixed in PR #2 (commit 3ef385a) |
+| `artifactsmith serve` listens on all interfaces by default | Medium | Fixed in PR #2 (commit 3ef385a) |
+| MCP DNS-rebinding protection is off until an allow-list is set | Low | Fixed in PR #2 (commit 3ef385a) |
+| `inspect` can return raw object-store exceptions | Low | Fixed in PR #2 (commit 3ef385a) |
+| `start_workers` re-queues in-flight `building` jobs | Low | Fixed in PR #2 (commit 3ef385a) |
 
 ## Findings
 
 ### Medium — Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts
 
-**Status:** Fixed in `3ef385a` on PR #2.
+**Status:** Fixed in PR #2 (commit 3ef385a).
 
 At the audited commit: `src/artifactsmith/renderers/safety.py:10`,
 `safety.py:57`, `safety.py:73`.
@@ -52,13 +52,13 @@ are stripped, and ordinary `http://host` bodies are stripped, so this was a
 metadata / leftover-text bypass of the documented "never point at private
 hosts" control, not server-side SSRF.
 
-**Fix applied on PR #2:** Parse with `urllib.parse` and accept IPv6; treat
+**Fix applied in PR #2 (commit 3ef385a):** Parse with `urllib.parse` and accept IPv6; treat
 IPv4-mapped, short, octal, hex, and integer forms as IPs; block known
 rebinding suffixes.
 
 ### Medium — `artifactsmith serve` listens on all interfaces by default
 
-**Status:** Fixed in `3ef385a` on PR #2.
+**Status:** Fixed in PR #2 (commit 3ef385a).
 
 At the audited commit: `src/artifactsmith/config.py:65` (`AM_HOST` default
 `0.0.0.0`). Bandit B104.
@@ -72,12 +72,12 @@ bearer-only, but it was then reachable on every NIC.
 expose MCP and `/p/`, `/dl/`, `/s/` on the LAN. Share links become
 world-reachable if the host has a public address.
 
-**Fix applied on PR #2:** Default `AM_HOST` to `127.0.0.1`. Compose and the
+**Fix applied in PR #2 (commit 3ef385a):** Default `AM_HOST` to `127.0.0.1`. Compose and the
 container image still set `0.0.0.0` for in-container listen.
 
 ### Low — MCP DNS-rebinding protection is off until an allow-list is set
 
-**Status:** Fixed in `3ef385a` on PR #2.
+**Status:** Fixed in PR #2 (commit 3ef385a).
 
 At the audited commit: `src/artifactsmith/server.py:39`.
 `enable_dns_rebinding_protection` was true only when `AM_ALLOWED_HOSTS` or
@@ -87,24 +87,24 @@ At the audited commit: `src/artifactsmith/server.py:39`.
 call `/mcp` without a Host check. Bearer tokens are not sent automatically by
 a normal page, so this is defense-in-depth, not a token theft by itself.
 
-**Fix applied on PR #2:** Default allowed hosts are `127.0.0.1` and
+**Fix applied in PR #2 (commit 3ef385a):** Default allowed hosts are `127.0.0.1` and
 `localhost` on the API port, which turns the MCP transport check on for
 plain `serve`.
 
 ### Low — `inspect` can return raw object-store exceptions
 
-**Status:** Fixed in `3ef385a` on PR #2.
+**Status:** Fixed in PR #2 (commit 3ef385a).
 
 At the audited commit: `src/artifactsmith/service.py:901`. `manifest_error`
 was `str(e)[:200]` from `store.get`. A missing object or boto error could
 leak endpoint, bucket, or key layout to any token with `read`.
 
-**Fix applied on PR #2:** Return the fixed string `store_read_failed` and log
+**Fix applied in PR #2 (commit 3ef385a):** Return the fixed string `store_read_failed` and log
 the exception server-side.
 
 ### Low — `start_workers` re-queues in-flight `building` jobs
 
-**Status:** Fixed in `3ef385a` on PR #2.
+**Status:** Fixed in PR #2 (commit 3ef385a).
 
 At the audited commit: `src/artifactsmith/service.py:462`. Every
 `queued`/`building` row was set back to `queued` and enqueued. The claim
@@ -113,7 +113,7 @@ two threads got the row). A second process sharing the same SQLite file could
 reset a live `building` job and claim it. Two workers then upload the same
 version.
 
-**Fix applied on PR #2:** Requeue `building` only when `started_at` is older
+**Fix applied in PR #2 (commit 3ef385a):** Requeue `building` only when `started_at` is older
 than the build timeout. Fresh in-flight rows are left alone.
 
 ## Controls that held at `a2b873c`
