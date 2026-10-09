@@ -1,10 +1,8 @@
 """Runtime config from env. Every value also has a NAME_FILE variant that reads a file.
 Secrets are read from files and never logged."""
+
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import os
 import secrets
 from dataclasses import dataclass, field
@@ -56,7 +54,9 @@ class Config:
     api_url: str = field(default_factory=lambda: _setting("AM_API_URL", "http://127.0.0.1:8780"))
     preview_url: str = field(default_factory=lambda: _setting("AM_PREVIEW_URL", "http://127.0.0.1:8781"))
     # Public share base. Defaults to the preview origin. A reverse proxy can front only /s/*.
-    share_url: str = field(default_factory=lambda: _setting("AM_SHARE_URL", "") or _setting("AM_PREVIEW_URL", "http://127.0.0.1:8781"))
+    share_url: str = field(
+        default_factory=lambda: _setting("AM_SHARE_URL", "") or _setting("AM_PREVIEW_URL", "http://127.0.0.1:8781")
+    )
 
     # Share lifetime. 0 = until revoked (far-future expiry). Positive capped by AM_SHARE_TTL_MAX_DAYS.
     share_ttl_days: int = field(default_factory=lambda: _setting_int("AM_SHARE_TTL_DAYS", 30))
@@ -78,7 +78,9 @@ class Config:
     render_timeout_s: int = field(default_factory=lambda: _setting_int("AM_RENDER_TIMEOUT", 120))
     max_output_bytes: int = field(default_factory=lambda: _setting_int("AM_MAX_OUTPUT_BYTES", 50 * 1024 * 1024))
     # Link allow-list (comma-separated hostnames). Empty by default.
-    allowed_link_domains: list[str] = field(default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_LINK_DOMAINS", "").split(",") if h.strip()])
+    allowed_link_domains: list[str] = field(
+        default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_LINK_DOMAINS", "").split(",") if h.strip()]
+    )
     block_private_links: bool = field(default_factory=lambda: _setting_bool("AM_BLOCK_PRIVATE_LINKS", True))
 
     @property

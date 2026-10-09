@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Example MCP client for ArtifactSmith. Set ARTIFACTS_MCP_TOKEN to a token from `artifactsmith token add`.
 
-  ARTIFACTS_MCP_TOKEN=asmb_... python examples/python_client.py
+ARTIFACTS_MCP_TOKEN=asmb_... python examples/python_client.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,11 +38,18 @@ async def main() -> int:
             tools = await s.list_tools()
             print("tools:", [t.name for t in tools.tools])
 
-            created = _result(await s.call_tool("create", {
-                "slug": "pilot-store", "display_name": "Pilot Store", "kind": "web_static",
-                "verbatim_request": "Show the pilot store code.",
-                "source_content": "The pilot store code is HARBOR-17.",
-            }))
+            created = _result(
+                await s.call_tool(
+                    "create",
+                    {
+                        "slug": "pilot-store",
+                        "display_name": "Pilot Store",
+                        "kind": "web_static",
+                        "verbatim_request": "Show the pilot store code.",
+                        "source_content": "The pilot store code is HARBOR-17.",
+                    },
+                )
+            )
             print("create:", json.dumps(created, indent=2))
 
             st = _result(await s.call_tool("status", {"job_id": created["job_id"], "wait": 90}))

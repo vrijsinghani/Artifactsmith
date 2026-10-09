@@ -1,4 +1,5 @@
 """S3-compatible byte store. Layout: <workspace>/<artifact_id>/v<NNN>/<file>."""
+
 from __future__ import annotations
 
 import boto3
@@ -23,8 +24,13 @@ class Store:
             aws_access_key_id=ak,
             aws_secret_access_key=sk,
             region_name="us-east-1",
-            config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"},
-                              retries={"max_attempts": 3}, connect_timeout=10, read_timeout=60),
+            config=BotoConfig(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                retries={"max_attempts": 3},
+                connect_timeout=10,
+                read_timeout=60,
+            ),
         )
 
     @staticmethod

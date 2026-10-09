@@ -8,10 +8,10 @@ Behaviour:
 It performs no network calls and never invents a page. The whole reply is plain text the server parses; nothing here
 is executed by the server.
 """
+
 from __future__ import annotations
 
 import html
-import json
 import re
 
 from starlette.applications import Starlette
@@ -33,8 +33,8 @@ def _user_text(messages: list[dict]) -> str:
 
 
 def _extract(text: str) -> tuple[str, str, str]:
-    title = (TITLE_RE.search(text) or [None, "Artifact"])
-    title = title.group(1).strip() if hasattr(title, "group") else "Artifact"
+    title_m = TITLE_RE.search(text)
+    title = title_m.group(1).strip() if title_m else "Artifact"
     req = REQUEST_RE.search(text)
     src = SOURCE_RE.search(text)
     request_text = req.group(1).strip() if req else ""
@@ -44,34 +44,54 @@ def _extract(text: str) -> tuple[str, str, str]:
     return title, request_text, source_text
 
 
+def _system_text(messages: list[dict]) -> str:
+    return "\n".join(str(m.get("content", "")) for m in messages if m.get("role") == "system")
+
+
 def _reply(messages: list[dict]) -> str:
     text = _user_text(messages)
     if MISSING_SENTINEL in text:
-        return ("===NEEDS_INPUT===\n"
-                "A fact the request depends on is not present in the supplied source material. "
-                "Provide it as source_content and try again.\n===END===\n")
+        return (
+            "===NEEDS_INPUT===\n"
+            "A fact the request depends on is not present in the supplied source material. "
+            "Provide it as source_content and try again.\n===END===\n"
+        )
     title, request_text, source_text = _extract(text)
     body_bits = []
     if source_text:
         body_bits.append(source_text)
     if request_text:
         body_bits.append(request_text)
-    fact_block = html.escape("\n".join(body_bits)) if body_bits else "no facts supplied"
+    facts = "\n".join(body_bits) if body_bits else "no facts supplied"
+    wants_markdown = "===FILE: content.md===" in _system_text(messages)
+    if wants_markdown:
+        md = f"# {title}\n\n## Details\n\n{facts}\n"
+        if "|" not in facts:
+            md += "\n| field | value |\n| --- | --- |\n| title | " + title + " |\n"
+        return (
+            "===ASSUMPTIONS===\n"
+            "- Layout chosen by the builder; wording follows the supplied material.\n"
+            "===SUMMARY===\n"
+            "Built one Markdown document echoing the supplied material.\n"
+            "===FILE: content.md===\n" + md + "===END===\n"
+        )
+    fact_block = html.escape(facts)
     page = (
-        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
         f"<title>{html.escape(title)}</title>"
         "<style>body{font-family:system-ui,sans-serif;margin:2rem;max-width:48rem;line-height:1.5}</style>"
         f"</head><body><h1>{html.escape(title)}</h1>"
-        "<section class=\"facts\"><h2>Details</h2>"
-        f"<pre style=\"white-space:pre-wrap\">{fact_block}</pre></section>"
+        '<section class="facts"><h2>Details</h2>'
+        f'<pre style="white-space:pre-wrap">{fact_block}</pre></section>'
         "</body></html>"
     )
-    return ("===ASSUMPTIONS===\n"
-            "- Layout chosen by the builder; wording follows the supplied material.\n"
-            "===SUMMARY===\n"
-            "Built one self-contained page echoing the supplied material.\n"
-            "===FILE: index.html===\n"
-            + page + "\n===END===\n")
+    return (
+        "===ASSUMPTIONS===\n"
+        "- Layout chosen by the builder; wording follows the supplied material.\n"
+        "===SUMMARY===\n"
+        "Built one self-contained page echoing the supplied material.\n"
+        "===FILE: index.html===\n" + page + "\n===END===\n"
+    )
 
 
 async def chat_completions(request: Request):
@@ -81,24 +101,31 @@ async def chat_completions(request: Request):
         return JSONResponse({"error": "invalid json"}, status_code=400)
     messages = body.get("messages", []) if isinstance(body, dict) else []
     content = _reply(messages)
-    return JSONResponse({
-        "id": "mock", "object": "chat.completion", "model": body.get("model", "mock-echo"),
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
-    })
+    return JSONResponse(
+        {
+            "id": "mock",
+            "object": "chat.completion",
+            "model": body.get("model", "mock-echo"),
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+        }
+    )
 
 
 async def healthz(request: Request):
     return JSONResponse({"ok": True, "service": "mock-llm"})
 
 
-app = Starlette(routes=[
-    Route("/v1/chat/completions", chat_completions, methods=["POST"]),
-    Route("/healthz", healthz),
-])
+app = Starlette(
+    routes=[
+        Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+        Route("/healthz", healthz),
+    ]
+)
 
 
 def run() -> None:
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")
 
 

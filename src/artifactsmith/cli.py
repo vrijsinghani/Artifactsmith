@@ -2,6 +2,7 @@
 
 Tokens are stored only as sha256 hashes in SQLite. `token add` prints the raw token once.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,8 +16,9 @@ from .service import ALL_PERMS
 
 
 def _make_db():
-    from .db import DB
     from .config import CFG
+    from .db import DB
+
     return DB(CFG.db_path)
 
 
@@ -24,7 +26,7 @@ def _token_value() -> str:
     return "asmb_" + secrets.token_urlsafe(32)
 
 
-def cmd_token_add(args) -> int:
+def cmd_token_add(args: argparse.Namespace) -> int:
     db = _make_db()
     perms = sorted({p.strip() for p in args.perms.split(",") if p.strip()} & ALL_PERMS)
     if not perms:
@@ -35,13 +37,20 @@ def cmd_token_add(args) -> int:
         print(json.dumps({"error": "token must be at least 8 characters"}))
         return 2
     tok_id = "tok_" + secrets.token_urlsafe(8)
-    db.exec("INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at,revoked_at) VALUES (?,?,?,?,?,?,NULL)",
-            tok_id, hashlib.sha256(raw.encode()).hexdigest(), args.name, args.workspace, json.dumps(perms), time.time())
+    db.exec(
+        "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at,revoked_at) VALUES (?,?,?,?,?,?,NULL)",
+        tok_id,
+        hashlib.sha256(raw.encode()).hexdigest(),
+        args.name,
+        args.workspace,
+        json.dumps(perms),
+        time.time(),
+    )
     print(json.dumps({"id": tok_id, "name": args.name, "workspace": args.workspace, "perms": perms, "token": raw}))
     return 0
 
 
-def cmd_token_list(args) -> int:
+def cmd_token_list(args: argparse.Namespace) -> int:
     db = _make_db()
     rows = db.all("SELECT id,name,workspace,perms,created_at,revoked_at FROM tokens ORDER BY created_at")
     for r in rows:
@@ -50,7 +59,7 @@ def cmd_token_list(args) -> int:
     return 0
 
 
-def cmd_token_revoke(args) -> int:
+def cmd_token_revoke(args: argparse.Namespace) -> int:
     db = _make_db()
     if args.id:
         row = db.one("SELECT id FROM tokens WHERE id=?", args.id)
@@ -64,15 +73,19 @@ def cmd_token_revoke(args) -> int:
     return 0
 
 
-def cmd_storage_init(args) -> int:
+def cmd_storage_init(args: argparse.Namespace) -> int:
     from .store import Store
+
     store = Store()
     last = None
     for attempt in range(60):
         try:
             created = store.ensure_bucket()
-            print(json.dumps({"bucket": store.bucket, "created": created, "versioning": "enabled",
-                              "attempts": attempt + 1}))
+            print(
+                json.dumps(
+                    {"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt + 1}
+                )
+            )
             return 0
         except Exception as e:  # noqa: BLE001
             last = str(e)
@@ -81,21 +94,26 @@ def cmd_storage_init(args) -> int:
     return 1
 
 
-def cmd_serve(args) -> int:
+def cmd_serve(args: argparse.Namespace) -> int:
     from .server import run
+
     run()
     return 0
 
 
-def cmd_mock_llm(args) -> int:
+def cmd_mock_llm(args: argparse.Namespace) -> int:
     from .mock_llm import run
+
     run()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(prog="artifactsmith", description="Self-hosted artifact MCP server.")
+    parser = argparse.ArgumentParser(
+        prog="artifactsmith",
+        description="Self-hosted MCP server that lets AI agents make real documents.",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("serve", help="run the API + preview server")

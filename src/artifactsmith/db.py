@@ -1,10 +1,10 @@
 """SQLite source of truth. Single-writer lock, WAL mode. Bytes live in the object store."""
+
 from __future__ import annotations
 
 import json
 import sqlite3
 import threading
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
