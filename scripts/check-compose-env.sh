@@ -5,6 +5,27 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+# Replace KEY=… in .env (or append). Compose reads the first occurrence of each
+# key from the project .env, so appending a second line does not override.
+_set_env() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp)"
+  if [ -f .env ]; then
+    awk -v k="$key" -v v="$value" '
+      BEGIN { done=0 }
+      $0 ~ ("^" k "=") {
+        if (!done) { print k "=" v; done=1 }
+        next
+      }
+      { print }
+      END { if (!done) print k "=" v }
+    ' .env >"$tmp"
+  else
+    printf '%s=%s\n' "$key" "$value" >"$tmp"
+  fi
+  mv "$tmp" .env
+}
+
 marker="am-probe-$(openssl rand -hex 4 2>/dev/null || od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
 bash scripts/ensure-local-env.sh >/dev/null
 
@@ -17,9 +38,9 @@ cleanup() {
 trap cleanup EXIT
 
 # Probe public URL into the server service environment.
-printf '\nAM_SHARE_URL=http://probe.example/%s\n' "$marker" >> .env
+_set_env AM_SHARE_URL "http://probe.example/${marker}"
 # Probe host publish bind into the ports section (use a distinctive loopback alias).
-printf 'AM_BIND_ADDRESS=127.0.0.66\n' >> .env
+_set_env AM_BIND_ADDRESS "127.0.0.66"
 
 cfg="$(docker compose -f compose.yaml config)"
 
