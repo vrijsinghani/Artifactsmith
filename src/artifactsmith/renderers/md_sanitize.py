@@ -172,21 +172,33 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
     return out
 
 
-# Whitespace / odd separators that split an authority across reader boundaries.
-_AUTH_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff]"
-# After a URL_RE match: percent junk + sep + @… or sep + :userinfo@… (split userinfo).
-_AUTH_CONFUSION_EXT_RE = re.compile(
-    rf"^(?:%[0-9A-Fa-f]{{2}})*{_AUTH_SEP}+@[^\s\[\]<>)'\"]*"
-    rf"|^{_AUTH_SEP}+:[^\s\[\]<>)'\"]*@[^\s\[\]<>)'\"]*"
-)
-# ``https:<WS>//host`` — scheme split so URL_RE / linkify miss the private host.
-_SCHEME_SPLIT_RE = re.compile(rf"https?:{_AUTH_SEP}+//[^\s\[\]<>)'\"]+", re.I)
+# Separators that join a URL to ``@…`` *inside a link destination* (…)/(…)/refdef.
+_DEST_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff]"
+# Separators bare linkifiers actually consume into one URL (ZWSP); not SP/TAB/LF/CR/NBSP.
+_BARE_JOIN_SEP = r"[\u200b\ufeff]"
 _BROKEN_MD_LINK_BEFORE_RE = re.compile(r"\[([^\]]*)\]\($")
 _BROKEN_MD_LINK_AFTER_RE = re.compile(r'^(?:\s+"[^"]*")?\)')
-# Label may contain one level of nested ``[…]`` (image-in-link / nested brackets).
 _LINK_OPEN_BEFORE_RE = re.compile(r"\[((?:[^\[\]]|\[[^\]]*\])*)\]\($")
 _LINK_OPEN_ANGLE_BEFORE_RE = re.compile(r"\[((?:[^\[\]]|\[[^\]]*\])*)\]\(<$")
 _REF_DEF_BEFORE_RE = re.compile(r"^(.*)(\[[^\]\n]+\]:\s*)(<)?$", re.S)
+
+
+def _confusion_ext_re(sep: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"^(?:%[0-9A-Fa-f]{{2}})*{sep}+@[^\s\[\]<>)'\"]*"
+        rf"|^{sep}+:[^\s\[\]<>)'\"]*@[^\s\[\]<>)'\"]*"
+    )
+
+
+def _scheme_split_re(sep: str) -> re.Pattern[str]:
+    return re.compile(rf"https?:{sep}+//[^\s\[\]<>)'\"]+", re.I)
+
+
+_DEST_EXT_RE = _confusion_ext_re(_DEST_SEP)
+_BARE_EXT_RE = _confusion_ext_re(_BARE_JOIN_SEP)
+_DEST_SCHEME_SPLIT_RE = _scheme_split_re(_DEST_SEP)
+# Scheme splits with SP/TAB/LF/CR still matter in destinations and bare prose.
+_ANY_SCHEME_SPLIT_RE = _scheme_split_re(_DEST_SEP)
 
 
 def _md_inline_code(content: str) -> str:
@@ -204,102 +216,88 @@ def _md_inline_code(content: str) -> str:
     return f"{ticks}{content}{ticks}"
 
 
-def _span_is_confused(raw: str) -> bool:
-    """True when the span uses sep-before-@ / scheme-split (reader-split authority)."""
-    if re.search(rf"https?:{_AUTH_SEP}+//", raw, re.I):
+def _span_is_confused(raw: str, sep: str) -> bool:
+    if re.search(rf"https?:{sep}+//", raw, re.I):
         return True
-    if re.search(rf"{_AUTH_SEP}+@", raw):
+    if re.search(rf"{sep}+@", raw):
         return True
-    if re.search(rf"{_AUTH_SEP}+:[^\s]*@", raw):
+    if re.search(rf"{sep}+:[^\s]*@", raw):
         return True
     return False
 
 
-def _inside_inline_code(text: str, index: int) -> bool:
-    """Crude toggle over backtick runs before ``index`` (good enough for pretreat)."""
-    i = 0
-    in_code = False
-    while i < index:
-        if text[i] == "`":
-            j = i
-            while j < index and text[j] == "`":
-                j += 1
-            in_code = not in_code
-            i = j
-        else:
-            i += 1
-    return in_code
+def _line_starts(text: str) -> list[int]:
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
 
 
-def _pretreat_confused_urls(text: str) -> str:
-    """Neutralize authority-confused URL spans in raw markdown before parse.
+def _code_char_ranges(text: str) -> list[tuple[int, int]]:
+    """Character ranges covered by fence/code_block/code_inline (markdown-it maps)."""
+    md = _parser(linkify=False)
+    tokens = md.parse(text)
+    starts = _line_starts(text)
+    n = len(text)
+    ranges: list[tuple[int, int]] = []
 
-    LF/CR inside a destination otherwise become CommonMark reference ends or
-    softbreaks, leaving a public ``https://example.com`` link. Confused spans
-    become single-line inline code; ``[label](confused)`` collapses to the label.
-    """
-    spans = _url_spans(text)
-    if not spans:
-        return text
-    parts: list[str] = []
-    pos = 0
-    for start, end, raw in spans:
-        core = raw.rstrip(".,;:)")
-        trailing = raw[len(core) :]
-        if not _span_is_confused(raw) and _span_is_safe_public(core) is not None:
+    def add_lines(a: int, b: int) -> None:
+        if a < 0 or a >= len(starts):
+            return
+        lo = starts[a]
+        hi = starts[b] if b < len(starts) else n
+        ranges.append((lo, hi))
+
+    for tok in tokens:
+        if tok.type in ("fence", "code_block") and tok.map:
+            add_lines(tok.map[0], tok.map[1])
+        if tok.type != "inline" or not tok.children or not tok.map:
             continue
-        if _inside_inline_code(text, start):
+        a, b = tok.map[0], tok.map[1]
+        if a >= len(starts):
             continue
-        before = text[pos:start]
-        after = text[end:]
-        # Inline code cannot carry raw LF/CR; keep the visible form on one line.
-        code_core = core.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-        # Reference definitions: drop the whole def so ``[x][r]`` cannot revive a dest.
-        # Fencing the URL alone still yields a destination (backticks → ``%60…%60``).
-        ref_m = _REF_DEF_BEFORE_RE.match(before)
-        if ref_m is not None:
-            parts.append(ref_m.group(1))
-            rest = after
-            if ref_m.group(3) and rest.startswith(">"):
-                rest = rest[1:]
-            title_m = re.match(r"""^\s*(?:"[^"]*"|'[^']*'|\([^)]*\))?""", rest)
-            if title_m:
-                rest = rest[title_m.end() :]
-            if rest.startswith("\r\n"):
-                rest = rest[2:]
-            elif rest.startswith("\n") or rest.startswith("\r"):
-                rest = rest[1:]
-            pos = end + (len(after) - len(rest))
-            continue
-        am = _BROKEN_MD_LINK_AFTER_RE.match(after)
-        bm = _LINK_OPEN_BEFORE_RE.search(before) if am is not None else None
-        if bm is not None and am is not None:
-            parts.append(before[: bm.start()])
-            parts.append(bm.group(1))
-            pos = end + am.end()
-            continue
-        label_m = _LINK_OPEN_ANGLE_BEFORE_RE.search(before)
-        if label_m is not None and after.startswith(">)"):
-            parts.append(before[: label_m.start()])
-            parts.append(label_m.group(1))
-            pos = end + 2
-            continue
-        if before.endswith("<") and after.startswith(">"):
-            parts.append(before[:-1])
-            parts.append(_md_inline_code(code_core))
-            pos = end + 1
-            continue
-        parts.append(before)
-        parts.append(_md_inline_code(code_core))
-        if trailing:
-            parts.append(trailing)
-        pos = end
-    parts.append(text[pos:])
-    return "".join(parts)
+        block_off = starts[a]
+        block = text[block_off : starts[b] if b < len(starts) else n]
+        cursor = 0
+        for ch in tok.children:
+            if ch.type != "code_inline":
+                continue
+            ticks = ch.markup or "`"
+            content = ch.content or ""
+            candidates = [f"{ticks}{content}{ticks}"]
+            if content.startswith("`") or content.endswith("`"):
+                candidates.insert(0, f"{ticks} {content} {ticks}")
+            for cand in candidates:
+                idx = block.find(cand, cursor)
+                if idx >= 0:
+                    ranges.append((block_off + idx, block_off + idx + len(cand)))
+                    cursor = idx + len(cand)
+                    break
+    return ranges
 
 
-def _url_spans(text: str) -> list[tuple[int, int, str]]:
-    """Yield (start, end, raw) for http(s) spans, including authority-confusion tails."""
+def _overlaps(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start < hi and end > lo for lo, hi in ranges)
+
+
+def _is_destination_context(text: str, url_start: int) -> bool:
+    before = text[:url_start]
+    if _REF_DEF_BEFORE_RE.match(before):
+        return True
+    if _LINK_OPEN_BEFORE_RE.search(before) or _LINK_OPEN_ANGLE_BEFORE_RE.search(before):
+        return True
+    if before.endswith("<") and not before.endswith(")<"):
+        return True
+    return False
+
+
+def _url_spans(
+    text: str,
+    *,
+    ext_re: re.Pattern[str],
+    scheme_re: re.Pattern[str],
+) -> list[tuple[int, int, str]]:
     spans: list[tuple[int, int, str]] = []
     covered = [False] * (len(text) + 1)
 
@@ -312,71 +310,151 @@ def _url_spans(text: str) -> list[tuple[int, int, str]]:
 
     for m in URL_RE.finditer(text):
         start, end = m.start(), m.end()
-        # ``match(text, pos)`` still treats ``^`` as start-of-string; slice instead.
-        ext = _AUTH_CONFUSION_EXT_RE.match(text[end:])
+        ext = ext_re.match(text[end:])
         if ext:
             end = end + ext.end()
         add(start, end)
-    for m in _SCHEME_SPLIT_RE.finditer(text):
+    for m in scheme_re.finditer(text):
         add(m.start(), m.end())
     spans.sort(key=lambda s: s[0])
     return spans
 
 
 def _span_is_safe_public(raw: str) -> str | None:
-    """Public emit href, or None when the span is scheme-split / sep-@ confused / blocked."""
-    if re.search(rf"https?:{_AUTH_SEP}+//", raw, re.I):
-        return None
-    if re.search(rf"{_AUTH_SEP}+@", raw):
-        return None
-    if re.search(rf"{_AUTH_SEP}+:[^\s]*@", raw):
+    """Public emit href, or None when scheme-split / sep-@ confused / blocked."""
+    if _span_is_confused(raw, _DEST_SEP):
         return None
     return public_href_or_none(raw)
 
 
-def _linkify_text_token(text: str) -> list[Token]:
-    """Linkify bare public URLs; authority-confusion and private forms become code.
+def _apply_neutralization(
+    text: str,
+    start: int,
+    end: int,
+    raw: str,
+    pos: int,
+    parts: list[str],
+) -> int:
+    """Append neutralization for text[start:end]; return new pos in ``text``."""
+    core = raw.rstrip(".,;:)")
+    trailing = raw[len(core) :]
+    before = text[pos:start]
+    after = text[end:]
+    code_core = core.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    ref_m = _REF_DEF_BEFORE_RE.match(before)
+    if ref_m is not None:
+        parts.append(ref_m.group(1))
+        rest = after
+        if ref_m.group(3) and rest.startswith(">"):
+            rest = rest[1:]
+        title_m = re.match(r"""^\s*(?:"[^"]*"|'[^']*'|\([^)]*\))?""", rest)
+        if title_m:
+            rest = rest[title_m.end() :]
+        if rest.startswith("\r\n"):
+            rest = rest[2:]
+        elif rest.startswith("\n") or rest.startswith("\r"):
+            rest = rest[1:]
+        return end + (len(after) - len(rest))
+    am = _BROKEN_MD_LINK_AFTER_RE.match(after)
+    bm = _LINK_OPEN_BEFORE_RE.search(before) if am is not None else None
+    if bm is not None and am is not None:
+        parts.append(before[: bm.start()])
+        parts.append(bm.group(1))
+        return end + am.end()
+    label_m = _LINK_OPEN_ANGLE_BEFORE_RE.search(before)
+    if label_m is not None and after.startswith(">)"):
+        parts.append(before[: label_m.start()])
+        parts.append(label_m.group(1))
+        return end + 2
+    if before.endswith("<") and after.startswith(">"):
+        parts.append(before[:-1])
+        parts.append(_md_inline_code(code_core))
+        return end + 1
+    parts.append(before)
+    parts.append(_md_inline_code(code_core))
+    if trailing:
+        parts.append(trailing)
+    return end
 
-    Broken ``[label](confused-url)`` keeps the label only. Broken ``<confused>``
-    autolinks become inline code for the destination.
+
+def _pretreat_confused_urls(text: str) -> str:
+    """Neutralize authority-confused destinations; leave bare URL + @mention alone.
+
+    SP/TAB/LF/CR/NBSP + ``@`` is an attack only inside ``(…)``, ``<…>``, or a
+    refdef destination. Bare URLs only join across ZWSP (what linkify consumes).
+    Fence / indented / inline code ranges from markdown-it are skipped.
     """
+    if not text:
+        return text
+    code = _code_char_ranges(text)
+    work: list[tuple[int, int, str]] = []
+
+    for start, end, raw in _url_spans(text, ext_re=_DEST_EXT_RE, scheme_re=_DEST_SCHEME_SPLIT_RE):
+        if _overlaps(start, end, code) or not _is_destination_context(text, start):
+            continue
+        core = raw.rstrip(".,;:)")
+        if not _span_is_confused(raw, _DEST_SEP) and _span_is_safe_public(core) is not None:
+            continue
+        work.append((start, end, raw))
+
+    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
+        if _overlaps(start, end, code) or _is_destination_context(text, start):
+            continue
+        # Bare: only ZWSP-joined @ or any scheme-split — never SP/TAB/LF/CR + @mention.
+        if not (_span_is_confused(raw, _BARE_JOIN_SEP) or _ANY_SCHEME_SPLIT_RE.fullmatch(raw.rstrip(".,;:)"))):
+            continue
+        work.append((start, end, raw))
+
+    if not work:
+        return text
+    work.sort(key=lambda t: t[0])
+    parts: list[str] = []
+    pos = 0
+    for start, end, raw in work:
+        if start < pos:
+            continue
+        pos = _apply_neutralization(text, start, end, raw, pos, parts)
+    parts.append(text[pos:])
+    return "".join(parts)
+
+
+def _linkify_text_token(text: str) -> list[Token]:
+    """Linkify residual bare public URLs; ZWSP-confused / private forms become code."""
     if not text:
         return []
     parts: list[Token] = []
     pos = 0
-    for start, end, raw in _url_spans(text):
+    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
         before = text[pos:start]
         after = text[end:]
         core = raw.rstrip(".,;:)")
         trailing = raw[len(core) :]
-        # Broken markdown link: ``[L](https://example.com<WS>@127.0.0.1/x)`` → label only.
         bm = _BROKEN_MD_LINK_BEFORE_RE.search(before)
         am = _BROKEN_MD_LINK_AFTER_RE.match(after) if bm is not None else None
         if bm is not None and am is not None:
             parts.append(_text_token(before[: bm.start()]))
-            label = bm.group(1)
-            if label:
-                parts.append(_text_token(label))
+            if bm.group(1):
+                parts.append(_text_token(bm.group(1)))
             pos = end + am.end()
             continue
-        # Broken angle autolink: ``<https://example.com<WS>@host>`` → inline code.
         if before.endswith("<") and after.startswith(">"):
             parts.append(_text_token(before[:-1]))
             parts.append(_code_inline_token(core))
             pos = end + 1
             continue
-        # Angle-wrapped destination ``[L](<confused>)`` — drop dest, keep label.
         if before.endswith("(<") and after.startswith(">)"):
             label_m = re.search(r"\[([^\]]*)\]\(<$", before)
             if label_m is not None:
                 parts.append(_text_token(before[: label_m.start()]))
                 if label_m.group(1):
                     parts.append(_text_token(label_m.group(1)))
-                pos = end + 2  # consume ``>)``
+                pos = end + 2
                 continue
         if before:
             parts.append(_text_token(before))
-        safe = _span_is_safe_public(core)
+        safe = _span_is_safe_public(core) if not _span_is_confused(core, _BARE_JOIN_SEP) else None
+        if safe is None and not _span_is_confused(core, _DEST_SEP):
+            safe = public_href_or_none(core)
         if safe:
             parts.extend(_link_tokens(safe, safe))
         else:
@@ -395,20 +473,19 @@ def _linkify_prose_urls(text: str) -> str:
         return text
     parts: list[str] = []
     pos = 0
-    for start, end, raw in _url_spans(text):
+    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
         if start >= 2 and text[start - 2 : start] == "](":
             continue
         parts.append(text[pos:start])
         core = raw.rstrip(".,;:)")
         trailing = raw[len(core) :]
-        safe = _span_is_safe_public(core)
-        if safe:
+        safe = public_href_or_none(core) if not _span_is_confused(core, _BARE_JOIN_SEP) else None
+        if safe and not _span_is_confused(core, _DEST_SEP):
+            parts.append(f"[{safe}]({safe})")
+        elif safe:
             parts.append(f"[{safe}]({safe})")
         else:
-            tick_len = max((len(m.group(0)) for m in re.finditer(r"`+", core)), default=0) + 1
-            ticks = "`" * tick_len
-            pad = " " if core.startswith("`") or core.endswith("`") else ""
-            parts.append(f"{ticks}{pad}{core}{pad}{ticks}")
+            parts.append(_md_inline_code(core.replace("\n", " ").replace("\r", " ")))
         if trailing:
             parts.append(trailing)
         pos = end
@@ -481,15 +558,16 @@ def collect_link_destinations(md_text: str) -> list[str]:
 def sanitize_markdown(text: str) -> str:
     """Rewrite markdown links/images via CommonMark tokens; leave code untouched.
 
-    Parse without markdown-it linkify so authority-confused destinations (whitespace
-    or odd characters before ``@``) stay in one text span for our linkifier.
-    After serialize, re-parse with linkify and require policy-clean destinations.
-    If that check fails, fall back to escaping all Markdown punctuation.
+    Pretreat authority-confused destinations first (destination SP/@ and bare
+    ZWSP joins), then parse with linkify so email/www forms match the final
+    policy check. After serialize, re-parse with linkify and require
+    policy-clean destinations. If that check fails, fall back to escaping all
+    Markdown punctuation.
     """
     if not text:
         return text
     text = _pretreat_confused_urls(text)
-    md = _parser(linkify=False)
+    md = _parser(linkify=True)
     tokens = md.parse(text)
     for tok in tokens:
         if tok.type == "inline" and tok.children is not None:

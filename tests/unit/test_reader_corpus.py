@@ -4,11 +4,13 @@ Two corpora:
 
 1. **Authority** — WS × SHAPES × FORMS (11 whitespace/odd separators inside
    destinations × 5 attack URL shapes × 11 Markdown forms) plus EXTRA cases
-   from the probe_ws / test_links_authority generator (610 cases). These are
-   known-blocked: after sanitize, readers must emit **no** anchors.
+   from the probe_ws / test_links_authority generator (610 cases). After
+   sanitize, readers must emit **no private / userinfo anchors** (leaks).
+   Bare forms terminated by SP/TAB/LF/CR may keep a public prefix link; that
+   is not a leak.
 
 2. **Hosts** — private-host shapes in common Markdown forms (kept from the
-   earlier host corpus). Also known-blocked (no anchors).
+   earlier host corpus). Also known-blocked (no private anchors).
 
 Readers: markdown-it (commonmark, and commonmark+linkify) always; pandoc
 ``markdown`` / ``commonmark`` / ``gfm`` / ``commonmark_x`` when pandoc is on
@@ -210,12 +212,11 @@ def test_authority_corpus_idempotent(ws: str, form: str, shape: str, raw: str) -
     ids=[f"auth/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_AUTHORITY_CASES)],
 )
 @pytest.mark.parametrize("reader", _MDIT_READERS)
-def test_authority_corpus_mdit_no_anchors(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+def test_authority_corpus_mdit_no_leaks(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
     out = sanitize_markdown(raw)
     hrefs = _reader_hrefs(out, reader)
-    assert hrefs == [], (reader, ws, form, shape, out, hrefs)
-    for href in hrefs:
-        assert not _href_is_private_or_userinfo(href)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, ws, form, shape, out, leaks)
 
 
 @pytest.mark.parametrize(
@@ -224,12 +225,13 @@ def test_authority_corpus_mdit_no_anchors(ws: str, form: str, shape: str, raw: s
     ids=[f"auth/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_AUTHORITY_CASES)],
 )
 @pytest.mark.parametrize("reader", _PANDOC_READERS)
-def test_authority_corpus_pandoc_no_anchors(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+def test_authority_corpus_pandoc_no_leaks(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
     if shutil.which("pandoc") is None:
         pytest.skip("pandoc not installed")
     out = sanitize_markdown(raw)
     hrefs = _reader_hrefs(out, reader)
-    assert hrefs == [], (reader, ws, form, shape, out, hrefs)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, ws, form, shape, out, leaks)
 
 
 @pytest.mark.parametrize(
@@ -248,10 +250,11 @@ def test_host_corpus_idempotent(form: str, url: str, raw: str) -> None:
     ids=[f"host/{f}/{i}" for i, (f, _, _) in enumerate(_HOST_CASES)],
 )
 @pytest.mark.parametrize("reader", _MDIT_READERS)
-def test_host_corpus_mdit_no_anchors(form: str, url: str, raw: str, reader: str) -> None:
+def test_host_corpus_mdit_no_leaks(form: str, url: str, raw: str, reader: str) -> None:
     out = sanitize_markdown(raw)
     hrefs = _reader_hrefs(out, reader)
-    assert hrefs == [], (reader, form, url, out, hrefs)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, form, url, out, leaks)
 
 
 @pytest.mark.parametrize(
@@ -260,12 +263,13 @@ def test_host_corpus_mdit_no_anchors(form: str, url: str, raw: str, reader: str)
     ids=[f"host/{f}/{i}" for i, (f, _, _) in enumerate(_HOST_CASES)],
 )
 @pytest.mark.parametrize("reader", _PANDOC_READERS)
-def test_host_corpus_pandoc_no_anchors(form: str, url: str, raw: str, reader: str) -> None:
+def test_host_corpus_pandoc_no_leaks(form: str, url: str, raw: str, reader: str) -> None:
     if shutil.which("pandoc") is None:
         pytest.skip("pandoc not installed")
     out = sanitize_markdown(raw)
     hrefs = _reader_hrefs(out, reader)
-    assert hrefs == [], (reader, form, url, out, hrefs)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, form, url, out, leaks)
 
 
 def test_list_continuation_ordered_loose_idempotent() -> None:
