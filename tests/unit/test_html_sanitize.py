@@ -100,6 +100,162 @@ def test_css_rejects_raw_tag_open():
     assert sanitize_css("p{color:red}</style><img src=x>") == ""
 
 
+def _compact(css: str) -> str:
+    return "".join(css.split()).lower()
+
+
+# Modeled on the production share page that rendered almost unstyled
+# (https://artifactsmith.neuralami.ai/s/hsetr695e655es94/): the default builder
+# writes :root tokens and uses var() for color, type, and layout.
+_BUILDER_SHARE_FIXTURE = """
+:root {
+  --ink: #1a1a1a;
+  --paper: #fafafa;
+  --accent: #0b6e4f;
+  --accent-soft: #e6f4ef;
+  --muted: #5c5c5c;
+  --line: #d6d6d6;
+  --sans: "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto;
+  max-width: 68ch;
+  color: var(--ink);
+  background: var(--paper);
+  font: 1rem/1.55 var(--sans);
+  padding: 1.5rem 1.25rem;
+}
+header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  place-items: start;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+header > p { color: var(--muted, #5c5c5c); margin: 0; }
+.hero {
+  background: linear-gradient(180deg, var(--accent-soft), var(--paper));
+  background-image: linear-gradient(180deg, var(--accent-soft), var(--paper));
+  padding: 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+h1 { color: var(--accent); font-weight: 650; text-wrap: balance; }
+.badge {
+  position: sticky;
+  top: 0;
+  inset: 0 auto auto 0;
+  accent-color: var(--accent);
+}
+@media (max-width: 640px) {
+  header { grid-template-columns: 1fr; }
+  body { font-size: 0.95rem; padding: 1rem; }
+}
+@supports (display: grid) {
+  main { display: grid; row-gap: 1rem; }
+}
+"""
+
+
+def test_builder_stylesheet_variables_media_gradients_survive():
+    out = sanitize_css(_BUILDER_SHARE_FIXTURE)
+    compact = _compact(out)
+    required = (
+        ":root",
+        "--ink:#1a1a1a",
+        "--paper:#fafafa",
+        "--accent:#0b6e4f",
+        "color:var(--ink)",
+        "background:var(--paper)",
+        "font:1rem/1.55var(--sans)",
+        "var(--muted,#5c5c5c)",
+        "@media",
+        "max-width:640px",
+        "linear-gradient",
+        "grid-template-columns",
+        "grid-template-rows",
+        "place-items",
+        "box-shadow",
+        "text-wrap",
+        "position:sticky",
+        "@supports",
+        "row-gap",
+        "header>p",
+    )
+    missing = [item for item in required if item not in compact]
+    assert missing == [], (missing, out)
+
+
+def test_url_in_custom_property_drops_only_that_declaration():
+    css = ":root{--ink:#111;--bg:url(https://evil.example/x.png);--paper:#fff}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "--ink:#111" in compact
+    assert "--paper:#fff" in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_var_fallback_drops_only_that_declaration():
+    css = "p{color:var(--ink,#111);background:var(--paper,url(https://evil.example/x.png))}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "color:var(--ink,#111)" in compact
+    assert "background" not in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_gradient_drops_only_that_declaration():
+    css = "p{color:var(--ink);background-image:linear-gradient(red,url(https://evil.example/x.png));margin:0}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "color:var(--ink)" in compact
+    assert "margin:0" in compact
+    assert "background-image" not in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_url_in_media_drops_only_that_declaration():
+    css = "@media (max-width: 640px){p{color:var(--ink);background:url(https://evil.example/x.png)}}"
+    out = sanitize_css(css)
+    compact = _compact(out)
+    assert "@media" in compact
+    assert "color:var(--ink)" in compact
+    assert "evil" not in out.lower()
+    assert "url(" not in out.lower()
+
+
+def test_style_breakout_in_css_still_returns_empty():
+    assert sanitize_css("p{color:red}</style><img src=x>") == ""
+    assert sanitize_css("p{content:'</style>'}") == ""
+    assert sanitize_css(":root{--x:'</style>'}") == ""
+
+
+def test_regression_builder_share_page_keeps_variable_stylesheet():
+    """Production share pages lost most rules because var() emptied each rule."""
+    raw = (
+        "<!DOCTYPE html><html><head><title>Brief</title>"
+        f"<style>{_BUILDER_SHARE_FIXTURE}</style>"
+        "</head><body><header><p>Verdict first.</p></header>"
+        "<main class='hero'><h1>Keep the tokens</h1></main></body></html>"
+    )
+    out = sanitize_html_document(raw)
+    assert "<style>" in out
+    style = out.split("<style>")[1].split("</style>")[0]
+    compact = _compact(style)
+    assert "--ink:#1a1a1a" in compact
+    assert "color:var(--ink)" in compact
+    assert "@media" in compact
+    assert "linear-gradient" in compact
+    assert "<" not in style
+    assert "verdict first" in out.lower()
+
+
 def test_style_block_urls_do_not_survive_document_sanitize():
     raw = """<!DOCTYPE html><html><head>
     <style>body{background:url(https://evil.com/x.png)}</style>
