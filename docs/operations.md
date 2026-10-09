@@ -7,6 +7,7 @@ cp .env.example .env
 # set OPENAI_API_KEY (or AM_LLM_KEY); change AM_LLM_BASE only if not using OpenAI
 ./scripts/ensure-local-env.sh   # fills empty AM_STORE_KEY / AM_STORE_SECRET
 docker compose up -d --build
+# --workspace scopes the token (artifacts in other workspaces are unreachable).
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
@@ -113,6 +114,15 @@ Separate API and preview ports create separate browser origins. The preview app 
 4. Run `python -m tests.e2e.test_end_to_end` against a staging stack before moving clients.
 
 The compose storage image is `rustfs/rustfs:1.0.1`, pinned by digest.
+
+## Uninstall / reset
+
+```bash
+docker compose down --volumes
+docker image rm artifactsmith-server 2>/dev/null || true
+```
+
+That removes the containers and named volumes (SQLite, object store, secrets). Recreate `.env` from `.env.example` and follow Deploy above to start clean.
 
 ## Health and logs
 

@@ -36,6 +36,24 @@ HISTORY_CAP_CHARS = 64_000
 KINDS = {"web_static", "file"}
 
 
+def slugify(text: str) -> str:
+    """Derive a URL slug from a display title (a-z, 0-9, hyphens; 2–63 chars)."""
+    s = unicodedata_normalize_ascii(text).lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    s = re.sub(r"-{2,}", "-", s)
+    if len(s) < 2:
+        s = (s + "-item")[:63]
+    return s[:63].rstrip("-") or "item"
+
+
+def unicodedata_normalize_ascii(text: str) -> str:
+    import unicodedata
+
+    # Fold accents so "Café Brief" → "Cafe Brief" before slugifying.
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 class AMError(Exception):
     """User-facing error (the message is safe to return to callers)."""
 
@@ -237,10 +255,10 @@ class Service:
         self,
         principal: dict[str, Any],
         *,
-        slug: str,
-        display_name: str,
-        kind: str,
         verbatim_request: str,
+        slug: str | None = None,
+        display_name: str | None = None,
+        kind: str = "web_static",
         format: str | None = None,
         workspace: str | None = None,
         model: str | None = None,
@@ -254,6 +272,7 @@ class Service:
         if not WS_RE.match(ws or ""):
             raise AMError("invalid workspace name")
         self.check_access(principal, ws)
+        kind = (kind or "web_static").strip()
         if kind not in KINDS:
             raise AMError(f"kind must be one of {sorted(KINDS)}")
         if kind == "file":
@@ -262,11 +281,20 @@ class Service:
         if fmt not in SUPPORTED_FORMATS:
             raise AMError(f"format must be one of {sorted(SUPPORTED_FORMATS)}")
         format = fmt
-        if not SLUG_RE.match(slug or ""):
+        title = (display_name or "").strip()
+        raw_slug = (slug or "").strip()
+        if not title and not raw_slug:
+            raise AMError("provide display_name or slug")
+        if not title:
+            title = raw_slug
+        if not raw_slug:
+            raw_slug = slugify(title)
+        if not SLUG_RE.match(raw_slug):
             raise AMError("slug must be 2-63 chars of a-z, 0-9 and '-'")
+        slug = raw_slug
         model = self._model(model)
         verbatim_request = self._validate_verbatim(verbatim_request)
-        display_name = self._validate_display_name(display_name, slug)
+        display_name = self._validate_display_name(title, slug)
         idempotency_key = self._validate_idempotency_key(idempotency_key)
         caps = capabilities or {}
         if not isinstance(caps, dict):

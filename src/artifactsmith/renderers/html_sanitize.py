@@ -309,11 +309,43 @@ def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
     return None
 
 
+_IMG_TAG_RE = re.compile(r"<img\b([^>]*)/?>", re.I)
+
+
+def _attr(attrs: str, name: str) -> str | None:
+    m = re.search(rf"""\b{name}\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))""", attrs, re.I)
+    if not m:
+        return None
+    return m.group(2) if m.group(2) is not None else (m.group(3) if m.group(3) is not None else m.group(4))
+
+
+def rewrite_remote_images_to_links(html: str) -> str:
+    """Turn remote ``<img src=https://…>`` into a clickable ``<a href>`` (nothing loads on open)."""
+    from html import escape
+
+    from .links import public_href_or_none
+
+    def repl(m: re.Match[str]) -> str:
+        attrs = m.group(1)
+        src = _attr(attrs, "src") or ""
+        alt = (_attr(attrs, "alt") or "").strip() or "image"
+        href = public_href_or_none(src)
+        if not href:
+            # Drop non-public remote images; keep a text label when alt was set.
+            return escape(alt) if (_attr(attrs, "alt") or "").strip() else ""
+        return (
+            f'<a href="{escape(href, quote=True)}" rel="noopener noreferrer nofollow" target="_blank">{escape(alt)}</a>'
+        )
+
+    return _IMG_TAG_RE.sub(repl, html)
+
+
 def sanitize_html_document(body: str) -> str:
     """Return a complete HTML document with allowlisted markup and sanitized CSS.
 
-    Public http(s) ``<a href>`` links are kept (with rel/target hardening). Images,
-    CSS ``url()``, fonts, and iframes stay self-contained — no remote resources.
+    Public http(s) ``<a href>`` links are kept (with rel/target hardening). Remote
+    ``<img src>`` becomes a clickable link to the image URL. CSS ``url()``, fonts,
+    and iframes stay self-contained — no remote subresource fetch on open.
     """
     title_m = _TITLE_RE.search(body)
     title = nh3.clean_text(unescape(title_m.group(1))).strip() if title_m else ""
@@ -326,6 +358,8 @@ def sanitize_html_document(body: str) -> str:
     fragment = body_m.group(1) if body_m else body
     fragment = _STYLE_RE.sub("", fragment)
     fragment = _TITLE_RE.sub("", fragment)
+    # Before nh3 drops remote img src, rewrite public ones to anchors.
+    fragment = rewrite_remote_images_to_links(fragment)
 
     cleaned = nh3.clean(
         fragment,

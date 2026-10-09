@@ -140,6 +140,18 @@ def test_xlsx_public_urls_are_plain_hyperlinks_not_formulas():
     assert found
 
 
+def test_markdown_and_pdf_rewrite_remote_image_to_link():
+    from artifactsmith.renderers.safety import sanitize_text
+
+    body = sanitize_text("See ![chart](https://cdn.example.com/plot.png) in the brief.")
+    assert "![chart]" not in body
+    assert "[chart](https://cdn.example.com/plot.png)" in body
+    md = get_renderer("markdown").render(title="T", body=body)
+    assert b"[chart](https://cdn.example.com/plot.png)" in md.files["document.md"]
+    pdf = get_renderer("pdf").render(title="T", body=body)
+    assert pdf.files["document.pdf"].startswith(b"%PDF")
+
+
 def test_xlsx_multi_url_cell_keeps_all_text_links_first():
     """First public URL is the cell hyperlink; every URL stays visible as text."""
     from openpyxl import load_workbook

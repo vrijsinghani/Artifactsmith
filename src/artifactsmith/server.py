@@ -81,10 +81,10 @@ def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]
 @mcp.tool()
 def create(
     ctx: Context[Any, Any, Any],
-    slug: str,
-    display_name: str,
-    kind: str,
     verbatim_request: str,
+    display_name: str | None = None,
+    slug: str | None = None,
+    kind: str = "web_static",
     source_content: str | None = None,
     source_files: list[dict[str, str]] | None = None,
     format: str | None = None,
@@ -93,14 +93,17 @@ def create(
     capabilities: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    """Queue a new artifact (kind=web_static). Returns artifact_id, version, and job_id immediately.
+    """Queue a new artifact. Returns artifact_id, version, and job_id immediately.
     Then call status(job_id, wait=90).
+
+    Required: verbatim_request (the user's exact words; the whole scope).
+
+    display_name is the human title. slug is the URL key (a-z, 0-9, hyphens). Provide at least one:
+    if slug is omitted it is derived from display_name; if display_name is omitted it defaults to slug.
+    kind defaults to web_static (the only kind in this release).
 
     format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
     writes the bytes. html keeps the house-style HTML page. The other formats start from Markdown.
-
-    verbatim_request is the user's exact words and the whole scope. Do not put research there beyond
-    what the user said.
 
     source_content (optional, up to 200 KB total with source_files) is researched material the page
     is built from. The builder uses only the request plus this material for facts.
@@ -110,7 +113,8 @@ def create(
     If a needed fact is missing, the job ends as needs_input with a short missing message and stores
     no file. Call create again with the same slug after you supply the data.
 
-    create does not create a share link."""
+    create does not create a share link. When checks fail, the server retries the model once, so a
+    failed build takes about twice as long to report as a clean one."""
     return _run(
         _svc().create,
         _principal(ctx),

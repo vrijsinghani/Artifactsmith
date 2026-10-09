@@ -118,12 +118,24 @@ def test_svg_iframe_removed():
     assert "<p>x</p>" in out
 
 
-def test_img_src_stripped_even_for_public_hosts():
-    raw = '<html><body><img src="https://x.com/a.png" onerror="alert(1)" alt="a"></body></html>'
+def test_public_img_becomes_clickable_link():
+    raw = '<html><body><img src="https://cdn.example.com/a.png" onerror="alert(1)" alt="chart"></body></html>'
+    out = sanitize_html(raw)
+    low = out.lower()
+    assert "onerror" not in low
+    assert "<img" not in low
+    assert 'href="https://cdn.example.com/a.png"' in low
+    assert "chart" in low
+    assert 'rel="noopener noreferrer nofollow"' in low
+    assert 'target="_blank"' in low
+
+
+def test_private_img_src_not_linked():
+    raw = '<html><body><img src="http://127.0.0.1/a.png" alt="secret"></body></html>'
     out = sanitize_html(raw).lower()
-    assert "onerror" not in out
-    assert 'src="https://' not in out
-    assert 'src="' not in out or 'src=""' in out or "<img" in out
+    assert "<img" not in out
+    assert 'href="http://127.0.0.1' not in out
+    assert "secret" in out
 
 
 def test_export_bytes_safe_without_csp():
@@ -226,37 +238,63 @@ class _ProxyRecorder:
 
 
 def _chrome_open_via_proxy(html: str, proxy_url: str) -> None:
-    """Load HTML in headless Chrome forced through ``proxy_url`` (no CSP)."""
+    """Serve HTML over local HTTP and open it through ``proxy_url`` (no CSP).
+
+    ``file://`` pages block remote subresources in Chromium, so the document must
+    be http(s) for a remote ``<img>`` to attempt a fetch the proxy can record.
+    Localhost stays on the default proxy bypass list so the document loads.
+    """
+    from http.server import SimpleHTTPRequestHandler
+
     chrome = _chrome()
     assert chrome is not None
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        html_path = root / "export.html"
-        html_path.write_text(html, encoding="utf-8")
+        (root / "export.html").write_text(html, encoding="utf-8")
         profile = root / "chrome-profile"
         profile.mkdir()
-        subprocess.run(
-            [
-                "timeout",
-                "25",
-                chrome,
-                "--headless=old",
-                "--disable-gpu",
-                "--no-sandbox",
-                f"--user-data-dir={profile}",
-                f"--proxy-server={proxy_url}",
-                # Do not bypass proxy for localhost; we need every remote attempt recorded.
-                "--proxy-bypass-list=<-loopback>",
-                "--virtual-time-budget=3000",
-                "--timeout=5000",
-                "--dump-dom",
-                html_path.resolve().as_uri(),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=40,
-            check=False,
-        )
+        directory = str(root)
+
+        class QuietHandler(SimpleHTTPRequestHandler):
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                super().__init__(*args, directory=directory, **kwargs)  # type: ignore[misc]
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        origin = ThreadingHTTPServer(("127.0.0.1", 0), QuietHandler)
+        host, port = origin.server_address
+        thread = threading.Thread(target=origin.serve_forever, daemon=True)
+        thread.start()
+        try:
+            page = f"http://{host}:{port}/export.html"
+            subprocess.run(
+                [
+                    "timeout",
+                    "25",
+                    chrome,
+                    "--headless=old",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-default-apps",
+                    f"--user-data-dir={profile}",
+                    f"--proxy-server={proxy_url}",
+                    "--virtual-time-budget=3000",
+                    "--timeout=5000",
+                    "--dump-dom",
+                    page,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=40,
+                check=False,
+            )
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            thread.join(timeout=5)
 
 
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
@@ -288,11 +326,7 @@ def test_standalone_export_style_breakout_does_not_run_in_chrome():
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
 def test_harness_proxy_records_remote_img_fetch():
     """Positive control: a live remote <img> must produce a proxy hit (harness works)."""
-    evil = (
-        "<!DOCTYPE html><html><body>"
-        '<img src="https://evil.example/tracker.png" alt="t">'
-        "</body></html>"
-    )
+    evil = '<!DOCTYPE html><html><body><img src="https://evil.example/tracker.png" alt="t"></body></html>'
     with _ProxyRecorder() as proxy:
         _chrome_open_via_proxy(evil, proxy.url)
         hits = [t for t in proxy.targets if "evil.example" in t]
@@ -301,19 +335,21 @@ def test_harness_proxy_records_remote_img_fetch():
 
 @pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
 def test_html_export_with_public_link_does_not_fetch_remote():
-    """Opening an export with a public <a href> must not phone home (no CSP)."""
+    """Opening an export with public links must not phone home (no CSP)."""
     raw = """<!DOCTYPE html><html><body>
     <p>Source: <a href="https://example.com/paper">paper</a></p>
-    <img src="https://evil.example/tracker.png" alt="x">
+    <img src="https://cdn.example.net/tracker.png" alt="x">
     <p>Also https://example.org/bare</p>
     </body></html>"""
     cleaned = sanitize_html(raw)
     assert 'href="https://example.com/paper"' in cleaned
-    assert "evil.example" not in cleaned
+    # Remote img becomes a clickable link (nothing loads on open).
+    assert "<img" not in cleaned.lower()
+    assert 'href="https://cdn.example.net/tracker.png"' in cleaned
     assert 'src="https://' not in cleaned.lower()
-    watched = ("example.com", "example.org", "evil.example")
+    watched = ("example.com", "example.org", "cdn.example.net")
     with _ProxyRecorder() as proxy:
         _chrome_open_via_proxy(cleaned, proxy.url)
         remote = [t for t in proxy.targets if any(h in t for h in watched)]
-        # Anchors must not be fetched on open; stripped img must not appear.
+        # Anchors (including rewritten images) must not be fetched on open.
         assert remote == [], remote

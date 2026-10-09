@@ -20,6 +20,8 @@ cp .env.example .env
 docker compose up -d --build
 
 # Create a token (prints the raw value once; only its hash is stored).
+# --workspace is a label that scopes every artifact the token can see
+# (e.g. alpha, team-a). Tokens cannot cross workspaces.
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
@@ -141,15 +143,41 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | `unshare` | `share` | Revoke the public link immediately. |
 | `revoke_previews` | `export` | Expire private `/p/` preview links for an artifact (optional version). |
 | `delete` | `delete` | Two-step purge. First call returns a confirm token. |
+| `list_prompts` | — | MCP discovery. Empty in this release. |
+| `get_prompt` | — | MCP discovery. Empty in this release. |
+| `list_resources` | — | MCP discovery. Empty in this release. |
+| `read_resource` | — | MCP discovery. Empty in this release. |
 
-`create` fields:
+### `create` arguments
+
+Required:
 
 - `verbatim_request`: the user's exact words. That is the whole scope.
-- `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
-- `format`: `html`, `markdown`, `pdf`, `docx`, or `xlsx`.
-- `kind`: `web_static` in this release.
 
-If a needed fact is missing from the request and the source, the job ends as `needs_input` and stores no file.
+Provide at least one of:
+
+- `display_name`: human title shown on cards (e.g. `"Pilot store brief"`).
+- `slug`: URL key, `a-z` / `0-9` / `-`, 2–63 chars. If omitted, derived from `display_name`. If `display_name` is omitted, it defaults to `slug`.
+
+Optional:
+
+- `kind`: defaults to `web_static` (the only kind in this release).
+- `format`: `html` (default), `markdown`, `pdf`, `docx`, or `xlsx`.
+- `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
+- `model`, `workspace`, `idempotency_key`, `capabilities`.
+
+Working example (title only; slug becomes `pilot-store-brief`):
+
+```json
+{
+  "display_name": "Pilot store brief",
+  "verbatim_request": "One page that states the pilot store code and why it matters.",
+  "source_content": "The pilot store code is HARBOR-17.",
+  "format": "html"
+}
+```
+
+If a needed fact is missing from the request and the source, the job ends as `needs_input` and stores no file. When server checks fail, the model is called a second time, so a failed build takes about twice as long to report as a clean one.
 
 ## Configuration
 
@@ -193,7 +221,7 @@ Builds stay private until you call `share`. That creates a public `/s/…` URL. 
 
 Preview runs on its own port, sends no cookies, and sets CSP `script-src 'none'`.
 
-Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, `file:`, and protocol-relative URLs. Images and other subresources stay embedded or local — no remote `img`, CSS `url()`, fonts, or iframes — so exports open offline without fetching. Secrets fail the build. Size and time caps apply.
+Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Protocol-relative `//host` citations are upgraded to `https://`. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
 
 The process does not send usage data anywhere.
 
@@ -201,11 +229,26 @@ The process does not send usage data anywhere.
 
 ## Tokens
 
+A **workspace** is a namespace for artifacts (for example `alpha` or `team-a`). Each token belongs to exactly one workspace and can only create or read artifacts in that workspace. Knowing an artifact id from another workspace does not grant access.
+
 ```bash
 artifactsmith token add --name NAME --workspace WS [--perms create,read,edit,export,share,delete]
 artifactsmith token list
 artifactsmith token revoke --id ID | --name NAME
 ```
+
+## Uninstall / reset
+
+```bash
+# Stop containers and delete the compose volumes (SQLite data, object-store data, secrets volume).
+docker compose down --volumes
+
+# Optional: remove the built server image.
+docker image rm artifactsmith-server 2>/dev/null || true
+docker image ls | awk '/artifactsmith/ {print $3}' | xargs -r docker image rm
+```
+
+Copy `.env.example` again and re-run the quickstart to start clean.
 
 ## Development
 

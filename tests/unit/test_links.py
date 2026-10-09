@@ -138,3 +138,23 @@ def test_linkify_markdown_wraps_bare_public_urls():
     assert "[x](https://example.org/b)" in out
     private = sanitize_markdown("go http://127.0.0.1/x now")
     assert "](http://127.0.0.1" not in private
+
+
+def test_https_markdown_link_survives_byte_for_byte():
+    """Public https destinations must not become protocol-relative in MD export."""
+    from artifactsmith.renderers import get_renderer
+    from artifactsmith.renderers.safety import sanitize_text
+
+    src = "Cite [National Science Foundation](https://www.nsf.gov/) here."
+    cleaned = sanitize_text(src)
+    assert "(https://www.nsf.gov/)" in cleaned
+    assert "](//" not in cleaned
+    out = get_renderer("markdown").render(title="Sources", body=cleaned)
+    text = out.files["document.md"].decode()
+    assert "(https://www.nsf.gov/)" in text
+    assert "](//" not in text
+
+
+def test_protocol_relative_upgraded_to_https():
+    out = sanitize_markdown("[NSF](//www.nsf.gov/)")
+    assert out == "[NSF](https://www.nsf.gov/)"

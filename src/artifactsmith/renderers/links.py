@@ -77,8 +77,14 @@ def is_public_http_url(url: str) -> bool:
 
 
 def public_href_or_none(url: str) -> str | None:
-    """Return a normalized public http(s) URL, or None if not allowed."""
+    """Return a normalized public http(s) URL, or None if not allowed.
+
+    Protocol-relative ``//host/path`` is upgraded to ``https://host/path`` when the
+    host is public, so citations stay clickable.
+    """
     raw = normalize_href(url)
+    if raw.startswith("//") and not raw.lower().startswith(("///",)):
+        raw = "https:" + raw
     if classify_href(raw) != "public":
         return None
     return raw

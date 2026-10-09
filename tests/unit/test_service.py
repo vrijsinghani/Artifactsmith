@@ -88,6 +88,15 @@ def test_model_and_source_validation(svc):
     assert bundle and bundle["bytes"] > 0
 
 
+def test_create_defaults_slug_and_kind(svc):
+    p = _principal()
+    created = svc.create(p, display_name="Pilot Store Brief", verbatim_request="show the code")
+    assert created["slug"] == "pilot-store-brief"
+    assert created["status"] == "queued"
+    with pytest.raises(AMError, match="display_name or slug"):
+        svc.create(p, verbatim_request="x")
+
+
 def test_create_validations(svc):
     p = _principal()
     with pytest.raises(AMError, match="invalid workspace"):
