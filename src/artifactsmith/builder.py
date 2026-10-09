@@ -15,7 +15,7 @@ from . import llm
 from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import sanitize_html_document
-from .renderers.safety import URL_RE, check_content, sanitize_text
+from .renderers.safety import URL_RE, check_content, check_fields, sanitize_text
 
 log = logging.getLogger("artifactsmith.builder")
 
@@ -319,12 +319,35 @@ async def run_build(
         text = await llm.call(model, system, prompt)
         missing = needs_input(text)
         if missing:
+            miss_problems = check_fields(
+                missing,
+                block_private_links=CFG.block_private_links,
+                allowed_link_domains=CFG.allowed_link_domains,
+                label="needs_input",
+            )
+            if miss_problems:
+                last_problems = miss_problems
+                notes.append(f"attempt {attempt}: " + "; ".join(miss_problems))
+                continue
             raise NeedsInput(missing)
         try:
             assumptions, summary, body = parse_output(text)
         except BuildError as e:
             last_problems = [str(e)]
             notes.append(f"attempt {attempt}: {e}")
+            continue
+        # Titles, summaries, and assumptions reach cards and non-HTML renderers.
+        field_problems = check_fields(
+            display_name,
+            summary,
+            *assumptions,
+            block_private_links=CFG.block_private_links,
+            allowed_link_domains=CFG.allowed_link_domains,
+            label="metadata",
+        )
+        if field_problems:
+            last_problems = field_problems
+            notes.append(f"attempt {attempt}: " + "; ".join(field_problems))
             continue
         # Fail closed on private links / secrets before stripping (so the model can correct them).
         pre = check_content(

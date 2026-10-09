@@ -90,6 +90,6 @@ def test_ensure_put_get_purge(monkeypatch):
         }
     ]
     assert s.count_prefix_versions("ws/a/") == 2
+    assert "ws/a/v001/index.html" in fake.objects
     assert s.purge_prefix("ws/a/") == 2
-    fake.pages = [{"Versions": [], "DeleteMarkers": []}]
-    assert s.count_prefix_versions("ws/a/") == 0
+    assert "ws/a/v001/index.html" not in fake.objects

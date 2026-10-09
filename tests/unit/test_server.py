@@ -148,6 +148,18 @@ def test_preview_forged_or_expired_is_404(svc):
     assert r.status_code == 404
     assert "set-cookie" not in {k.lower() for k in r.headers.keys()}
 
+    aid, ver, _ = _seed_done_artifact(svc)
+    sid = "expiredpreview1"
+    svc.db.exec(
+        "INSERT INTO short_links VALUES (?,?,?,?,?)",
+        sid,
+        aid,
+        ver,
+        "preview",
+        time.time() - 10,
+    )
+    assert client.get(f"/p/{sid}").status_code == 404
+
 
 def test_preview_ok_has_csp_and_no_cookies(svc):
     aid, ver, body = _seed_done_artifact(svc)
@@ -237,3 +249,11 @@ def test_shared_link_ok_and_revoked(svc):
     assert not r.cookies
     svc.db.exec("UPDATE shares SET revoked_at=? WHERE id=?", time.time(), sid)
     assert client.get(f"/s/{sid}/").status_code == 404
+
+
+def test_missing_openai_key_warning_uses_hostname():
+    assert server.missing_openai_key_warning("https://api.openai.com", "") is True
+    assert server.missing_openai_key_warning("https://api.openai.com/v1", "") is True
+    assert server.missing_openai_key_warning("https://api.openai.com.evil.example", "") is False
+    assert server.missing_openai_key_warning("https://api.openai.com", "sk-x") is False
+    assert server.missing_openai_key_warning("http://mock-llm:8080", "") is False

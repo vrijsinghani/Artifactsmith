@@ -48,3 +48,11 @@ def test_markdown_rejects_surviving_urls():
 def test_size_cap():
     problems = check_content("x" * 50, fmt="markdown", max_chars=10)
     assert any("exceeds" in p for p in problems)
+
+
+def test_check_fields_catches_secret_in_title():
+    from artifactsmith.renderers.safety import check_fields
+
+    secret = "sk-" + ("a" * 24)
+    problems = check_fields(secret, label="metadata")
+    assert any("possible secret" in p for p in problems)

@@ -118,6 +118,30 @@ async def test_run_build_rejects_secret(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_build_rejects_secret_in_title(monkeypatch):
+    async def fake_call(model, system, user, timeout=300):
+        return (
+            "===ASSUMPTIONS===\n- none\n===SUMMARY===\nok\n"
+            "===FILE: content.md===\n# clean\n\nno secrets here\n===END===\n"
+        )
+
+    monkeypatch.setattr(b.llm, "call", fake_call)
+    with pytest.raises(b.BuildError, match="secret"):
+        await b.run_build(
+            kind="web_static",
+            slug="s",
+            display_name="sk-" + ("c" * 24),
+            verbatim="x",
+            model="test-model",
+            base_source=None,
+            base_version=None,
+            history=[],
+            progress=lambda _m: None,
+            format="markdown",
+        )
+
+
+@pytest.mark.asyncio
 async def test_run_build_needs_input(monkeypatch):
     async def fake_call(model, system, user, timeout=300):
         return "===NEEDS_INPUT===\nNeed revenue.\n===END===\n"

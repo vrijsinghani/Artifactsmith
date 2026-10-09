@@ -82,6 +82,13 @@ class Config:
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_LINK_DOMAINS", "").split(",") if h.strip()]
     )
     block_private_links: bool = field(default_factory=lambda: _setting_bool("AM_BLOCK_PRIVATE_LINKS", True))
+    # MCP Host/Origin allow-lists (comma-separated). When either is set, DNS-rebinding protection is on.
+    allowed_hosts: list[str] = field(
+        default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    )
+    allowed_origins: list[str] = field(
+        default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_ORIGINS", "").split(",") if h.strip()]
+    )
 
     @property
     def db_path(self) -> Path:

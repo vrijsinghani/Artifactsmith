@@ -104,6 +104,33 @@ def find_disallowed_links(text: str, allowed_domains: list[str]) -> list[str]:
     return problems
 
 
+def check_fields(
+    *parts: str,
+    block_private_links: bool = True,
+    allowed_link_domains: list[str] | None = None,
+    max_chars: int = 8_000,
+    label: str = "field",
+) -> list[str]:
+    """Heuristic secret/private-link checks for titles, summaries, and other card fields.
+
+    Secret detection is a best-effort pattern match, not a guarantee.
+    """
+    problems: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if len(part) > max_chars:
+            problems.append(f"{label} exceeds {max_chars} characters")
+        for hit in find_secrets(part):
+            problems.append(f"{label}: {hit}")
+        if block_private_links:
+            for hit in find_private_links(part):
+                problems.append(f"{label}: {hit}")
+        for hit in find_disallowed_links(part, allowed_link_domains or []):
+            problems.append(f"{label}: {hit}")
+    return problems
+
+
 def check_content(
     text: str,
     *,
@@ -112,7 +139,10 @@ def check_content(
     allowed_link_domains: list[str] | None = None,
     max_chars: int = 2_000_000,
 ) -> list[str]:
-    """Return human-readable problems that must be fixed before rendering."""
+    """Return human-readable problems that must be fixed before rendering.
+
+    Secret detection is a heuristic, not a guarantee that no secrets remain.
+    """
     problems: list[str] = []
     if len(text) > max_chars:
         problems.append(f"content exceeds {max_chars} characters")

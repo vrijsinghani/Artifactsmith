@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+from typing import Any
 
 from .base import RenderOutput
 from .md_parse import parse_blocks
@@ -22,6 +23,19 @@ def _sheet_name(title: str, used: set[str], index: int) -> str:
         n += 1
     used.add(name.lower())
     return name
+
+
+def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
+    """Write untrusted content as a string cell so leading '=' cannot become a formula."""
+    from openpyxl.cell.cell import TYPE_STRING
+
+    cell = ws.cell(row=row, column=col, value="" if value is None else str(value))
+    cell.data_type = TYPE_STRING
+
+
+def _write_row(ws: Any, row: int, values: list[object]) -> None:
+    for col, value in enumerate(values, start=1):
+        _literal_cell(ws, row, col, value)
 
 
 class XlsxRenderer:
@@ -47,11 +61,11 @@ class XlsxRenderer:
                 name = _sheet_name(b.headers[0] if b.headers else f"Table{table_i}", used, table_i)
                 ws = wb.create_sheet(name)
                 headers = b.headers or [f"col{i + 1}" for i in range(max((len(r) for r in b.rows), default=1))]
-                ws.append(headers)
+                _write_row(ws, 1, list(headers))
                 width = len(headers)
-                for row in b.rows:
+                for i, row in enumerate(b.rows, start=2):
                     padded = list(row) + [""] * max(0, width - len(row))
-                    ws.append(padded[:width])
+                    _write_row(ws, i, padded[:width])
             elif b.kind == "heading":
                 notes.append(b.text)
             elif b.kind == "paragraph":
@@ -62,13 +76,13 @@ class XlsxRenderer:
                 notes.append(b.text)
         if not wb.sheetnames:
             ws = wb.create_sheet(_sheet_name(title or "Data", used, 1))
-            ws.append(["content"])
-            ws.append([body.strip() or "(empty)"])
+            _write_row(ws, 1, ["content"])
+            _write_row(ws, 2, [body.strip() or "(empty)"])
         if notes:
             nws = wb.create_sheet(_sheet_name("Notes", used, 99))
-            nws.append(["notes"])
-            for line in notes:
-                nws.append([line])
+            _write_row(nws, 1, ["notes"])
+            for i, line in enumerate(notes, start=2):
+                _write_row(nws, i, [line])
         buf = io.BytesIO()
         wb.save(buf)
         files = {

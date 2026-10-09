@@ -8,6 +8,7 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
@@ -16,6 +17,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
 from .config import CFG
@@ -33,13 +35,24 @@ INSTRUCTIONS = (
     "revokes immediately. A token reaches only its own workspace and only the permissions it was granted."
 )
 
+def _transport_security() -> TransportSecuritySettings:
+    hosts = list(CFG.allowed_hosts)
+    origins = list(CFG.allowed_origins)
+    enabled = bool(hosts or origins)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=enabled,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
+
 mcp = FastMCP(
     "artifacts",
     instructions=INSTRUCTIONS,
     stateless_http=True,
     json_response=True,
     streamable_http_path="/mcp",
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    transport_security=_transport_security(),
 )
 
 
@@ -209,10 +222,10 @@ def delete(ctx: Context[Any, Any, Any], artifact_id: str, confirm_token: str | N
 
 # ---------------- bearer auth + per-token permissions for the API origin ----------------
 class BearerAuth:
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope["path"] in ("/healthz",):
             await self.app(scope, receive, send)
             return
@@ -314,6 +327,12 @@ preview_app = Starlette(
 )
 
 
+def missing_openai_key_warning(base: str, key: str) -> bool:
+    """True when the configured LLM host is api.openai.com and no key is set."""
+    host = (urlparse(base).hostname or "").lower()
+    return (not key) and host == "api.openai.com"
+
+
 async def main() -> None:
     global SVC
     logging.basicConfig(
@@ -321,7 +340,7 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     log = logging.getLogger("artifactsmith")
-    if not CFG.llm_key() and "api.openai.com" in CFG.normalized_llm_base():
+    if missing_openai_key_warning(CFG.normalized_llm_base(), CFG.llm_key()):
         log.warning(
             "OPENAI_API_KEY / AM_LLM_KEY is empty while AM_LLM_BASE points at api.openai.com; "
             "create will fail with HTTP 401 until you set a key or point AM_LLM_BASE at a local gateway"
