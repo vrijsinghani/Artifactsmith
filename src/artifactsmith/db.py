@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS versions (
   summary TEXT,
   size INTEGER,
   source_key TEXT,
+  style TEXT,
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   PRIMARY KEY (artifact_id, version)
@@ -112,9 +113,12 @@ class DB:
         self.lock = threading.RLock()
 
     def _migrate(self) -> None:
-        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(artifacts)").fetchall()}
-        if "deleting_at" not in cols:
+        art_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(artifacts)").fetchall()}
+        if "deleting_at" not in art_cols:
             self.conn.execute("ALTER TABLE artifacts ADD COLUMN deleting_at REAL")
+        ver_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(versions)").fetchall()}
+        if "style" not in ver_cols:
+            self.conn.execute("ALTER TABLE versions ADD COLUMN style TEXT")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

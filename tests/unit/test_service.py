@@ -521,3 +521,51 @@ def test_inspect_scrubs_store_errors(svc, monkeypatch):
     assert out["manifest_error"] == "store_read_failed"
     assert "secret" not in str(out)
     assert "/data/internal" not in str(out)
+
+
+def test_create_rejects_unknown_style(svc):
+    p = _principal()
+    with pytest.raises(AMError, match="house, bold, editorial, playful, terminal, swiss"):
+        svc.create(p, slug="bad-style", display_name="Bad", kind="web_static", verbatim_request="x", style="neon")
+
+
+@pytest.mark.asyncio
+async def test_style_persists_across_edit_and_shows_in_status_inspect(svc, monkeypatch):
+    seen: list[str] = []
+
+    async def fake_build(**kw):
+        seen.append(kw.get("style") or "")
+        return BuildResult(
+            files={"index.html": b"<html><body>ok</body></html>"},
+            primary="index.html",
+            assumptions=[],
+            summary="built",
+            model="gpt-test",
+        )
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", fake_build)
+    p = _principal()
+    created = svc.create(p, slug="styled", display_name="Styled", kind="web_static", verbatim_request="x", style="bold")
+    assert created["style"] == "bold"
+    await svc._run_job(created["job_id"])
+    st = await svc.status(p, job_id=created["job_id"], wait=0)
+    assert st["style"] == "bold"
+    insp = svc.inspect(p, created["artifact_id"])
+    assert insp["style"] == "bold"
+    assert insp["history"][0]["style"] == "bold"
+    assert insp["manifest"]["style"] == "bold"
+
+    edited = svc.edit(p, artifact_id=created["artifact_id"], base_version=1, verbatim_request="tweak")
+    assert edited["style"] == "bold"
+    await svc._run_job(edited["job_id"])
+    again = svc.inspect(p, created["artifact_id"], version=2)
+    assert again["style"] == "bold"
+    assert again["manifest"]["style"] == "bold"
+
+    switched = svc.edit(
+        p, artifact_id=created["artifact_id"], base_version=2, verbatim_request="swiss it", style="swiss"
+    )
+    assert switched["style"] == "swiss"
+    with pytest.raises(AMError, match="house, bold, editorial, playful, terminal, swiss"):
+        svc.edit(p, artifact_id=created["artifact_id"], base_version=2, verbatim_request="nope", style="neon")
+    assert seen == ["bold", "bold"]

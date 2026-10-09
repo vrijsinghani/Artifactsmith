@@ -9,6 +9,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .styles import DEFAULT_STYLE, StyleError, parse_style
+
 
 class ConfigError(ValueError):
     """Raised when an environment setting is present but invalid."""
@@ -45,6 +47,14 @@ def _setting_int(name: str, default: int, *, minimum: int | None = None, maximum
     if maximum is not None and value > maximum:
         raise ConfigError(f"{name} must be <= {maximum}, got {value}")
     return value
+
+
+def _setting_style(name: str, default: str) -> str:
+    raw = _setting(name, default)
+    try:
+        return parse_style(raw, default=default)
+    except StyleError as e:
+        raise ConfigError(f"{name}: {e}") from e
 
 
 def _setting_bool(name: str, default: bool) -> bool:
@@ -90,6 +100,7 @@ class Config:
     llm_api: str = field(default_factory=lambda: _setting("AM_LLM_API", "chat").lower())
     llm_base: str = field(default_factory=lambda: _setting("AM_LLM_BASE", "https://api.openai.com"))
     default_model: str = field(default_factory=lambda: _setting("AM_DEFAULT_MODEL", "gpt-4o-mini"))
+    default_style: str = field(default_factory=lambda: _setting_style("AM_DEFAULT_STYLE", DEFAULT_STYLE))
 
     # Object store (S3-compatible). rustfs in compose.
     store_endpoint: str = field(default_factory=lambda: _setting("AM_STORE_ENDPOINT", ""))

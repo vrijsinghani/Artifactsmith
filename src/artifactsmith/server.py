@@ -88,6 +88,7 @@ def create(
     source_content: str | None = None,
     source_files: list[dict[str, str]] | None = None,
     format: str | None = None,
+    style: str | None = None,
     workspace: str | None = None,
     model: str | None = None,
     capabilities: dict[str, Any] | None = None,
@@ -103,7 +104,9 @@ def create(
     kind defaults to web_static (the only kind in this release).
 
     format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
-    writes the bytes. html keeps the house-style HTML page. The other formats start from Markdown.
+    writes the bytes. html uses the visual style (house, bold, editorial, playful, terminal, swiss;
+    default AM_DEFAULT_STYLE, usually house). style is accepted on markdown, pdf, docx, and xlsx
+    but ignored: those formats still use the writing-only prompt.
 
     source_content (optional, up to 200 KB total with source_files) is researched material the page
     is built from. The builder uses only the request plus this material for facts.
@@ -129,6 +132,7 @@ def create(
         source_files=source_files,
         capabilities=capabilities,
         idempotency_key=idempotency_key,
+        style=style,
     )
 
 
@@ -142,6 +146,7 @@ def edit(
     source_files: list[dict[str, str]] | None = None,
     workspace: str | None = None,
     model: str | None = None,
+    style: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Build a new version from base_version (the latest done version) using the user's exact change request.
@@ -149,6 +154,10 @@ def edit(
 
     source_content and source_files (optional, 200 KB total) replace the base version's source.
     If omitted, the base version's source is reused.
+
+    style (optional) is house, bold, editorial, playful, terminal, or swiss. Omit it to keep the
+    style the artifact was last built with. It applies to HTML only; other formats accept it and
+    ignore it.
 
     Ends as needs_input with a missing message if the change needs facts that were not supplied."""
     return _run(
@@ -162,6 +171,7 @@ def edit(
         workspace=workspace,
         model=model,
         idempotency_key=idempotency_key,
+        style=style,
     )
 
 

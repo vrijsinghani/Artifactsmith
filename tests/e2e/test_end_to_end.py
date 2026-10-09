@@ -57,6 +57,7 @@ async def main() -> int:
                 "verbatim_request": "Show the pilot store code.",
                 "source_content": f"The pilot store code is {fact1}.",
                 "idempotency_key": "e2e-create-1",
+                "style": "bold",
             },
         )
         check(
@@ -75,6 +76,7 @@ async def main() -> int:
                 "verbatim_request": "Show the pilot store code.",
                 "source_content": f"The pilot store code is {fact1}.",
                 "idempotency_key": "e2e-create-1",
+                "style": "bold",
             },
         )
         check(
@@ -85,6 +87,7 @@ async def main() -> int:
         print("\n[2] status(wait) -> done; page contains the fact; still private")
         st = await call(s, "status", {"job_id": created["job_id"], "wait": 90})
         check(st.get("status") == "done", "build finished as done")
+        check(st.get("style") == "bold", "status records the bold style")
         page = httpx.get(st["preview_url"], timeout=10)
         check(page.status_code == 200 and fact1 in page.text, f"private preview contains {fact1}")
         check(

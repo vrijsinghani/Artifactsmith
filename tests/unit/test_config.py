@@ -67,6 +67,7 @@ def test_config_reads_env(monkeypatch, tmp_path):
     assert cfg.allowed_link_domains == ["example.com", "other.test"]
     assert cfg.llm_key() == "llm-key"
     assert cfg.store_credentials() == ("ak", "sk")
+    assert cfg.default_style == "house"
 
 
 def test_host_defaults_to_loopback(monkeypatch):
