@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import socket
 from urllib.parse import urlparse
 
 # Remote URL references (also used by HTML sanitizer).
-URL_RE = re.compile(r"""(?:https?|ftp)://[^\s"'<>()\]]+""", re.I)
+# Allow IPv6 bracket hosts: http://[::1]/path
+URL_RE = re.compile(
+    r"""(?:https?|ftp)://(?:\[[0-9A-Fa-f:.]+\]|[^\s"'<>()\[\]]+)[^\s"'<>()\]]*""",
+    re.I,
+)
 SCRIPT_RE = re.compile(
     r"<script\b[^>]*>.*?</script\s*>|<script\b[^>]*/>|</?\s*script\b[^>]*>",
     re.I | re.S,
@@ -32,6 +37,16 @@ PRIVATE_HOST_NAMES = frozenset(
     }
 )
 
+# Wildcard DNS products that commonly alias private/loopback addresses into public DNS.
+WILDCARD_DNS_SUFFIXES = (
+    ".sslip.io",
+    ".nip.io",
+    ".xip.io",
+    ".localtest.me",
+    ".lvh.me",
+    ".vcap.me",
+)
+
 
 def strip_scripts(text: str) -> str:
     return SCRIPT_RE.sub("", text)
@@ -54,20 +69,76 @@ def find_secrets(text: str) -> list[str]:
     return hits
 
 
+def _parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a host as an IP, including short/hex/octal/integer IPv4 forms browsers accept."""
+    h = host.strip().strip("[]")
+    if not h:
+        return None
+    try:
+        return ipaddress.ip_address(h)
+    except ValueError:
+        pass
+    # socket.inet_aton accepts many historical IPv4 spellings (127.1, 0x7f.0.0.1, 0177.0.0.1, 2130706433).
+    if re.fullmatch(r"[0-9a-fxA-FX.]+", h):
+        try:
+            return ipaddress.IPv4Address(socket.inet_aton(h))
+        except OSError:
+            return None
+    return None
+
+
 def _host_is_private(host: str) -> bool:
+    """True when the host is private, loopback, link-local, or a known wildcard-DNS alias.
+
+    Fail closed: unparseable hosts that look like addresses, and bare single-label names, are private.
+    """
     h = host.strip(".").lower()
     if not h or h in PRIVATE_HOST_NAMES or h.endswith(".local") or h.endswith(".internal"):
         return True
     if h.endswith(".localhost"):
         return True
+    for suf in WILDCARD_DNS_SUFFIXES:
+        if h == suf.lstrip(".") or h.endswith(suf):
+            return True
+    ip = _parse_ip(h)
+    if ip is not None:
+        return bool(
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
+    # Bare hostnames without a dot are treated as local/private.
+    if "." not in h:
+        return True
+    # Looks like a dotted address we failed to parse (fail closed).
+    if re.fullmatch(r"[0-9a-fxA-FX.:]+", h):
+        return True
+    return False
+
+
+def _url_host(raw: str) -> str | None:
+    """Extract the host from a URL. Returns None only when there is no host authority."""
     try:
-        ip = ipaddress.ip_address(h)
-    except ValueError:
-        # Bare hostnames without a dot are treated as local/private.
-        return "." not in h
-    return bool(
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified
-    )
+        parsed = urlparse(raw)
+    except Exception:  # noqa: BLE001 — fail closed below
+        return ""
+    host = parsed.hostname
+    if host is not None:
+        return host
+    # urlparse can leave netloc empty for odd forms; try a manual bracket extract.
+    if "://" in raw:
+        rest = raw.split("://", 1)[1]
+        authority = rest.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        if authority.startswith("["):
+            end = authority.find("]")
+            if end > 0:
+                return authority[1:end]
+        if authority:
+            return authority.split("@")[-1].split(":")[0]
+    return ""
 
 
 def find_private_links(text: str) -> list[str]:
@@ -75,13 +146,13 @@ def find_private_links(text: str) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        try:
-            parsed = urlparse(raw)
-        except Exception:  # noqa: BLE001
+        host = _url_host(raw)
+        if host is None:
             continue
-        host = parsed.hostname or ""
-        if host and _host_is_private(host):
-            problems.append(f"private or local link host: {host}")
+        # Empty host after a scheme (unparseable) → fail closed.
+        if host == "" or _host_is_private(host):
+            label = host or raw
+            problems.append(f"private or local link host: {label}")
     return problems
 
 
@@ -93,11 +164,9 @@ def find_disallowed_links(text: str, allowed_domains: list[str]) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        try:
-            host = (urlparse(raw).hostname or "").lower()
-        except Exception:  # noqa: BLE001
-            continue
+        host = (_url_host(raw) or "").lower()
         if not host:
+            problems.append(f"link host not on allow-list: {raw}")
             continue
         if not any(host == d or host.endswith("." + d) for d in allowed):
             problems.append(f"link host not on allow-list: {host}")

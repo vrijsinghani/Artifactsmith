@@ -118,4 +118,6 @@ Audit lines append to `AM_DATA_DIR/audit.jsonl` with actor, action, and artifact
 
 ## Capacity
 
-`AM_MAX_BUILDS` is in-process concurrency. This release is single-process: one server per data directory (SQLite is single-writer). Do not run multiple server containers against the same SQLite file or secrets volume. Moving metadata to an external store is out of scope here. `AM_BUILDS_PER_HOUR` is per token.
+`AM_MAX_BUILDS` is in-process concurrency. This release supports one server process per data directory (SQLite is single-writer). Do not run multiple server processes or containers against the same SQLite file or secrets volume: a second process will not reclaim a live `building` job, and concurrent writers can corrupt state. Moving metadata to an external store is out of scope here. `AM_BUILDS_PER_HOUR` is per token.
+
+`artifactsmith serve` binds `AM_HOST` (default `127.0.0.1`). The compose image sets `AM_HOST=0.0.0.0` inside the container; host publish still uses `AM_BIND_ADDRESS` (default loopback).

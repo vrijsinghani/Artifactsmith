@@ -69,6 +69,33 @@ def test_config_reads_env(monkeypatch, tmp_path):
     assert cfg.store_credentials() == ("ak", "sk")
 
 
+def test_host_defaults_to_loopback(monkeypatch):
+    monkeypatch.delenv("AM_HOST", raising=False)
+    assert Config().host == "127.0.0.1"
+    monkeypatch.setenv("AM_HOST", "0.0.0.0")
+    assert Config().host == "0.0.0.0"
+
+
+def test_allowed_hosts_default_enables_dns_rebinding_guard(monkeypatch):
+    monkeypatch.delenv("AM_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setenv("AM_API_PORT", "8780")
+    cfg = Config()
+    assert cfg.allowed_hosts == ["127.0.0.1:8780", "localhost:8780"]
+
+
+def test_compose_and_image_set_in_container_host():
+    from pathlib import Path
+
+    compose = Path("compose.yaml").read_text()
+    dockerfile = Path("docker/Dockerfile").read_text()
+    assert "AM_HOST: ${AM_HOST:-0.0.0.0}" in compose or "AM_HOST: 0.0.0.0" in compose
+    assert "AM_HOST=0.0.0.0" in dockerfile
+    # No floating :latest tags in compose or support Dockerfiles.
+    for path in (Path("compose.yaml"), Path("compose.test.yaml"), Path("tests/support/Dockerfile"), Path("docker/Dockerfile")):
+        text = path.read_text()
+        assert ":latest" not in text, f"{path} still pins :latest"
+
+
 def test_llm_key_falls_back_to_openai(monkeypatch):
     monkeypatch.delenv("AM_LLM_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")

@@ -14,6 +14,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - `AM_BIND_ADDRESS` (default `127.0.0.1`) configures the compose host publish bind for API and preview ports. README and operations cover LAN access, TLS reverse proxy, and remote MCP clients. CI runs a bind-address smoke against a non-loopback host IP.
 - Size caps on `verbatim_request`, `display_name`, history, idempotency keys, and model output. Idempotency keys are bound to operation plus request fingerprint; quota is checked in the admitting transaction.
 - Docker image ships `LICENSE`, `NOTICE`, and `licenses/`. CI Trivy scans the built image. Denylist covers all tracked files with a generic private-identifier pass.
+- Private-link checks parse IPv6, short/hex/octal/integer IPv4, and known wildcard-DNS suffixes. `AM_HOST` defaults to `127.0.0.1`; compose/image set `0.0.0.0` in-container. MCP DNS-rebinding hosts default to loopback. Inspect store errors are scrubbed. Workers requeue only stale builds.
 
 ### Changed
 

@@ -168,11 +168,11 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_BUILD_TIMEOUT` | `900` | Seconds for the whole job. |
 | `AM_MAX_BUILDS` | `2` | Concurrent workers. |
 | `AM_BUILDS_PER_HOUR` | `20` | Per-token quota. |
-| `AM_HOST` | `0.0.0.0` | Bind address inside the container. |
+| `AM_HOST` | `127.0.0.1` | Listen address for `artifactsmith serve`. Compose/image set `0.0.0.0` in-container. |
 | `AM_BIND_ADDRESS` | `127.0.0.1` | Host publish bind for ports `8780` and `8781` in `compose.yaml`. |
 | `AM_API_PORT` / `AM_PREVIEW_PORT` | `8780` / `8781` | Listen ports. |
 | `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. Empty `AM_SHARE_URL` uses `AM_PREVIEW_URL`. |
-| `AM_ALLOWED_HOSTS` | empty (compose default: `127.0.0.1:8780,localhost:8780`) | Comma-separated Host values for MCP DNS-rebinding protection. |
+| `AM_ALLOWED_HOSTS` | `127.0.0.1:<api_port>,localhost:<api_port>` | Comma-separated Host values for MCP DNS-rebinding protection (on by default). |
 | `AM_ALLOWED_ORIGINS` | empty | Comma-separated Origin values for MCP DNS-rebinding protection. |
 | `AM_DATA_DIR` / `AM_SECRETS_DIR` | `/data` / `/secrets` | SQLite and the HMAC signing key. |
 

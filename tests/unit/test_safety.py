@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from artifactsmith.renderers.safety import check_content, sanitize_text
+import pytest
+
+from artifactsmith.renderers.safety import check_content, check_fields, find_private_links, sanitize_text
 
 
 def test_strips_scripts_and_urls():
@@ -20,6 +22,26 @@ def test_html_must_be_complete_document():
 def test_rejects_private_links():
     body = "see http://127.0.0.1:8080/admin and http://localhost/secrets"
     problems = check_content(body, fmt="markdown", block_private_links=True)
+    assert any("private or local" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::1]/",
+        "http://127.1/",
+        "http://0x7f.0.0.1/",
+        "http://0177.0.0.1/",
+        "http://2130706433/",
+        "http://127.0.0.1.sslip.io/",
+        "https://192.168.1.5.nip.io/path",
+        "http://10-0-0-1.sslip.io/",
+    ],
+)
+def test_rejects_obfuscated_private_link_forms(url):
+    hits = find_private_links(f"see {url} please")
+    assert hits, f"expected private hit for {url}"
+    problems = check_fields(url, label="summary")
     assert any("private or local" in p for p in problems)
 
 

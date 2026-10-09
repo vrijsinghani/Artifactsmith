@@ -447,3 +447,94 @@ async def test_start_workers_requeues(svc, monkeypatch):
         await svc._workers[0]
     except asyncio.CancelledError:
         pass
+
+
+@pytest.mark.asyncio
+async def test_start_workers_skips_fresh_building(svc, monkeypatch):
+    """A live building job within the build deadline must not be stolen on restart."""
+    from artifactsmith.service import now
+
+    p = _principal()
+    created = svc.create(p, slug="live-build", display_name="L", kind="web_static", verbatim_request="x")
+    jid = created["job_id"]
+    svc.db.exec(
+        "UPDATE jobs SET status='building', started_at=?, progress='in flight' WHERE id=?",
+        now(),
+        jid,
+    )
+    monkeypatch.setattr(CFG, "max_concurrent_builds", 1)
+    monkeypatch.setattr(CFG, "build_timeout_s", 900)
+
+    async def idle():
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "_worker", idle)
+    # Drain any prior enqueue from create.
+    while not svc.queue.empty():
+        svc.queue.get_nowait()
+        svc.queue.task_done()
+    svc.start_workers()
+    job = svc.db.one("SELECT status, progress FROM jobs WHERE id=?", jid)
+    assert job["status"] == "building"
+    assert job["progress"] == "in flight"
+    assert svc.queue.empty()
+    svc._workers[0].cancel()
+    try:
+        await svc._workers[0]
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_start_workers_requeues_stale_building(svc, monkeypatch):
+    from artifactsmith.service import now
+
+    p = _principal()
+    created = svc.create(p, slug="stale-build", display_name="S", kind="web_static", verbatim_request="x")
+    jid = created["job_id"]
+    monkeypatch.setattr(CFG, "build_timeout_s", 60)
+    svc.db.exec(
+        "UPDATE jobs SET status='building', started_at=?, progress='old' WHERE id=?",
+        now() - 120,
+        jid,
+    )
+    monkeypatch.setattr(CFG, "max_concurrent_builds", 1)
+
+    async def idle():
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(svc, "_worker", idle)
+    while not svc.queue.empty():
+        svc.queue.get_nowait()
+        svc.queue.task_done()
+    svc.start_workers()
+    job = svc.db.one("SELECT status, progress FROM jobs WHERE id=?", jid)
+    assert job["status"] == "queued"
+    assert "re-queued" in (job["progress"] or "")
+    svc._workers[0].cancel()
+    try:
+        await svc._workers[0]
+    except asyncio.CancelledError:
+        pass
+
+
+def test_inspect_scrubs_store_errors(svc, monkeypatch):
+    p = _principal()
+    created = svc.create(p, slug="insp", display_name="I", kind="web_static", verbatim_request="x")
+    aid = created["artifact_id"]
+    svc.db.exec(
+        "UPDATE versions SET status='done', primary_file='index.html', files_json=?, sha256='abc', size=1 "
+        "WHERE artifact_id=? AND version=1",
+        '[{"name":"index.html"}]',
+        aid,
+    )
+
+    class Boom:
+        def get(self, key):
+            raise RuntimeError("secret bucket path /data/internal leaked")
+
+    monkeypatch.setattr(svc, "store", Boom())
+    out = svc.inspect(p, aid, version=1)
+    assert out["manifest_error"] == "store_read_failed"
+    assert "secret" not in str(out)
+    assert "/data/internal" not in str(out)

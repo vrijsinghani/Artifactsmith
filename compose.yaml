@@ -51,6 +51,8 @@ services:
       - .env
     environment:
       <<: *store-env
+      # Listen on all interfaces inside the container; host publish bind is AM_BIND_ADDRESS.
+      AM_HOST: ${AM_HOST:-0.0.0.0}
       AM_LLM_API: ${AM_LLM_API:-chat}
       AM_LLM_BASE: ${AM_LLM_BASE:-https://api.openai.com}
       AM_LLM_KEY: ${AM_LLM_KEY:-}

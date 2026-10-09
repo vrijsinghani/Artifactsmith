@@ -461,8 +461,20 @@ class Service:
 
     def start_workers(self) -> None:
         self.bind_loop(asyncio.get_running_loop())
-        for j in self.db.all("SELECT id FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"):
-            self.db.exec("UPDATE jobs SET status='queued', progress='re-queued after restart' WHERE id=?", j["id"])
+        # Requeue only idle queued jobs and stale building jobs (past the build deadline).
+        # Fresh building rows may belong to another process; do not steal them.
+        stale_before = now() - CFG.build_timeout_s
+        for j in self.db.all(
+            "SELECT id, status, started_at FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"
+        ):
+            if j["status"] == "building":
+                started = j.get("started_at")
+                if started is not None and float(started) > stale_before:
+                    continue
+            self.db.exec(
+                "UPDATE jobs SET status='queued', progress='re-queued after restart' WHERE id=?",
+                j["id"],
+            )
             self._enqueue(j["id"])
         for _ in range(CFG.max_concurrent_builds):
             self._workers.append(asyncio.create_task(self._worker()))
@@ -899,7 +911,14 @@ class Service:
                     data, _ = self.store.get(Store.prefix(a["workspace"], a["id"], int(target)) + "manifest.json")
                     out["manifest"] = json.loads(data)
                 except Exception as e:  # noqa: BLE001
-                    out["manifest_error"] = str(e)[:200]
+                    log.warning(
+                        "inspect manifest read failed artifact=%s version=%s: %s: %s",
+                        a["id"],
+                        target,
+                        type(e).__name__,
+                        e,
+                    )
+                    out["manifest_error"] = "store_read_failed"
                 out["card"] = self.card(a, v)
             out["share"] = self._share_state(a["id"], int(target))
         return out

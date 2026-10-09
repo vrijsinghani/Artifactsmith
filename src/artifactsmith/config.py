@@ -58,11 +58,21 @@ def _setting_bool(name: str, default: bool) -> bool:
     raise ConfigError(f"{name} must be true/false (or 1/0/on/off/yes/no), got {raw!r}")
 
 
+def _default_allowed_hosts() -> list[str]:
+    raw = _setting("AM_ALLOWED_HOSTS", "")
+    if raw.strip():
+        return [h.strip() for h in raw.split(",") if h.strip()]
+    port = _setting_int("AM_API_PORT", 8780, minimum=1, maximum=65535)
+    return [f"127.0.0.1:{port}", f"localhost:{port}"]
+
+
 @dataclass
 class Config:
     data_dir: Path = field(default_factory=lambda: Path(_setting("AM_DATA_DIR", "/data")))
     secrets_dir: Path = field(default_factory=lambda: Path(_setting("AM_SECRETS_DIR", "/secrets")))
-    host: str = field(default_factory=lambda: _setting("AM_HOST", "0.0.0.0"))
+    # Loopback by default so `artifactsmith serve` outside compose is not world-reachable.
+    # Compose / the container image set AM_HOST=0.0.0.0 for in-container listen.
+    host: str = field(default_factory=lambda: _setting("AM_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: _setting_int("AM_API_PORT", 8780, minimum=1, maximum=65535))
     preview_port: int = field(default_factory=lambda: _setting_int("AM_PREVIEW_PORT", 8781, minimum=1, maximum=65535))
     api_url: str = field(default_factory=lambda: _setting("AM_API_URL", "http://127.0.0.1:8780"))
@@ -98,10 +108,9 @@ class Config:
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_LINK_DOMAINS", "").split(",") if h.strip()]
     )
     block_private_links: bool = field(default_factory=lambda: _setting_bool("AM_BLOCK_PRIVATE_LINKS", True))
-    # MCP Host/Origin allow-lists (comma-separated). When either is set, DNS-rebinding protection is on.
-    allowed_hosts: list[str] = field(
-        default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_HOSTS", "").split(",") if h.strip()]
-    )
+    # MCP Host/Origin allow-lists (comma-separated). DNS-rebinding protection is on when either is non-empty.
+    # Default hosts cover loopback on the configured API port so plain `serve` is protected.
+    allowed_hosts: list[str] = field(default_factory=lambda: _default_allowed_hosts())
     allowed_origins: list[str] = field(
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_ORIGINS", "").split(",") if h.strip()]
     )
