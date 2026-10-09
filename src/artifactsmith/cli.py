@@ -1,4 +1,4 @@
-"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke | mock-llm
+"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke
 
 Tokens are stored only as sha256 hashes in SQLite. `token add` prints the raw token once.
 """
@@ -101,13 +101,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_mock_llm(args: argparse.Namespace) -> int:
-    from .mock_llm import run
-
-    run()
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
@@ -118,7 +111,6 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("serve", help="run the API + preview server")
     sub.add_parser("storage-init", help="create the object-store bucket and enable versioning")
-    sub.add_parser("mock-llm", help="run the dev/test mock chat-completions endpoint")
 
     tok = sub.add_parser("token", help="manage access tokens").add_subparsers(dest="token_cmd", required=True)
     add = tok.add_parser("add", help="add a token")
@@ -137,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "cmd", None) == "token":
         return args.fn(args)
-    return {"serve": cmd_serve, "storage-init": cmd_storage_init, "mock-llm": cmd_mock_llm}[args.cmd](args)
+    return {"serve": cmd_serve, "storage-init": cmd_storage_init}[args.cmd](args)
 
 
 if __name__ == "__main__":

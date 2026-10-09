@@ -11,6 +11,7 @@ import re
 import secrets
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 from . import builder
 from .config import CFG
@@ -78,12 +79,12 @@ class Service:
     # Far-future stamp used when AM_SHARE_TTL_DAYS=0 ("until revoked"). Still a real timestamp so queries work.
     NEVER_EXPIRES = 4102444800.0  # 2100-01-01 UTC
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.db = DB(CFG.db_path)
         self.store = Store()
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.progress: dict[str, str] = {}
-        self._workers: list[asyncio.Task] = []
+        self._workers: list[asyncio.Task[None]] = []
 
     # ---------------- access ----------------
     @staticmethod
@@ -118,7 +119,7 @@ class Service:
         return json.loads(r["result_json"]) if r else None
 
     def _quota(self, principal: dict) -> None:
-        n = self.db.one("SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?", principal["id"], now() - 3600)[
+        n = self.db.must("SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?", principal["id"], now() - 3600)[
             "n"
         ]
         if n >= CFG.builds_per_hour:
@@ -132,7 +133,7 @@ class Service:
         return m
 
     @staticmethod
-    def _source(source_content: str | None, source_files: list | None) -> dict | None:
+    def _source(source_content: str | None, source_files: list[dict[str, Any]] | None) -> dict[str, Any] | None:
         files = []
         for i, f in enumerate(source_files or []):
             if not isinstance(f, dict) or not isinstance(f.get("content"), str):
@@ -170,8 +171,8 @@ class Service:
         workspace: str | None = None,
         model: str | None = None,
         source_content: str | None = None,
-        source_files: list | None = None,
-        capabilities: dict | None = None,
+        source_files: list[dict[str, Any]] | None = None,
+        capabilities: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict:
         self.require(principal, "create")
@@ -210,7 +211,7 @@ class Service:
             if st & {"done", "queued", "building"}:
                 raise AMError(f"slug '{slug}' already exists in workspace '{ws}'; use edit")
             aid = prev["id"]
-            newv = self.db.one("SELECT COALESCE(MAX(version),0) m FROM versions WHERE artifact_id=?", aid)["m"] + 1
+            newv = self.db.must("SELECT COALESCE(MAX(version),0) m FROM versions WHERE artifact_id=?", aid)["m"] + 1
         skey = self._put_source(ws, aid, newv, bundle)
         result = {
             "artifact_id": aid,
@@ -264,7 +265,7 @@ class Service:
         workspace: str | None = None,
         model: str | None = None,
         source_content: str | None = None,
-        source_files: list | None = None,
+        source_files: list[dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
     ) -> dict:
         self.require(principal, "edit")
@@ -348,7 +349,7 @@ class Service:
             finally:
                 self.queue.task_done()
 
-    def _set_job(self, jid, status, error=None, progress_msg=None) -> None:
+    def _set_job(self, jid: str, status: str, error: str | None = None, progress_msg: str | None = None) -> None:
         j = self.db.one("SELECT * FROM jobs WHERE id=?", jid)
         if not j:
             return
@@ -363,7 +364,7 @@ class Service:
             )
         self.progress.pop(jid, None)
 
-    def _fail(self, jid, err) -> None:
+    def _fail(self, jid: str, err: str) -> None:
         j = self.db.one("SELECT * FROM jobs WHERE id=?", jid)
         if j:
             self._set_job(jid, "failed", error=err[:2000])
@@ -371,7 +372,7 @@ class Service:
                 j["client"], "build_failed", artifact_id=j["artifact_id"], version=j["version"], error=err[:300]
             )
 
-    def _needs_input(self, jid, missing) -> None:
+    def _needs_input(self, jid: str, missing: str) -> None:
         j = self.db.one("SELECT * FROM jobs WHERE id=?", jid)
         if j:
             self._set_job(jid, "needs_input", error=missing[:2000], progress_msg="needs input")
@@ -383,7 +384,7 @@ class Service:
                 missing=missing[:300],
             )
 
-    def _source_name(self, a, v) -> str:
+    def _source_name(self, a: dict, v: dict) -> str:
         files = [f["name"] for f in jloads(v["files_json"], [])]
         src = builder.source_name(a["kind"], a["format"])
         return src if src in files else v["primary_file"]
@@ -410,6 +411,9 @@ class Service:
         base_source = None
         if v["base_version"]:
             bv = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], v["base_version"])
+            if not bv:
+                self._fail(jid, "base version vanished")
+                return
             key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
             data, _ = await asyncio.to_thread(self.store.get, key)
             base_source = data.decode("utf-8", errors="replace")
@@ -593,7 +597,7 @@ class Service:
             version = j["version"]
         else:
             a = self.get_artifact(principal, artifact_id)
-            version = self.db.one("SELECT MAX(version) m FROM versions WHERE artifact_id=?", a["id"])["m"]
+            version = self.db.must("SELECT MAX(version) m FROM versions WHERE artifact_id=?", a["id"])["m"]
         deadline = now() + max(0, min(int(wait or 0), 90))
         while True:
             v = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], version)
@@ -637,7 +641,7 @@ class Service:
         ws = workspace or principal["workspace"]
         self.check_access(principal, ws)
         sql = "SELECT * FROM artifacts WHERE workspace=?"
-        args: list = [ws]
+        args: list[Any] = [ws]
         if kind:
             sql += " AND kind=?"
             args.append(kind)
@@ -821,7 +825,7 @@ class Service:
         if not confirm_token:
             tok = secrets.token_urlsafe(12)
             self.db.exec("INSERT INTO delete_tokens VALUES (?,?,?,?)", tok, a["id"], principal["id"], now() + 600)
-            nv = self.db.one("SELECT COUNT(*) n FROM versions WHERE artifact_id=?", a["id"])["n"]
+            nv = self.db.must("SELECT COUNT(*) n FROM versions WHERE artifact_id=?", a["id"])["n"]
             return {
                 "step": "confirm",
                 "artifact_id": a["id"],
@@ -855,7 +859,7 @@ class Service:
             if a
             else None
         )
-        if not v:
+        if not a or not v:
             raise AMError("not found")
         names = {f["name"]: f for f in jloads(v["files_json"], [])}
         fname = fname or v["primary_file"]
@@ -868,14 +872,14 @@ class Service:
         return self.db.one("SELECT * FROM shares WHERE id=? AND revoked_at IS NULL AND expires_at>?", sid, now())
 
     # ---------------- audit ----------------
-    def audit(self, principal: dict, action: str, **fields) -> None:
+    def audit(self, principal: dict, action: str, **fields: Any) -> None:
         self._audit(principal["name"], action, **fields)
 
-    def audit_by_client(self, client_id: str, action: str, **fields) -> None:
+    def audit_by_client(self, client_id: str, action: str, **fields: Any) -> None:
         tok = self.db.one("SELECT name FROM tokens WHERE id=?", client_id)
         self._audit(tok["name"] if tok else client_id, action, **fields)
 
-    def _audit(self, who: str, action: str, **fields) -> None:
+    def _audit(self, who: str, action: str, **fields: Any) -> None:
         rec = {"ts": iso(now()), "actor": who, "action": action, **fields}
         try:
             CFG.audit_path.parent.mkdir(parents=True, exist_ok=True)

@@ -10,7 +10,7 @@ help:
 	@echo "make format      ruff format"
 	@echo "make typecheck   mypy"
 	@echo "make test        unit tests with coverage"
-	@echo "make smoke       compose stack + checkpoint smoke test"
+	@echo "make smoke       test compose stack + end-to-end smoke"
 	@echo "make denylist    scan tracked files for private identifiers"
 	@echo "make docker-build  build the server image"
 	@echo "make ci          lint + typecheck + test + denylist"
@@ -36,9 +36,10 @@ test:
 	$(PYTHON) -m pytest
 
 smoke:
-	docker compose --profile test up -d --build
-	$(PYTHON) tests/smoke/test_checkpoint1.py
-	$(PYTHON) tests/smoke/test_formats.py
+	bash scripts/ensure-local-env.sh
+	docker compose -f compose.yaml -f compose.test.yaml up -d --build
+	$(PYTHON) tests/e2e/test_end_to_end.py
+	$(PYTHON) tests/e2e/test_formats.py
 
 denylist:
 	bash scripts/denylist.sh

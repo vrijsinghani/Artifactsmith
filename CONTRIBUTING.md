@@ -30,7 +30,7 @@ Compose smoke (needs Docker):
 make smoke
 ```
 
-That command uses the compose `test` profile and the bundled mock LLM. It does not need an API key.
+That command starts `compose.yaml` plus `compose.test.yaml`. The override adds a canned Chat Completions stand-in from `tests/support/` so the suite can run without a live API key.
 
 ## Layout
 
@@ -40,7 +40,7 @@ That command uses the compose `test` profile and the bundled mock LLM. It does n
 
 `tests/unit/` is what `pytest` runs by default.
 
-`tests/smoke/` talks to the compose stack.
+`tests/e2e/` talks to the test compose stack.
 
 `docs/` covers architecture, the threat model, operations, and formats.
 

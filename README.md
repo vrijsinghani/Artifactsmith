@@ -11,26 +11,23 @@ It's for people who run their own agents and want artifacts like the ones in Mus
 ## Quickstart
 
 ```bash
-cp .env.example .env            # optional: fill in a real key to use a live model
-docker compose --profile test up -d --build   # storage, server, mock-llm (no API key)
+cp .env.example .env
+# Set OPENAI_API_KEY (or AM_LLM_KEY), AM_LLM_BASE, and AM_DEFAULT_MODEL.
+# Object-store keys: leave them empty and run ./scripts/ensure-local-env.sh,
+# or paste your own AM_STORE_KEY and AM_STORE_SECRET.
+./scripts/ensure-local-env.sh
+docker compose up -d --build
 
 # Create a token (prints the raw value once; only its hash is stored).
 docker compose exec server artifactsmith token add --name agent --workspace alpha
-
-# Checkpoint smoke test against the running stack.
-python tests/smoke/test_checkpoint1.py
 ```
+
+The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`.
 
 Host ports bind to `127.0.0.1`:
 
 - `http://127.0.0.1:8780/mcp` is the MCP API (bearer token required)
 - `http://127.0.0.1:8781/` is the cookieless preview and share origin (`/p/…`, `/s/…`)
-
-To use a live model, set `OPENAI_API_KEY` in `.env` and start without the test profile:
-
-```bash
-docker compose up -d --build
-```
 
 ## How it works
 
@@ -85,7 +82,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `OPENAI_API_KEY` / `AM_LLM_KEY` | empty | LLM credential. Unused under the compose `test` profile. |
+| `OPENAI_API_KEY` / `AM_LLM_KEY` | empty | LLM credential for the configured endpoint. |
 | `AM_LLM_API` | `chat` | `chat` (Chat Completions) or `responses`. |
 | `AM_LLM_BASE` | `https://api.openai.com` | OpenAI-compatible base URL. |
 | `AM_DEFAULT_MODEL` | `gpt-4o-mini` | Model name sent to the LLM. |
@@ -106,7 +103,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. |
 | `AM_DATA_DIR` / `AM_SECRETS_DIR` | `/data` / `/secrets` | SQLite and the HMAC signing key. |
 
-Copy `.env.example` for a local file. Compose publishes ports on `127.0.0.1` only.
+Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empty `AM_STORE_KEY` and `AM_STORE_SECRET`. Compose interpolates those values; they are not hard-coded. The storage image is `rustfs/rustfs:1.0.1`. Ports bind to `127.0.0.1` only.
 
 ## Security
 
@@ -139,6 +136,21 @@ python3 -m venv .venv && source .venv/bin/activate
 make install
 make ci          # lint, types, unit tests, denylist
 ```
+
+### Running the tests
+
+`make test` runs the unit suite. It does not start Docker.
+
+End-to-end tests use `compose.test.yaml`, which adds a canned Chat Completions stand-in from `tests/support/`. That stand-in is not in the package and is not started by `compose.yaml`.
+
+```bash
+./scripts/ensure-local-env.sh
+docker compose -f compose.yaml -f compose.test.yaml up -d --build
+python tests/e2e/test_end_to_end.py
+python tests/e2e/test_formats.py
+```
+
+`make smoke` runs the same stack and scripts.
 
 [docs/architecture.md](docs/architecture.md), [docs/operations.md](docs/operations.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import llm
@@ -286,7 +287,7 @@ async def run_build(
     base_source: str | None,
     base_version: int | None,
     history: list[str],
-    progress,
+    progress: Callable[[str], None],
     source: dict | None = None,
     render_timeout: int = 120,
     format: str = "html",

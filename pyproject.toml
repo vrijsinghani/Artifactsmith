@@ -82,22 +82,9 @@ pretty = true
 module = ["weasyprint", "docx", "docx.*", "mcp", "mcp.*", "boto3", "botocore.*"]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = [
-    "artifactsmith.service",
-    "artifactsmith.db",
-    "artifactsmith.store",
-    "artifactsmith.llm",
-    "artifactsmith.config",
-    "artifactsmith.builder",
-    "artifactsmith.mock_llm",
-]
-disallow_incomplete_defs = false
-check_untyped_defs = false
-
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
-addopts = "-q --cov=artifactsmith --cov-report=term-missing --cov-fail-under=45"
+addopts = "-q --cov=artifactsmith --cov-report=term-missing --cov-fail-under=80"
 asyncio_mode = "auto"
 
 [tool.coverage.run]

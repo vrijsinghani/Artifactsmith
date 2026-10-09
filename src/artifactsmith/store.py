@@ -13,7 +13,7 @@ def vdir(version: int) -> str:
 
 
 class Store:
-    def __init__(self):
+    def __init__(self) -> None:
         ak, sk = CFG.store_credentials()
         if not CFG.store_endpoint or not ak or not sk:
             raise RuntimeError("object store is not configured (AM_STORE_ENDPOINT / AM_STORE_KEY / AM_STORE_SECRET)")

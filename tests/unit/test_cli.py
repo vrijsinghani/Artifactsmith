@@ -20,3 +20,12 @@ def test_unknown_perm_rejected(tmp_path, monkeypatch, capsys):
     rc = main(["token", "add", "--name", "x", "--workspace", "alpha", "--perms", "nonesuch"])
     assert rc == 2
     assert "error" in json.loads(capsys.readouterr().out)
+
+
+def test_mock_llm_command_removed():
+    try:
+        main(["mock-llm"])
+    except SystemExit as e:
+        assert e.code == 2
+    else:
+        raise AssertionError("mock-llm must not be a CLI command")

@@ -4,14 +4,13 @@
 
 ```bash
 cp .env.example .env
-# set OPENAI_API_KEY (or AM_LLM_KEY) and an OpenAI-compatible AM_LLM_BASE
+# set OPENAI_API_KEY (or AM_LLM_KEY), AM_LLM_BASE, and AM_DEFAULT_MODEL
+./scripts/ensure-local-env.sh   # fills empty AM_STORE_KEY / AM_STORE_SECRET
 docker compose up -d --build
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
-The `test` profile adds `mock-llm` and points the server at it. Use that profile for CI and local smoke tests. It does not need a real API key.
-
-Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781`. Put a TLS reverse proxy in front if you expose them past the host.
+`compose.yaml` reads LLM and object-store settings from `.env`. It does not ship credentials and does not start a stand-in model. Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781`. Put a TLS reverse proxy in front if you expose them past the host.
 
 ## Backups
 
@@ -40,9 +39,9 @@ If the signing key may be leaked, replace `AM_SECRETS_DIR/signing.key` and resta
 1. Read `CHANGELOG.md`.
 2. Rebuild the image: `docker compose up -d --build`.
 3. SQLite schema is created with `CREATE TABLE IF NOT EXISTS` only. This release has no migrator. Do not assume automatic column adds.
-4. Run `python tests/smoke/test_checkpoint1.py` against a staging stack before moving clients.
+4. Run `python tests/e2e/test_end_to_end.py` against a staging stack before moving clients.
 
-Pin the image you ship. `rustfs/rustfs:latest` in compose is for local use. Pin a digest in production.
+The compose storage image is `rustfs/rustfs:1.0.1`. Pin a digest if you rebuild the stack for production.
 
 ## Health and logs
 

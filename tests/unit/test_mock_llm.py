@@ -1,4 +1,4 @@
-from artifactsmith.mock_llm import _reply
+from tests.support.mock_llm import _reply
 
 
 def test_html_reply_echoes_fact():
@@ -34,3 +34,14 @@ def test_missing_sentinel():
     messages = [{"role": "user", "content": "FACTS_MISSING please"}]
     out = _reply(messages)
     assert "===NEEDS_INPUT===" in out
+
+
+def test_empty_source_treated_as_none():
+    messages = [
+        {
+            "role": "user",
+            "content": "Title: Empty\n<source_material>\n(none supplied: use only facts)\n</source_material>",
+        }
+    ]
+    out = _reply(messages)
+    assert "no facts supplied" in out

@@ -136,3 +136,71 @@ async def test_run_build_needs_input(monkeypatch):
             progress=lambda _m: None,
             format="html",
         )
+
+
+def test_needs_input_inline():
+    assert "store" in (b.needs_input("NEEDS_INPUT: store code") or "")
+
+
+def test_parse_output_errors_and_fence():
+    with pytest.raises(b.BuildError, match="section markers"):
+        b.parse_output("no markers here")
+    with pytest.raises(b.BuildError, match="no FILE"):
+        b.parse_output("===ASSUMPTIONS===\n- none\n===END===\n")
+    assumptions, summary, body = b.parse_output(
+        "```html\n===ASSUMPTIONS===\n- none\n===SUMMARY===\nok\n"
+        "===FILE: index.html===\n```html\n<html></html>\n```\n===END===\n```"
+    )
+    assert "html" in body
+    assert summary == "ok"
+    assert assumptions == []
+
+
+def test_source_block_and_edit_prompt():
+    empty = b.source_block(None)
+    assert "none supplied" in empty
+    filled = b.source_block({"source_content": "code is X", "source_files": [{"name": "notes.txt", "content": "more"}]})
+    assert "code is X" in filled and "notes.txt" in filled
+    prompt = b.build_user_prompt("change it", "Pilot", "<html/>", 1, ["first"], {"source_content": "n"})
+    assert "EDIT of version 1" in prompt
+    assert b.system_prompt_for("html") == b.SYSTEM
+    assert "Markdown" in b.system_prompt_for("pdf")
+    assert b.sha256(b"abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+
+@pytest.mark.asyncio
+async def test_run_build_retries_then_fails(monkeypatch):
+    async def fake_call(model, system, user, timeout=300):
+        return "not a valid builder reply"
+
+    monkeypatch.setattr(b.llm, "call", fake_call)
+    with pytest.raises(b.BuildError, match="failed checks twice"):
+        await b.run_build(
+            kind="web_static",
+            slug="s",
+            display_name="x",
+            verbatim="x",
+            model="gpt-test",
+            base_source=None,
+            base_version=None,
+            history=[],
+            progress=lambda _m: None,
+            format="html",
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_build_rejects_unknown_format():
+    with pytest.raises(b.BuildError, match="unsupported"):
+        await b.run_build(
+            kind="web_static",
+            slug="s",
+            display_name="x",
+            verbatim="x",
+            model="gpt-test",
+            base_source=None,
+            base_version=None,
+            history=[],
+            progress=lambda _m: None,
+            format="rtf",
+        )

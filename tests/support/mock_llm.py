@@ -1,12 +1,15 @@
-"""Dev/test mock of an OpenAI Chat Completions endpoint (used only under the compose 'test' profile).
+"""Test-only OpenAI Chat Completions stand-in.
+
+Used by compose.test.yaml and unit tests. Not part of the shipped package.
 
 Behaviour:
-- Echoes the supplied request and <source_material> text from the prompt into a tiny, self-contained HTML page,
-  so a fact the user supplied (e.g. a store code) provably reaches the rendered page.
-- Emits the needs-input marker whenever the prompt contains the sentinel FACTS_MISSING, so a request whose fact is
-  absent from the source material can never produce a done page.
-It performs no network calls and never invents a page. The whole reply is plain text the server parses; nothing here
-is executed by the server.
+- Echoes the supplied request and <source_material> text from the prompt into a tiny,
+  self-contained HTML page, so a fact the user supplied (e.g. a store code) reaches
+  the rendered page.
+- Emits the needs-input marker whenever the prompt contains the sentinel FACTS_MISSING,
+  so a request whose fact is absent from the source material can never produce a done page.
+It performs no network calls and never invents a page. The whole reply is plain text
+the server parses; nothing here is executed by the server.
 """
 
 from __future__ import annotations
@@ -94,7 +97,7 @@ def _reply(messages: list[dict]) -> str:
     )
 
 
-async def chat_completions(request: Request):
+async def chat_completions(request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -103,16 +106,16 @@ async def chat_completions(request: Request):
     content = _reply(messages)
     return JSONResponse(
         {
-            "id": "mock",
+            "id": "test-llm",
             "object": "chat.completion",
-            "model": body.get("model", "mock-echo"),
+            "model": body.get("model", "test-echo"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
         }
     )
 
 
-async def healthz(request: Request):
-    return JSONResponse({"ok": True, "service": "mock-llm"})
+async def healthz(request: Request) -> JSONResponse:
+    return JSONResponse({"ok": True, "service": "test-llm"})
 
 
 app = Starlette(

@@ -33,7 +33,6 @@ HTML uses the house-style system prompt and stores `index.html`. Markdown, PDF, 
 | `renderers` | Format interface plus HTML, Markdown, PDF, DOCX, XLSX |
 | `renderers.safety` | Shared checks for every format |
 | `llm` | Chat Completions or Responses adapter |
-| `mock_llm` | Canned replies for compose `test` |
 | `db` / `store` / `config` / `cli` | Persistence, settings, operator tools |
 
 ## Trust boundaries

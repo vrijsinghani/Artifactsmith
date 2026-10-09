@@ -42,3 +42,37 @@ async def test_call_chat_empty(monkeypatch):
     monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(resp))
     with pytest.raises(llm.LLMError, match="empty"):
         await llm.call_chat("m", "sys", "user")
+
+
+@pytest.mark.asyncio
+async def test_call_chat_http_and_shape(monkeypatch):
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(500, {})))
+    with pytest.raises(llm.LLMError, match="HTTP 500"):
+        await llm.call_chat("m", "sys", "user")
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(200, {"choices": []})))
+    with pytest.raises(llm.LLMError, match="unexpected"):
+        await llm.call_chat("m", "sys", "user")
+
+
+@pytest.mark.asyncio
+async def test_call_responses_and_dispatch(monkeypatch):
+    payload = {"output": [{"content": [{"type": "output_text", "text": "hi"}]}]}
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(200, payload)))
+    assert await llm.call_responses("m", "sys", "user") == "hi"
+    monkeypatch.setattr(llm.CFG, "llm_api", "responses")
+    assert await llm.call("m", "sys", "user") == "hi"
+    monkeypatch.setattr(llm.CFG, "llm_api", "chat")
+    monkeypatch.setattr(
+        llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(200, {"choices": [{"message": {"content": "c"}}]}))
+    )
+    assert await llm.call("m", "sys", "user") == "c"
+
+
+@pytest.mark.asyncio
+async def test_call_responses_empty(monkeypatch):
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(200, {"output": []})))
+    with pytest.raises(llm.LLMError, match="empty"):
+        await llm.call_responses("m", "sys", "user")
+    monkeypatch.setattr(llm.httpx, "AsyncClient", lambda **kw: _Client(_Resp(503, {})))
+    with pytest.raises(llm.LLMError, match="HTTP 503"):
+        await llm.call_responses("m", "sys", "user")
