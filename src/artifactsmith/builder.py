@@ -15,7 +15,7 @@ from . import llm
 from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import sanitize_html_document
-from .renderers.safety import URL_RE, check_content, check_fields, sanitize_text
+from .renderers.safety import check_content, check_fields, sanitize_text
 from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_killable
 
 log = logging.getLogger("artifactsmith.builder")
@@ -392,12 +392,22 @@ async def run_build(
             notes.append(f"attempt {attempt}: {last_problems[0]}")
             log.exception("renderer failed for format=%s: %s", fmt, e)
             continue
-        # Final remote-URL sweep on any textual files.
+        # Final sweep: scripts and private/disallowed hosts must not survive.
+        from .renderers.safety import find_disallowed_links, find_private_links
+
         for name, data in list(rendered.files.items()):
             if name.endswith((".html", ".md", ".txt")):
                 text_out = data.decode("utf-8", errors="replace")
-                if URL_RE.search(text_out) or "<script" in text_out.lower():
-                    last_problems = ["remote URL or script survived rendering"]
+                if "<script" in text_out.lower():
+                    last_problems = ["script survived rendering"]
+                    notes.append(f"attempt {attempt}: {last_problems[0]}")
+                    break
+                if CFG.block_private_links and find_private_links(text_out):
+                    last_problems = ["private link survived rendering"]
+                    notes.append(f"attempt {attempt}: {last_problems[0]}")
+                    break
+                if find_disallowed_links(text_out, CFG.allowed_link_domains):
+                    last_problems = ["disallowed link host survived rendering"]
                     notes.append(f"attempt {attempt}: {last_problems[0]}")
                     break
         else:

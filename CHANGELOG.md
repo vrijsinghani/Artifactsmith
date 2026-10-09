@@ -11,18 +11,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
-- `AM_BIND_ADDRESS` (default `127.0.0.1`) configures the compose host publish bind for API and preview ports. README and operations cover LAN access, TLS reverse proxy, and remote MCP clients. CI runs a bind-address smoke against a non-loopback host IP.
-- Size caps on `verbatim_request`, `display_name`, history, idempotency keys, and model output. Idempotency keys are bound to operation plus request fingerprint; quota is checked in the admitting transaction.
-- Docker image ships `LICENSE`, `NOTICE`, and `licenses/`. CI Trivy scans the built image. Denylist covers all tracked files with a generic private-identifier pass.
-- Private-link checks parse IPv6, short/hex/octal/integer IPv4, and known wildcard-DNS suffixes. `AM_HOST` defaults to `127.0.0.1`; compose/image set `0.0.0.0` in-container. MCP DNS-rebinding hosts default to loopback. Inspect store errors are scrubbed. Workers requeue only stale builds.
+- Configurable host publish bind (`AM_BIND_ADDRESS`) with LAN and reverse-proxy docs, plus a CI smoke that hits a non-loopback address.
+- Request and model-output size caps; idempotency keys tied to the request fingerprint with a conflict on reuse; quota checked when admitting a build.
+- `LICENSE`, `NOTICE`, and `licenses/` in the Docker image; Trivy image scan; broader denylist coverage.
+- Stronger private-link rejection (IPv6, alternate IPv4 spellings, CGNAT, wildcard DNS). Loopback-only listen by default outside compose. Default MCP Host allow-list for local serve.
 
 ### Changed
 
+- Public `http://` and `https://` links to global hosts are kept in HTML, Markdown, PDF, DOCX, and XLSX so documents can cite outside sources. Private/loopback hosts and dangerous schemes stay blocked. Images, CSS, fonts, and iframes remain self-contained (no remote fetch when an export is opened).
 - `compose.yaml` restores `env_file: .env` so documented settings (`AM_SHARE_URL`, limits, `*_FILE`) reach the server.
 - `compose.yaml` reads LLM and object-store credentials from `.env`. `./scripts/ensure-local-env.sh` fills empty store keys without corrupting a final line that lacks a trailing newline.
 - Storage image pinned to `rustfs/rustfs:1.0.1` by digest.
 - `AM_LLM_BASE` accepts a host root with or without a trailing `/v1`.
-- HTML exports use an nh3 allowlist sanitizer; XLSX cells are written as literals; WeasyPrint uses a deny-all URL fetcher.
+- HTML exports use an nh3 allowlist sanitizer; XLSX cells are written as literals; WeasyPrint (≥70) uses a deny-all URL fetcher.
 - Renderers run in killable subprocesses; delete is serialized against new builds; job enqueue is thread-safe.
 - Invalid integer/boolean env settings fail closed. `revoke_previews` expires private `/p/` links.
 - Unit tests run on Python 3.11 and 3.12. Type checking uses `mypy --strict`.

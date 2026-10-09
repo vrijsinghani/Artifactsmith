@@ -1,13 +1,19 @@
-"""Shared output safety: no scripts, no remote fetches, private-link and secret checks, size limits."""
+"""Shared output safety: no scripts, private-link and secret checks, size limits.
+
+Public http(s) links to global hosts are allowed in document bodies. Private and
+loopback hosts fail the build. Images, CSS, fonts, and iframes stay self-contained
+(see html_sanitize); renderers never fetch the network.
+"""
 
 from __future__ import annotations
 
 import ipaddress
 import re
 import socket
-from urllib.parse import urlparse
+import unicodedata
+from urllib.parse import unquote, urlparse
 
-# Remote URL references (also used by HTML sanitizer).
+# http(s)/ftp URL references in prose (also used by linkify and private-link checks).
 # Allow IPv6 bracket hosts: http://[::1]/path
 URL_RE = re.compile(
     r"""(?:https?|ftp)://(?:\[[0-9A-Fa-f:.]+\]|[^\s"'<>()\[\]]+)[^\s"'<>()\]]*""",
@@ -45,6 +51,7 @@ WILDCARD_DNS_SUFFIXES = (
     ".localtest.me",
     ".lvh.me",
     ".vcap.me",
+    ".traefik.me",
 )
 
 
@@ -53,12 +60,25 @@ def strip_scripts(text: str) -> str:
 
 
 def strip_remote_urls(text: str) -> str:
-    return URL_RE.sub("", text)
+    """Remove non-public URL references from prose. Public http(s) hosts stay."""
+    from .links import is_public_http_url
+
+    def repl(m: re.Match[str]) -> str:
+        raw = m.group(0)
+        core = raw.rstrip(".,;:)")
+        if is_public_http_url(core):
+            return raw
+        return ""
+
+    return URL_RE.sub(repl, text)
 
 
 def sanitize_text(text: str) -> str:
-    """Remove executable markup and remote URL references from any textual body."""
-    return strip_remote_urls(strip_scripts(text))
+    """Remove executable markup; keep public http(s) URLs and linkify bare ones."""
+    from .links import linkify_markdown
+
+    cleaned = strip_remote_urls(strip_scripts(text))
+    return linkify_markdown(cleaned)
 
 
 def find_secrets(text: str) -> list[str]:
@@ -67,6 +87,19 @@ def find_secrets(text: str) -> list[str]:
         if pat.search(text):
             hits.append(f"possible secret ({label})")
     return hits
+
+
+def _normalize_host(host: str) -> str:
+    """Percent-decode, NFKC-normalize, and IDNA-encode a host before IP/name checks."""
+    h = unquote(host or "").strip().strip("[]")
+    h = unicodedata.normalize("NFKC", h)
+    if not h:
+        return ""
+    try:
+        # idna encodes Unicode labels; leave ASCII alone (including dotted IPs).
+        return h.encode("idna").decode("ascii").lower().rstrip(".")
+    except UnicodeError:
+        return h.lower().rstrip(".")
 
 
 def _parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
@@ -88,11 +121,12 @@ def _parse_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None
 
 
 def _host_is_private(host: str) -> bool:
-    """True when the host is private, loopback, link-local, or a known wildcard-DNS alias.
+    """True when the host is not a global unicast address, or a known wildcard-DNS alias.
 
-    Fail closed: unparseable hosts that look like addresses, and bare single-label names, are private.
+    Fail closed: unparseable address-like hosts and bare single-label names are private.
+    Uses ``not ip.is_global`` so CGNAT (100.64.0.0/10) and similar ranges are blocked.
     """
-    h = host.strip(".").lower()
+    h = _normalize_host(host)
     if not h or h in PRIVATE_HOST_NAMES or h.endswith(".local") or h.endswith(".internal"):
         return True
     if h.endswith(".localhost"):
@@ -102,14 +136,7 @@ def _host_is_private(host: str) -> bool:
             return True
     ip = _parse_ip(h)
     if ip is not None:
-        return bool(
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        )
+        return not ip.is_global
     # Bare hostnames without a dot are treated as local/private.
     if "." not in h:
         return True
@@ -223,13 +250,9 @@ def check_content(
         low = text.lower()
         if "<script" in low:
             problems.append("script tag present in sanitized output")
-        if URL_RE.search(text):
-            problems.append("remote http(s) URL present in sanitized output")
         if "<html" not in low or "</html>" not in low:
             problems.append("not a complete HTML document")
     elif fmt in ("markdown", "pdf", "docx", "xlsx"):
-        if URL_RE.search(text):
-            problems.append("remote http(s) URL present in sanitized output")
         if "<script" in text.lower():
             problems.append("script tag present in sanitized output")
     return problems

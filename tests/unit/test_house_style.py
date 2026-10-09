@@ -20,5 +20,6 @@ def test_prompt():
 
 def test_safety_checks_unchanged():
     assert b.check_source("<html><script>x</script></html>")
-    assert b.check_source('<html><a href="https://example.com/">x</a></html>')
+    assert b.check_source('<html><a href="http://127.0.0.1/">x</a></html>')
+    assert not b.check_source('<html><a href="https://example.com/">x</a></html>')
     assert not b.check_source("<html><p>ok</p></html>")

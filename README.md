@@ -39,15 +39,15 @@ Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (
 Bind on all interfaces (or a specific NIC IP) and point the public URL variables at the address clients will open:
 
 ```bash
-# .env
+# .env  (192.0.2.10 is documentation-range; substitute your LAN IP)
 AM_BIND_ADDRESS=0.0.0.0
-AM_API_URL=http://192.168.1.40:8780
-AM_PREVIEW_URL=http://192.168.1.40:8781
-AM_SHARE_URL=http://192.168.1.40:8781
-AM_ALLOWED_HOSTS=192.168.1.40:8780,127.0.0.1:8780,localhost:8780
+AM_API_URL=http://192.0.2.10:8780
+AM_PREVIEW_URL=http://192.0.2.10:8781
+AM_SHARE_URL=http://192.0.2.10:8781
+AM_ALLOWED_HOSTS=192.0.2.10:8780,127.0.0.1:8780,localhost:8780
 ```
 
-Then `docker compose up -d --build`. Clients open `http://192.168.1.40:8780/mcp` and preview/share links use `192.168.1.40`, not `127.0.0.1`.
+Then `docker compose up -d --build`. Clients open `http://192.0.2.10:8780/mcp` and preview/share links use `192.0.2.10`, not `127.0.0.1`. Browser-based MCP clients also need `AM_ALLOWED_ORIGINS` set to the page origin.
 
 ### Reverse proxy with TLS
 
@@ -85,17 +85,22 @@ server {
     proxy_pass http://127.0.0.1:8780;
     proxy_set_header Host $host;
     proxy_set_header Authorization $http_authorization;
+    # status wait can be up to 90s; nginx defaults cut at 60s.
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
   }
 }
 ```
+
+When `AM_ALLOWED_HOSTS` lists only the public hostname, a local `curl http://127.0.0.1:8780/mcp` gets HTTP 421 (DNS-rebinding protection). Point clients at the proxied hostname instead. Browser-based MCP clients send an `Origin` header; set `AM_ALLOWED_ORIGINS` to that origin or the request is rejected.
 
 ### MCP client on another machine
 
 Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Example:
 
 ```text
-URL:    http://192.168.1.40:8780/mcp
-Header: Authorization: Bearer am_…
+URL:    http://192.0.2.10:8780/mcp
+Header: Authorization: Bearer asmb_…
 ```
 
 ## How it works
@@ -106,7 +111,7 @@ The server calls an OpenAI-compatible endpoint (up to two attempts when checks f
 
 `share` creates a public link for one exact version. `unshare` makes that link return 404. Tokens belong to one workspace and carry a permission set.
 
-The server strips scripts and remote URLs, rejects private-link hosts and likely secrets, and enforces size limits. The process does not send usage data anywhere.
+Documents may cite public http(s) sources as clickable links. The server strips scripts, rejects private-link hosts and likely secrets, and keeps images, CSS, fonts, and iframes self-contained so a download opens offline and does not phone home. Size limits apply. The process does not send usage data anywhere.
 
 ## Output formats
 
@@ -188,7 +193,7 @@ Builds stay private until you call `share`. That creates a public `/s/…` URL. 
 
 Preview runs on its own port, sends no cookies, and sets CSP `script-src 'none'`.
 
-Scripts and remote URLs are stripped. Secrets and private-link hosts fail the build. Size and time caps apply.
+Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, `file:`, and protocol-relative URLs. Images and other subresources stay embedded or local — no remote `img`, CSS `url()`, fonts, or iframes — so exports open offline without fetching. Secrets fail the build. Size and time caps apply.
 
 The process does not send usage data anywhere.
 

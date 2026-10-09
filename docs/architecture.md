@@ -19,7 +19,7 @@ SQLite holds artifacts, versions, jobs, tokens, and shares. The S3-compatible ob
 
 `create` and `edit` check the caller, write a `queued` version, and return immediately. The worker calls the LLM once and retries once if checks fail. The model returns marked-up text (`===FILE: …===`). The server parses that text and does not execute it.
 
-Safety checks look for secrets, private hosts, allow-list misses, scripts, remote URLs, and size. The renderer for `format` then writes bytes. Files go to the object store and the version becomes `done`.
+Safety checks look for secrets, private hosts, allow-list misses, scripts, and size. Public http(s) citations may remain. The renderer for `format` then writes bytes. Files go to the object store and the version becomes `done`.
 
 HTML uses the house-style system prompt and stores `index.html`. Markdown, PDF, DOCX, and XLSX use a content prompt. The model writes Markdown and the renderer converts it. PDF, DOCX, and XLSX also keep `content.md` so `edit` has a text base.
 
@@ -45,4 +45,4 @@ The preview origin serves bytes named by a signed short link or an unrevoked sha
 
 Compose keeps the object store on the internal network and does not publish its ports on the host.
 
-Model output is treated as data. Renderers do not fetch URLs and do not run scripts.
+Model output is treated as data. Renderers do not fetch URLs and do not run scripts. Documents may link out to public http(s) sources; subresources stay self-contained.

@@ -1,4 +1,8 @@
-"""XLSX renderer via openpyxl (MIT). Tables become sheets; prose becomes a Notes sheet."""
+"""XLSX renderer via openpyxl (MIT). Tables become sheets; prose becomes a Notes sheet.
+
+Cells are always string literals (never formulas). Public http(s) URLs get a plain
+hyperlink relationship, not ``=HYPERLINK()``.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from .base import RenderOutput
+from .links import iter_inline_segments, public_href_or_none
 from .md_parse import parse_blocks
 
 _SHEET_SAFE = re.compile(r"[\[\]\*\:\/\\\?]")
@@ -26,12 +31,24 @@ def _sheet_name(title: str, used: set[str], index: int) -> str:
     return name
 
 
+def _first_public_href(text: str) -> str | None:
+    for _display, href in iter_inline_segments(text):
+        if href:
+            return href
+    return public_href_or_none(text.strip())
+
+
 def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
     """Write untrusted content as a string cell so leading '=' cannot become a formula."""
     from openpyxl.cell.cell import TYPE_STRING
 
-    cell = ws.cell(row=row, column=col, value="" if value is None else str(value))
+    text = "" if value is None else str(value)
+    cell = ws.cell(row=row, column=col, value=text)
     cell.data_type = TYPE_STRING
+    href = _first_public_href(text) if text else None
+    if href:
+        # Plain hyperlink relationship — never a formula.
+        cell.hyperlink = href
 
 
 def _write_row(ws: Any, row: int, values: Sequence[object]) -> None:

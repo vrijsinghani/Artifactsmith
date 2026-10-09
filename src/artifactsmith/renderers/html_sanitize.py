@@ -293,28 +293,28 @@ def sanitize_css(css: str) -> str:
 
 
 def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
-    """Reject remote, protocol-relative, javascript:, data:, and backslash-smuggled URLs."""
+    """Allow public http(s) on <a href> only; reject other remote resource URLs."""
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
         return value
-    # Normalize backslashes before any scheme/host checks (browsers treat \ as /).
-    raw = unescape(value).replace("\\", "/").strip()
-    low = raw.lower()
-    if not raw or raw.startswith("#"):
+    from .links import classify_href, normalize_href, public_href_or_none
+
+    raw = normalize_href(value)
+    kind = classify_href(raw)
+    if kind == "fragment" or kind == "relative":
+        # Relative/fragment only — never protocol-relative (classify blocks those).
         return raw or None
-    if low.startswith("//") or "://" in low:
-        return None
-    if low.startswith(("javascript:", "vbscript:", "data:", "blob:")):
-        return None
-    if re.match(r"^[a-z][a-z0-9+.-]*:", low):
-        return None
-    # "/\evil" → "//evil" after backslash normalize; also reject "/ /evil" style.
-    if low.startswith("/") and (low.startswith("//") or low[1:].startswith("/")):
-        return None
-    return raw
+    if tag == "a" and attr == "href" and kind == "public":
+        return public_href_or_none(raw)
+    # img src, cite, and every other URL-bearing attribute stay local-only.
+    return None
 
 
 def sanitize_html_document(body: str) -> str:
-    """Return a complete HTML document with allowlisted markup and sanitized CSS."""
+    """Return a complete HTML document with allowlisted markup and sanitized CSS.
+
+    Public http(s) ``<a href>`` links are kept (with rel/target hardening). Images,
+    CSS ``url()``, fonts, and iframes stay self-contained — no remote resources.
+    """
     title_m = _TITLE_RE.search(body)
     title = nh3.clean_text(unescape(title_m.group(1))).strip() if title_m else ""
     # Do not unescape style contents before sanitizing (entity-encoded tags stay inert).
@@ -333,14 +333,19 @@ def sanitize_html_document(body: str) -> str:
         clean_content_tags=_CLEAN_CONTENT_TAGS,
         attributes={k: set(v) for k, v in _ALLOWED_ATTRIBUTES.items()},
         attribute_filter=_url_attribute_filter,
-        url_schemes=set(),
+        url_schemes={"http", "https"},
         filter_style_properties=_STYLE_PROPS,
-        link_rel=None,
+        link_rel="noopener noreferrer nofollow",
         strip_comments=True,
     )
-    from .safety import strip_remote_urls
+    from .links import harden_external_anchors, linkify_html_text
 
-    cleaned = strip_remote_urls(cleaned)
+    # Linkify bare public URLs in text nodes; harden rel/target on external <a href>.
+    # Private-host URLs left as text fail check_content; attribute filter already
+    # dropped them from href/src. Do not run strip_remote_urls here — it would
+    # also erase allowed href values.
+    cleaned = linkify_html_text(cleaned)
+    cleaned = harden_external_anchors(cleaned)
 
     style_block = f"<style>\n{css}\n</style>\n" if css.strip() else ""
     title_block = f"<title>{title}</title>\n" if title else ""
