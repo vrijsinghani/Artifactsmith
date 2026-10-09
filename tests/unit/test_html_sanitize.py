@@ -274,6 +274,76 @@ def test_content_string_and_counters_kept_attr_dropped():
     assert "color:red" in compact
 
 
+def test_responsive_table_data_label_and_before_content_survive():
+    raw = """<!DOCTYPE html><html><head>
+    <style>td::before{content: attr(data-label)}</style>
+    </head><body>
+    <table><tr><td data-label="Price" data-extra="drop">$12</td></tr></table>
+    </body></html>"""
+    out = sanitize_html_document(raw)
+    assert 'data-label="Price"' in out
+    assert "data-extra" not in out
+    compact = _compact(out)
+    assert "td::before" in compact
+    assert "content:attr(data-label)" in compact
+
+
+def test_content_none_kept_other_attr_names_dropped():
+    out = sanitize_css("p{content:none;color:red}")
+    compact = _compact(out)
+    assert "content:none" in compact
+    assert "color:red" in compact
+    mixed = sanitize_css('td::before{content: attr(data-label) " " counter(n)}')
+    compact = _compact(mixed)
+    assert "attr(data-label)" in compact
+    assert "counter(n)" in compact
+    for name in ("href", "data-x", "src"):
+        dropped = sanitize_css(f"p{{content:attr({name});color:red}}")
+        compact = _compact(dropped)
+        assert "content" not in compact
+        assert "color:red" in compact
+
+
+def test_viewport_meta_emitted_once_and_overrides_model():
+    fixed = '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    none = sanitize_html_document("<html><body><p>x</p></body></html>")
+    assert none.count(fixed) == 1
+    assert none.count('name="viewport"') == 1
+    own = sanitize_html_document(
+        '<html><head><meta name="viewport" content="width=980, user-scalable=no"></head><body><p>x</p></body></html>'
+    )
+    assert own.count(fixed) == 1
+    assert own.count('name="viewport"') == 1
+    assert "width=980" not in own
+    assert "user-scalable" not in own
+
+
+def test_aria_label_kept():
+    raw = '<html><body><a href="#skip" aria-label="Skip to table">go</a></body></html>'
+    out = sanitize_html_document(raw)
+    assert 'aria-label="Skip to table"' in out
+
+
+def test_data_label_quotes_and_lt_escaped():
+    raw = (
+        "<html><body><table><tr>"
+        """<td data-label='He said "go" <ok>'>x</td>"""
+        "</tr></table></body></html>"
+    )
+    out = sanitize_html_document(raw)
+    assert "<ok>" not in out
+    assert "</ok>" not in out
+    assert "data-label=" in out
+    assert "&lt;ok&gt;" in out
+    assert "&quot;go&quot;" in out or '"go"' in out
+
+
+def test_webkit_overflow_scrolling_kept():
+    compact = _compact(sanitize_css(".x{-webkit-overflow-scrolling:touch;color:red}"))
+    assert "-webkit-overflow-scrolling:touch" in compact
+    assert "color:red" in compact
+
+
 def test_grid_slash_values_and_font_shorthand_survive():
     out = sanitize_css(".x{grid-area:1 / 2 / 3 / 4;color:red}")
     compact = _compact(out)

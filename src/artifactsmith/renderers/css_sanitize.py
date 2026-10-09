@@ -41,6 +41,7 @@ _STYLE_PROPS: set[str] = set(
     place-items place-self pointer-events position print-color-adjust
     -webkit-print-color-adjust resize right row-gap scroll-behavior scroll-margin-top
     table-layout text-align text-decoration text-decoration-color
+    -webkit-overflow-scrolling
     text-decoration-thickness text-indent text-overflow text-shadow text-transform
     text-underline-offset text-wrap top transform transition vertical-align visibility
     white-space width word-break word-wrap z-index
@@ -155,7 +156,17 @@ def _var_args_safe(arguments: list[object]) -> bool:
     return _tokens_safe(arguments[i + 1 :])
 
 
-def _tokens_safe(tokens: list[object]) -> bool:
+def _attr_data_label_only(arguments: list[object]) -> bool:
+    """True when ``attr()`` has exactly the ident ``data-label``."""
+    i = _skip_ws(arguments, 0)
+    if i >= len(arguments) or not isinstance(arguments[i], css_ast.IdentToken):
+        return False
+    if (getattr(arguments[i], "value", "") or "") != "data-label":
+        return False
+    return _skip_ws(arguments, i + 1) >= len(arguments)
+
+
+def _tokens_safe(tokens: list[object], *, allow_attr_data_label: bool = False) -> bool:
     """False if any token can fetch remote content or break out of a style element."""
     for tok in tokens:
         if isinstance(tok, css_ast.ParseError):
@@ -169,17 +180,19 @@ def _tokens_safe(tokens: list[object]) -> bool:
                     return False
                 continue
             if name in _BAD_FUNCTIONS:
+                if allow_attr_data_label and name == "attr" and _attr_data_label_only(list(tok.arguments)):
+                    continue
                 return False
-            if not _tokens_safe(list(tok.arguments)):
+            if not _tokens_safe(list(tok.arguments), allow_attr_data_label=allow_attr_data_label):
                 return False
         if isinstance(tok, css_ast.SquareBracketsBlock):
-            if not _tokens_safe(list(tok.content)):
+            if not _tokens_safe(list(tok.content), allow_attr_data_label=allow_attr_data_label):
                 return False
         if isinstance(tok, css_ast.ParenthesesBlock):
-            if not _tokens_safe(list(tok.content)):
+            if not _tokens_safe(list(tok.content), allow_attr_data_label=allow_attr_data_label):
                 return False
         if isinstance(tok, css_ast.CurlyBracketsBlock):
-            if not _tokens_safe(list(tok.content)):
+            if not _tokens_safe(list(tok.content), allow_attr_data_label=allow_attr_data_label):
                 return False
         if isinstance(tok, css_ast.LiteralToken):
             val = tok.value or ""
@@ -222,26 +235,33 @@ def _background_image_ok(tokens: list[object]) -> bool:
 
 
 def _content_ok(tokens: list[object]) -> bool:
-    """content: strings and counter()/counters(); no url/attr."""
+    """content: strings, none, counter()/counters(), and attr(data-label)."""
     for tok in tokens:
         if isinstance(tok, css_ast.WhitespaceToken):
             continue
         if isinstance(tok, css_ast.StringToken):
             continue
-        if isinstance(tok, css_ast.FunctionBlock) and _function_name(tok) in {"counter", "counters"}:
-            if _tokens_safe(list(tok.arguments)):
+        if isinstance(tok, css_ast.IdentToken) and (tok.value or "").lower() == "none":
+            continue
+        if isinstance(tok, css_ast.FunctionBlock):
+            name = _function_name(tok)
+            if name in {"counter", "counters"} and _tokens_safe(list(tok.arguments)):
+                continue
+            if name == "attr" and _attr_data_label_only(list(tok.arguments)):
                 continue
         return False
     return True
 
 
 def _value_allowed(name: str, tokens: list[object]) -> bool:
+    if name == "content":
+        if not _tokens_safe(tokens, allow_attr_data_label=True):
+            return False
+        return _content_ok(tokens)
     if not _tokens_safe(tokens):
         return False
     if name == "background-image":
         return _background_image_ok(tokens)
-    if name == "content":
-        return _content_ok(tokens)
     return True
 
 
