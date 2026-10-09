@@ -151,7 +151,7 @@ public function __construct(
 ) {}
 ```
 
-See [config-patterns.md](references/config-patterns.md#unvalidated-constructor-parameters) for detailed patterns.
+See the fetched `config-patterns.md` (`unvalidated-constructor-parameters`) for detailed patterns.
 
 ### 5. Silent Failures
 
@@ -254,30 +254,21 @@ If a finding seems questionable, return to Phase 2 and probe more edge cases.
 
 ## References
 
-**By category:**
+Language, crypto, auth, and config notes are **not** vendored. Fetch them when
+this skill runs:
 
-- **Cryptographic APIs**: See [references/crypto-apis.md](references/crypto-apis.md)
-- **Configuration Patterns**: See [references/config-patterns.md](references/config-patterns.md)
-- **Authentication/Session**: See [references/auth-patterns.md](references/auth-patterns.md)
-- **Real-World Case Studies**: See [references/case-studies.md](references/case-studies.md) (OpenSSL, GMP, etc.)
+```bash
+ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" sharp-edges-refs)
+REFS="$ROOT/plugins/sharp-edges/skills/sharp-edges/references"
+```
 
-**By language** (general footguns, not crypto-specific):
+**By category:** `crypto-apis.md`, `config-patterns.md`, `auth-patterns.md`,
+`case-studies.md` under `$REFS`.
 
-| Language | Guide |
-|----------|-------|
-| C/C++ | [references/lang-c.md](references/lang-c.md) |
-| Go | [references/lang-go.md](references/lang-go.md) |
-| Rust | [references/lang-rust.md](references/lang-rust.md) |
-| Swift | [references/lang-swift.md](references/lang-swift.md) |
-| Java | [references/lang-java.md](references/lang-java.md) |
-| Kotlin | [references/lang-kotlin.md](references/lang-kotlin.md) |
-| C# | [references/lang-csharp.md](references/lang-csharp.md) |
-| PHP | [references/lang-php.md](references/lang-php.md) |
-| JavaScript/TypeScript | [references/lang-javascript.md](references/lang-javascript.md) |
-| Python | [references/lang-python.md](references/lang-python.md) |
-| Ruby | [references/lang-ruby.md](references/lang-ruby.md) |
-
-See also [references/language-specific.md](references/language-specific.md) for a combined quick reference.
+**By language:** `lang-c.md`, `lang-go.md`, `lang-rust.md`, `lang-swift.md`,
+`lang-java.md`, `lang-kotlin.md`, `lang-csharp.md`, `lang-php.md`,
+`lang-javascript.md`, `lang-python.md`, `lang-ruby.md`. Combined quick
+reference: `language-specific.md`.
 
 ## Quality Checklist
 
@@ -290,4 +281,4 @@ Before concluding analysis:
 - [ ] Considered all three adversary types
 - [ ] Verified error paths don't bypass security
 - [ ] Checked configuration validation
-- [ ] Constructor params validated (not just defaulted) - see [config-patterns.md](references/config-patterns.md#unvalidated-constructor-parameters)
+- [ ] Constructor params validated (not just defaulted) — see fetched `config-patterns.md`

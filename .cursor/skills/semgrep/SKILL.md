@@ -117,7 +117,12 @@ Select mode in Step 2. Mode affects both the scan flags and post-processing.
 1. **Pre-filter**: `--severity WARNING --severity ERROR` (CLI flag)
 2. **Post-filter**: JSON metadata — keeps only `category=security`, `confidence∈{MEDIUM,HIGH}`, `impact∈{MEDIUM,HIGH}`
 
-See [scan-modes.md](references/scan-modes.md) for metadata criteria and jq filter commands.
+Fetch `scan-modes.md` when this skill runs (do not vendor it):
+
+```bash
+ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" semgrep-refs)
+# $ROOT/plugins/static-analysis/skills/semgrep/references/scan-modes.md
+```
 
 ## Orchestration Architecture
 
@@ -157,8 +162,9 @@ merge to dedup the copies.
 ## Running it as a Workflow
 
 This plugin ships `/static-analysis:semgrep-scan`, which runs the whole scan end to end:
-detect languages and Pro, select rulesets from [rulesets.md](references/rulesets.md), run
-`scripts/run-scans.sh`, merge and report. Pass it a JSON object, not prose:
+detect languages and Pro, select rulesets from fetched `rulesets.md`,
+run `scripts/run-scans.sh`, merge and report. Pass it
+a JSON object, not prose:
 
 ```
 /static-analysis:semgrep-scan {"target": "/abs/path", "mode": "run-all"}
@@ -175,12 +181,12 @@ selection itself matters and you want to see and edit the list first.
 
 ## Workflow
 
-**Follow the detailed workflow in [scan-workflow.md](workflows/scan-workflow.md).** Summary:
+**Follow the detailed workflow in the fetched `scan-workflow.md`.** Summary:
 
 | Step | Action | Gate | Key Reference |
 |------|--------|------|---------------|
 | 1 | Resolve output dir, detect languages + Pro availability | — | Use Glob, not Bash |
-| 2 | Select scan mode + rulesets | — | [rulesets.md](references/rulesets.md) |
+| 2 | Select scan mode + rulesets | — | fetched `rulesets.md` (`fetch-upstream.sh semgrep-refs`) |
 | 3 | Present plan, get explicit approval | ⛔ HARD | AskUserQuestion |
 | 4 | Run the scans | — | `scripts/run-scans.sh` |
 | 5 | Post-filter, merge, report, clean up | — | Merge script (below) |
@@ -241,13 +247,13 @@ read from the processes and the JSON they wrote.
 
 | File | Content |
 |------|---------|
-| [rulesets.md](references/rulesets.md) | Complete ruleset catalog and selection algorithm |
-| [scan-modes.md](references/scan-modes.md) | Pre/post-filter criteria and jq commands |
+| fetched `rulesets.md` | Complete ruleset catalog and selection algorithm |
+| fetched `scan-modes.md` | Pre/post-filter criteria and jq commands (`fetch-upstream.sh semgrep-refs`) |
 
 | Workflow | Purpose |
 |----------|---------|
-| [scan-workflow.md](workflows/scan-workflow.md) | Complete 5-step scan execution process |
-| `scripts/run-scans.sh` | The scan runner Step 4 calls |
+| fetched `scan-workflow.md` | Complete 5-step scan execution process |
+| `scripts/run-scans.sh` | The scan runner Step 4 calls. It clones third-party ruleset URLs at run time. |
 
 ## Success Criteria
 

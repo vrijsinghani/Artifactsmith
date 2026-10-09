@@ -6,9 +6,9 @@ Independent read-only review. Application code was not changed.
 
 **Method:** Trail of Bits `run-scans.sh` (`--metrics=off`), bandit, gitleaks (full history), pip-audit on the resolved venv set, Trivy on image `artifactsmith-audit:a2b873c` (`sha256:506b1e33e9e383c234102f66cdec4041332ab2640ca5bcaeb21e5a0ae83d1b94`), threat model, sharp-edges on config/compose, differential review vs `main`, project checklist with live payloads. Every candidate went through fp-check. Only survivors are ranked below.
 
-**Tool versions:** semgrep 1.180.0 (OSS; Pro unavailable), bandit 1.9.4, pip-audit 2.10.1, gitleaks 8.30.0, trivy 0.75.0, docker 29.1.3, Python 3.12.3, nh3 0.3.7, tinycss2 1.5.1, openpyxl 3.1.5, Chrome 148.0.7778.96. Raw outputs are under `security-audit/`.
+**Tool versions:** semgrep 1.180.0 (OSS; Pro unavailable), bandit 1.9.4, pip-audit 2.10.1, gitleaks 8.30.0, trivy 0.75.0, docker 29.1.3, Python 3.12.3, nh3 0.3.7, tinycss2 1.5.1, openpyxl 3.1.5, Chrome 148.0.7778.96. Raw SARIF/JSON is the tarball `/opt/cursor/artifacts/artifactsmith-security-audit-a2b873c-raw.tgz` (not in git).
 
-Semgrep Pro did not run. `p/yaml` failed (exit 7) and was excluded from the merge. elttam and Apiiro rulesets were partial (exit 2). Failed/partial/skipped are in `security-audit/semgrep/scans.json`.
+Semgrep Pro did not run. `p/yaml` failed (exit 7) and was excluded from the merge. elttam and Apiiro rulesets were partial (exit 2).
 
 ## Ranked findings
 
@@ -18,7 +18,7 @@ Semgrep Pro did not run. `p/yaml` failed (exit 7) and was excluded from the merg
 
 `URL_RE` stops at `]`, so `http://[::1]/x` is not parsed. `_host_is_private` only understands dotted textual IPs, so `http://127.1/x` and `http://0x7f.0.0.1/x` are not flagged. Hostnames are not resolved, so `http://127.0.0.1.sslip.io/x` and `http://evil.127.0.0.1.nip.io/x` pass.
 
-**Reproduction:** `find_private_links` and `check_fields` returned empty for those five strings (see `security-audit/repro/checklist.jsonl`). `http://127.0.0.1`, `localhost`, `10.0.0.5`, `169.254.169.254`, and `metadata.google.internal` were flagged.
+**Reproduction:** `find_private_links` and `check_fields` returned empty for those five strings. `http://127.0.0.1`, `localhost`, `10.0.0.5`, `169.254.169.254`, and `metadata.google.internal` were flagged. The JSONL is in the artifacts tarball as `security-audit/repro/checklist.jsonl`.
 
 **Why it is exploitable here:** Titles, summaries, assumptions, and `needs_input` are scanned only by `check_fields` (`builder.py:335`). A hostile model can put a loopback URL in the card. MCP clients often linkify `http://…`. The operator's browser then hits a private host. HTML `href` values with `://` are stripped, and ordinary `http://host` bodies are stripped, so this is a metadata / leftover-text bypass of the documented "never point at private hosts" control, not server-side SSRF.
 
@@ -28,7 +28,7 @@ Semgrep Pro did not run. `p/yaml` failed (exit 7) and was excluded from the merg
 
 `src/artifactsmith/config.py:65` (`AM_HOST` default `0.0.0.0`). Bandit B104.
 
-Compose publishes `127.0.0.1:8780` and `127.0.0.1:8781` (`compose.yaml:40`). A bare `artifactsmith serve` does not. Preview and share routes are unauthenticated capability URLs. The API is bearer-only, but it is then reachable on every NIC.
+Compose publishes `${AM_BIND_ADDRESS:-127.0.0.1}:8780` and `:8781` (`compose.yaml:46` at this commit). A bare `artifactsmith serve` does not. Preview and share routes are unauthenticated capability URLs. The API is bearer-only, but it is then reachable on every NIC.
 
 **Why it is exploitable here:** Operators who follow the CLI and skip compose expose MCP and `/p/`, `/dl/`, `/s/` on the LAN. Share links become world-reachable if the host has a public address.
 
@@ -41,14 +41,6 @@ Compose publishes `127.0.0.1:8780` and `127.0.0.1:8781` (`compose.yaml:40`). A b
 **Why it is exploitable here:** A browser origin confused onto the API port can call `/mcp` without a Host check. Bearer tokens are not sent automatically by a normal page, so this is defense-in-depth, not a token theft by itself.
 
 **Fix:** Enable the MCP transport check by default for `127.0.0.1` / `localhost`, or require the allow-lists whenever `AM_HOST` is not loopback.
-
-### Low — Compose object store uses `rustfs/rustfs:latest`
-
-`compose.yaml:12`.
-
-The app image pins `python:3.12-slim-bookworm` by digest. The store image does not. A tag move changes the process that holds `AM_STORE_KEY` / `AM_STORE_SECRET` and every artifact version.
-
-**Fix:** Pin `rustfs/rustfs` by digest and verify it in CI the same way the app image is scanned.
 
 ### Low — `inspect` can return raw object-store exceptions
 
@@ -73,7 +65,8 @@ The app image pins `python:3.12-slim-bookworm` by digest. The store image does n
 
 ## False positives discarded
 
-- Semgrep `docker-compose.port-all-interfaces` on `compose.yaml:46`: the host side is `127.0.0.1`, not `0.0.0.0`.
+- `rustfs/rustfs:latest` on `compose.yaml:12`: that line is on `main`, not on the audited commit. At `a2b873c` the store image is `compose.yaml:13`, `rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c`. Finding withdrawn.
+- Semgrep `docker-compose.port-all-interfaces` on compose published ports: the host bind is `127.0.0.1` by default (`compose.yaml:46` at `a2b873c`).
 - Semgrep Dependabot missing cooldown: supply-chain hygiene, not a runtime bug.
 - Apiiro "obfuscation" on `md_parse._esc`, the `URL_RE` character class, and `Service.list`: ordinary string replace, a regex, and a method name.
 - Bandit B608 at `service.py:1067`: `DELETE FROM {tbl}` with `tbl` from a fixed tuple.

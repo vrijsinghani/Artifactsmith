@@ -7,7 +7,12 @@ description: "Perform language and framework specific security best-practice rev
 
 ## Overview
 
-This skill provides a description of how to identify the language and frameworks used by the current context, and then to load information from this skill's references directory about the security best practices for this language and or frameworks.
+This skill provides a description of how to identify the language and frameworks used by the current context, and then to load information from the fetched references directory about the security best practices for this language and or frameworks. Do not vendor those files; fetch them when the skill runs:
+
+```bash
+ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" openai-best-practices)
+REFS="$ROOT/skills/.curated/security-best-practices/references"
+```
 
 This information, if present, can be used to write new secure by default code, or to passively detect major issues within existing code, or (if requested by the user) provide a vulnerability report and suggest fixes.
 
@@ -15,7 +20,7 @@ This information, if present, can be used to write new secure by default code, o
 
 The initial step for this skill is to identify ALL languages and ALL frameworks which you are being asked to use or already exist in the scope of the project you are working in. Focus on the primary core frameworks. Often you will want to identify both frontend and backend languages and frameworks.
 
-Then check this skill's references directory to see if there are any relevant documentation for the language and or frameworks. Make sure you read ALL reference files which relate to the specific framework or language. The format of the filenames is `<language>-<framework>-<stack>-security.md`. You should also check if there is a `<language>-general-<stack>-security.md` which is agnostic to the framework you may be using.
+Then fetch the references directory and check it for relevant documentation for the language and or frameworks. Make sure you read ALL reference files which relate to the specific framework or language. The format of the filenames is `<language>-<framework>-<stack>-security.md`. You should also check if there is a `<language>-general-<stack>-security.md` which is agnostic to the framework you may be using.
 
 If working on a web application which includes a frontend and a backend, make sure you have checked for reference documents for BOTH the frontend and backend!
 
@@ -34,7 +39,7 @@ From there it can operate in a few ways.
 ## Workflow Decision Tree
 
 - If the language/framework is unclear, inspect the repo to determine it and list your evidence.
-- If matching guidance exists in `references/`, load only the relevant files and follow their instructions.
+- If matching guidance exists in the fetched `references/`, load only the relevant files and follow their instructions.
 - If no matching guidance exists, consider if you know any well known security best practices for the chosen language and or frameworks, but if asked to generate a report, let the user know that concrete guidance is not available (you can still generate the report or detect for sure critical vulnerabilities)
 
 # Overrides

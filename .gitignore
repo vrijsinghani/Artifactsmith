@@ -18,3 +18,4 @@ htmlcov/
 .tox/
 *.pdf
 !docs/**
+security-audit/

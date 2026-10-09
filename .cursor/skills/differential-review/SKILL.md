@@ -67,22 +67,29 @@ Phase 3: Blast Radius → Phase 4: Deep Context → Phase 5: Adversarial → Pha
 **Starting a review?**
 
 ```
+Companion files are not vendored. Fetch them first:
+
+```bash
+ROOT=$(bash "$(dirname "$0")/../fetch-upstream.sh" differential-extras)
+DR="$ROOT/plugins/differential-review/skills/differential-review"
+```
+
 ├─ Need detailed phase-by-phase methodology?
-│  └─ Read: methodology.md
+│  └─ Read: $DR/methodology.md
 │     (Pre-Analysis + Phases 0-4: triage, code analysis, test coverage, blast radius)
 │
 ├─ Analyzing HIGH RISK change?
-│  ├─ Read: adversarial.md
+│  ├─ Read: $DR/adversarial.md
 │  │  (Phase 5: Attacker modeling, exploit scenarios, exploitability rating)
 │  └─ Or delegate to: differential-review:adversarial-modeler agent
 │     (Autonomous attacker modeling with concrete exploit scenarios)
 │
 ├─ Writing the final report?
-│  └─ Read: reporting.md
+│  └─ Read: $DR/reporting.md
 │     (Phase 6: Report structure, templates, formatting guidelines)
 │
 ├─ Looking for specific vulnerability patterns?
-│  └─ Read: patterns.md
+│  └─ Read: $DR/patterns.md
 │     (Regressions, reentrancy, access control, overflow, etc.)
 │
 └─ Quick triage only?
@@ -145,7 +152,7 @@ Time: ~30 minutes
 ### Standard Review (Medium Codebase)
 ```
 Input: 80 files, 12 HIGH RISK changes
-Strategy: FOCUSED (see methodology.md)
+Strategy: FOCUSED (see fetched methodology.md)
 1. Full workflow on HIGH RISK files
 2. Surface scan on MEDIUM
 3. Skip LOW risk files
@@ -213,13 +220,16 @@ These patterns require adversarial analysis even in quick triage.
 
 ## Supporting Documentation
 
-- **[methodology.md](methodology.md)** - Detailed phase-by-phase workflow (Phases 0-4)
-- **[adversarial.md](adversarial.md)** - Attacker modeling and exploit scenarios (Phase 5)
-- **[reporting.md](reporting.md)** - Report structure and formatting (Phase 6)
-- **[patterns.md](patterns.md)** - Common vulnerability patterns reference
+Fetch with `fetch-upstream.sh differential-extras`, then read under
+`$DR`:
+
+- **methodology.md** - Detailed phase-by-phase workflow (Phases 0-4)
+- **adversarial.md** - Attacker modeling and exploit scenarios (Phase 5)
+- **reporting.md** - Report structure and formatting (Phase 6)
+- **patterns.md** - Common vulnerability patterns reference
 
 ---
 
-**For first-time users:** Start with [methodology.md](methodology.md) to understand the complete workflow.
+**For first-time users:** Start with fetched `methodology.md` to understand the complete workflow.
 
 **For experienced users:** Use this page's Quick Reference and Decision Tree to navigate directly to needed content.

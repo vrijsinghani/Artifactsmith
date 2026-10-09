@@ -1,9 +1,10 @@
 # Attribution
 
-This skill is copied from [Trail of Bits skills](https://github.com/trailofbits/skills)
-and is licensed under Creative Commons Attribution-ShareAlike 4.0 International
-(CC-BY-SA-4.0). The full license text is in `LICENSE` in this directory.
+Copied from [Trail of Bits skills](https://github.com/trailofbits/skills)
+(`plugins/sharp-edges/skills/sharp-edges`) under Creative Commons
+Attribution-ShareAlike 4.0 International (CC-BY-SA-4.0).
 
-Copyright Trail of Bits. See the upstream repository for the original authors.
+Full license: `licenses/CC-BY-SA-4.0-trailofbits-skills.txt` in this repository.
 
-Copied without functional changes so the skill travels with this repository.
+Language and config notes are not vendored. Fetch them with
+`.cursor/skills/fetch-upstream.sh sharp-edges-refs`.

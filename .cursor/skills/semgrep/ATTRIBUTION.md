@@ -1,9 +1,11 @@
 # Attribution
 
-This skill is copied from [Trail of Bits skills](https://github.com/trailofbits/skills)
-and is licensed under Creative Commons Attribution-ShareAlike 4.0 International
-(CC-BY-SA-4.0). The full license text is in `LICENSE` in this directory.
+Copied from [Trail of Bits skills](https://github.com/trailofbits/skills)
+(`plugins/static-analysis/skills/semgrep`) under Creative Commons
+Attribution-ShareAlike 4.0 International (CC-BY-SA-4.0).
 
-Copyright Trail of Bits. See the upstream repository for the original authors.
+Full license: `licenses/CC-BY-SA-4.0-trailofbits-skills.txt` in this repository.
 
-Copied without functional changes so the skill travels with this repository.
+Third-party Semgrep rulesets are not vendored. `scripts/run-scans.sh` clones
+approved ruleset URLs at scan time. The ruleset catalog and scan-mode notes
+come from `.cursor/skills/fetch-upstream.sh semgrep-refs`.

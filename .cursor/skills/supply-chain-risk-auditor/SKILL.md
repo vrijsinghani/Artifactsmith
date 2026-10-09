@@ -41,9 +41,13 @@ The scripts enforce two rules worth knowing before you read their output:
 3. Collect, then render. Put outputs somewhere outside the audited repository unless
    asked otherwise:
 
+   The collector scripts are not in this repo. Fetch them, then run:
+
    ```sh
-   uv run {baseDir}/scripts/collect.py <project-dir> --json <out-dir>/findings.json
-   uv run {baseDir}/scripts/render.py <out-dir>/findings.json --out <out-dir>/report.md
+   ROOT=$(bash {baseDir}/../fetch-upstream.sh supply-chain-scripts)
+   SCRIPTS="$ROOT/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts"
+   uv run --no-project "$SCRIPTS/collect.py" <project-dir> --json <out-dir>/findings.json
+   uv run --no-project "$SCRIPTS/render.py" <out-dir>/findings.json --out <out-dir>/report.md
    ```
 
    Expect a few minutes for ~50 dependencies — several HTTP requests per dependency,

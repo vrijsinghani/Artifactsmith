@@ -1,27 +1,33 @@
 # How to run the security review skills
 
-The skills live in `.cursor/skills/` and `.agents/skills/` so they travel with
-the repo. Third-party text keeps its own license file in each skill folder.
+Skills live in `.cursor/skills/` (one copy). `.agents/skills/README.md` only
+points there. Third-party text keeps license files in `licenses/` and an
+`ATTRIBUTION.md` beside each skill.
+
+Companion reference trees and third-party Semgrep rulesets are **not** in git.
+Fetch them when the skill runs (`.cursor/skills/fetch-upstream.sh`, pinned
+SHAs). `semgrep/scripts/run-scans.sh` clones approved ruleset URLs into the
+scan output directory and deletes them afterwards.
 
 | Skill | Source | License |
 |---|---|---|
-| `semgrep`, `sarif-parsing` (grouped as `static-analysis`) | [Trail of Bits skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 |
+| `semgrep`, `sarif-parsing` | [Trail of Bits skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 |
 | `differential-review` | Trail of Bits | CC-BY-SA-4.0 |
 | `sharp-edges` | Trail of Bits | CC-BY-SA-4.0 |
 | `supply-chain-risk-auditor` | Trail of Bits | CC-BY-SA-4.0 |
 | `fp-check` | Trail of Bits | CC-BY-SA-4.0 |
 | `security-threat-model` | [OpenAI curated skills](https://github.com/openai/skills/tree/main/skills/.curated) | Apache-2.0 |
 | `security-best-practices` | OpenAI | Apache-2.0 |
-| `artifactsmith-security-checklist` | this repo | same as the project (MIT) |
+| `artifactsmith-security-checklist` | this repo | MIT |
 
-Full license texts: `licenses/CC-BY-SA-4.0-trailofbits-skills.txt`,
-`licenses/Apache-2.0-openai-skills.txt`, and `LICENSE` / `LICENSE.txt` next to
-each copied skill.
+Full license texts: `licenses/CC-BY-SA-4.0-trailofbits-skills.txt` and
+`licenses/Apache-2.0-openai-skills.txt`.
 
-## 1. Semgrep (`static-analysis` / `semgrep`)
+## 1. Semgrep (`semgrep`)
 
-Install Semgrep, then use `scripts/run-scans.sh` from the skill. Every command
-must pass `--metrics=off`. Do not hand-write `semgrep` lines.
+Install Semgrep. Use `scripts/run-scans.sh` from the skill. Every command
+must pass `--metrics=off`. Do not hand-write `semgrep` lines. The runner
+clones third-party ruleset repos at scan time; do not vendor them.
 
 ```bash
 OUTPUT=/tmp/artifactsmith-semgrep
@@ -49,6 +55,12 @@ python .cursor/skills/semgrep/scripts/merge_sarif.py \
   "$OUTPUT/raw" "$OUTPUT/results/results.sarif" --scans "$OUTPUT/scans.json"
 ```
 
+Optional catalog extras (`scan-modes.md`, `scan-workflow.md`):
+
+```bash
+ROOT=$(bash .cursor/skills/fetch-upstream.sh semgrep-refs)
+```
+
 Then follow `sarif-parsing` to summarize `$OUTPUT/results/results.sarif`.
 Report `failed`, `skipped`, `coveredNothing`, and `oversized` from `scans.json`.
 
@@ -57,13 +69,24 @@ Report `failed`, `skipped`, `coveredNothing`, and `oversized` from `scans.json`.
 Read `docs/architecture.md`, `docs/threat-model.md`, `src/artifactsmith/server.py`,
 `service.py`, `cli.py`, and `config.py`. Enumerate MCP tools, HTTP preview /
 share / download routes, CLI, and env/config. Treat model output as untrusted.
-Write `<name>-threat-model.md` using the skill's prompt template.
+Fetch the prompt template and optional controls list, then write
+`<name>-threat-model.md`:
+
+```bash
+ROOT=$(bash .cursor/skills/fetch-upstream.sh openai-threat-model)
+```
 
 ## 3. Sharp edges
 
 Read `config.py`, `.env.example`, `compose.yaml`, and any `compose*.yaml`.
 Probe zero / empty / false defaults (`AM_BLOCK_PRIVATE_LINKS`, share TTL 0,
-`AM_HOST=0.0.0.0`, empty allow-lists). Follow `sharp-edges`.
+`AM_HOST=0.0.0.0`, empty allow-lists). Language and config notes:
+
+```bash
+ROOT=$(bash .cursor/skills/fetch-upstream.sh sharp-edges-refs)
+```
+
+Follow `sharp-edges`.
 
 ## 4. Differential review
 
@@ -93,10 +116,16 @@ what survives. One-line each discarded item.
 - gitleaks on full git history
 - pip-audit on the resolved dependency set (install the package, then audit)
 - trivy on the **built Docker image**, not only the filesystem
-- supply-chain collector: `uv run .cursor/skills/supply-chain-risk-auditor/scripts/collect.py`
+- supply-chain collector (fetch, then run; do not vendor the scripts):
 
-Record tool versions next to the outputs.
+```bash
+ROOT=$(bash .cursor/skills/fetch-upstream.sh supply-chain-scripts)
+uv run --no-project \
+  "$ROOT/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/collect.py" .
+```
 
-An example read-only run against PR #2 (`a2b873c`) is in
-`docs/security-audit-2026-10-09.md` with raw SARIF/JSON under `security-audit/`.
-EOF
+Record tool versions next to the outputs. Keep raw SARIF/JSON out of git.
+
+An example read-only run against PR #2 (`a2b873c`) is
+`docs/security-audit-2026-10-09.md`. Raw tool output for that run is the
+tarball `/opt/cursor/artifacts/artifactsmith-security-audit-a2b873c-raw.tgz`.

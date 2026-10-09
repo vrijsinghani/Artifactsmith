@@ -46,7 +46,12 @@ Document:
 - **What is the supposed trigger?** (e.g., "attacker sends HTTP request with oversized Content-Length header")
 - **What is the claimed impact?** (e.g., "remote code execution via controlled heap corruption")
 - **What is the threat model?** What privilege level does this code run at? Is it sandboxed? What can the attacker already do before triggering this bug? (e.g., "unauthenticated remote attacker vs privileged local user"; "runs inside Chrome renderer sandbox" vs "runs as root with no sandbox")
-- **What is the bug class?** Classify the bug and consult [bug-class-verification.md]({baseDir}/references/bug-class-verification.md) for class-specific verification requirements that supplement the generic phases below.
+- **What is the bug class?** Classify the bug and consult fetched `bug-class-verification.md` for class-specific verification requirements that supplement the generic phases below. Fetch the reference tree first:
+
+```bash
+ROOT=$(bash {baseDir}/../fetch-upstream.sh fp-check-refs)
+REFS="$ROOT/plugins/fp-check/skills/fp-check/references"
+```
 - **Execution context**: When and how is this code path reached during normal execution?
 - **Caller analysis**: What functions call this code and what input constraints do they impose?
 - **Architectural context**: Is this part of a larger security system with multiple protection layers?
@@ -66,7 +71,7 @@ Use when ALL of these hold:
 - No concurrency or async involved in the trigger
 - Straightforward data flow from source to sink
 
-Follow [standard-verification.md]({baseDir}/references/standard-verification.md). No task tracking — work through the linear checklist sequentially, documenting findings inline.
+Follow `$REFS/standard-verification.md`. No task tracking — work through the linear checklist sequentially, documenting findings inline.
 
 ### Deep Verification
 
@@ -79,7 +84,7 @@ Use when ANY of these hold:
 - Standard verification was inconclusive or escalated
 - User explicitly requests full verification
 
-Follow [deep-verification.md]({baseDir}/references/deep-verification.md). Track each phase as a task with explicit dependencies, and execute the phases using the plugin's analysis agents.
+Follow `$REFS/deep-verification.md`. Track each phase as a task with explicit dependencies, and execute the phases using the plugin's analysis agents.
 
 ### Default
 
@@ -104,9 +109,11 @@ After processing ALL suspected bugs, provide:
 
 ## References
 
-- [Standard Verification]({baseDir}/references/standard-verification.md) — Linear single-pass checklist for straightforward bugs
-- [Deep Verification]({baseDir}/references/deep-verification.md) — Full task-based orchestration for complex bugs
-- [Gate Reviews]({baseDir}/references/gate-reviews.md) — Six mandatory gates and verdict format
-- [Bug-Class Verification]({baseDir}/references/bug-class-verification.md) — Class-specific verification requirements for memory corruption, logic bugs, race conditions, integer issues, crypto, injection, info disclosure, DoS, and deserialization
-- [False Positive Patterns]({baseDir}/references/false-positive-patterns.md) — 13-item checklist and red flags for common false positive patterns
-- [Evidence Templates]({baseDir}/references/evidence-templates.md) — Documentation templates for data flow, mathematical proofs, attacker control, and devil's advocate reviews
+Fetch with `fetch-upstream.sh fp-check-refs`, then read under `$REFS`:
+
+- `standard-verification.md` — Linear single-pass checklist for straightforward bugs
+- `deep-verification.md` — Full task-based orchestration for complex bugs
+- `gate-reviews.md` — Six mandatory gates and verdict format
+- `bug-class-verification.md` — Class-specific verification requirements for memory corruption, logic bugs, race conditions, integer issues, crypto, injection, info disclosure, DoS, and deserialization
+- `false-positive-patterns.md` — 13-item checklist and red flags for common false positive patterns
+- `evidence-templates.md` — Documentation templates for data flow, mathematical proofs, attacker control, and devil's advocate reviews

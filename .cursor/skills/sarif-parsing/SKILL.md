@@ -75,10 +75,15 @@ Resolve severity in this order (SARIF 2.1.0 section 3.27.10):
    omits `ruleIndex`
 4. `"warning"`, the SARIF default
 
-Every severity query in this skill starts from that resolution. In jq it is the
-`LEVEL_FN` definition in [{baseDir}/resources/jq-queries.md]({baseDir}/resources/jq-queries.md);
-in Python it is `resolve_level(result, run)` in
+Every severity query in this skill starts from that resolution. In Python it is
+`resolve_level(result, run)` in
 [{baseDir}/resources/sarif_helpers.py]({baseDir}/resources/sarif_helpers.py).
+The jq equivalents live in upstream `jq-queries.md` (fetch, do not vendor):
+
+```bash
+ROOT=$(bash {baseDir}/../fetch-upstream.sh sarif-extras)
+# $ROOT/plugins/static-analysis/skills/sarif-parsing/resources/jq-queries.md
+```
 
 ### Why Fingerprinting Matters
 
