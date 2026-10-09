@@ -26,6 +26,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     command: ["artifactsmith", "storage-init"]
+    env_file:
+      - .env
     environment: *store-env
     depends_on:
       storage:
@@ -40,6 +42,10 @@ services:
     ports:
       - "127.0.0.1:8780:8780"   # MCP API (bearer auth)
       - "127.0.0.1:8781:8781"   # cookieless preview / share origin
+    # Bring every documented setting (AM_SHARE_URL, AM_MAX_BUILDS, *_FILE, …) from .env.
+    # Explicit environment entries below override when set; they supply defaults for LLM/store.
+    env_file:
+      - .env
     environment:
       <<: *store-env
       AM_LLM_API: ${AM_LLM_API:-chat}

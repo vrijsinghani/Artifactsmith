@@ -21,7 +21,25 @@ rand_hex() {
   fi
 }
 
-# Return 0 if NAME is unset or empty after trimming quotes/whitespace.
+# Ensure .env ends with a newline matching the file's existing line ending.
+ensure_trailing_newline() {
+  local ending=$'\n'
+  if grep -q $'\r' .env 2>/dev/null; then
+    ending=$'\r\n'
+  fi
+  if [ ! -s .env ]; then
+    printf '%s' "$ending" > .env
+    return
+  fi
+  # Last byte: if not LF, append the file's newline style.
+  local last
+  last="$(tail -c 1 .env | od -An -t x1 | tr -d ' \n')"
+  if [ "$last" != "0a" ]; then
+    printf '%s' "$ending" >> .env
+  fi
+}
+
+# Return 0 if NAME is unset or empty after trimming quotes/whitespace/comments.
 needs_value() {
   local name="$1"
   local line raw
@@ -36,6 +54,9 @@ needs_value() {
     raw="${raw:1:${#raw}-2}"
   elif [[ "$raw" == \'*\' ]]; then
     raw="${raw:1:${#raw}-2}"
+  else
+    # Strip unquoted trailing " # comment".
+    raw="$(printf '%s' "$raw" | sed -e 's/[[:space:]]\+#.*$//')"
   fi
   # Trim whitespace.
   raw="$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -45,7 +66,6 @@ needs_value() {
 set_or_fill() {
   local name="$1"
   local value="$2"
-  local nl=$'\n'
   local ending tmp
   ending=""
   if grep -q $'\r' .env 2>/dev/null; then
@@ -54,6 +74,7 @@ set_or_fill() {
   if ! needs_value "$name"; then
     return 1
   fi
+  ensure_trailing_newline
   if grep -Eq "^(export[[:space:]]+)?${name}=" .env; then
     tmp="$(mktemp)"
     # Replace the last matching assignment; keep export prefix and line ending.
@@ -74,7 +95,9 @@ set_or_fill() {
         }
       }
     ' .env >"$tmp"
-    mv "$tmp" .env
+    # Write through so a .env symlink is preserved.
+    cat "$tmp" > .env
+    rm -f "$tmp"
   else
     printf '%s=%s%s\n' "$name" "$value" "$ending" >> .env
   fi
