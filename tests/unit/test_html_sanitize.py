@@ -62,7 +62,7 @@ def test_img_src_stripped():
     out = sanitize_html(raw).lower()
     assert "onerror" not in out
     assert "https://" not in out
-    assert 'src="' not in out or "src=\"\"" in out or "<img" in out
+    assert 'src="' not in out or 'src=""' in out or "<img" in out
 
 
 def test_export_bytes_safe_without_csp():

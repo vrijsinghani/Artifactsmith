@@ -8,10 +8,11 @@ from artifactsmith.cli import main
 def test_token_add_list_revoke(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AM_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("AM_SECRETS_DIR", str(tmp_path / "secrets"))
-    rc = main(["token", "add", "--name", "agent", "--workspace", "alpha", "--token", "asmb_testtokenvalue"])
+    raw = "asmb_testtokenvalue_long_enough"
+    rc = main(["token", "add", "--name", "agent", "--workspace", "alpha", "--token", raw])
     assert rc == 0
     added = json.loads(capsys.readouterr().out)
-    assert added["token"] == "asmb_testtokenvalue"
+    assert added["token"] == raw
     assert added["workspace"] == "alpha"
 
     rc = main(["token", "list"])

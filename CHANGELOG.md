@@ -11,10 +11,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
-- `compose.yaml` reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, `AM_DEFAULT_MODEL`, and object-store credentials from `.env`. `./scripts/ensure-local-env.sh` fills empty store keys.
+- `compose.yaml` restores `env_file: .env` so documented settings (`AM_SHARE_URL`, limits, `*_FILE`) reach the server.
+- `compose.yaml` reads LLM and object-store credentials from `.env`. `./scripts/ensure-local-env.sh` fills empty store keys without corrupting a final line that lacks a trailing newline.
 - Storage image pinned to `rustfs/rustfs:1.0.1` by digest.
 - `AM_LLM_BASE` accepts a host root with or without a trailing `/v1`.
+- HTML exports use an nh3 allowlist sanitizer; XLSX cells are written as literals; WeasyPrint uses a deny-all URL fetcher.
+- Renderers run in killable subprocesses; delete is serialized against new builds; job enqueue is thread-safe.
+- Invalid integer/boolean env settings fail closed. `revoke_previews` expires private `/p/` links.
 - Unit tests run on Python 3.11 and 3.12. Type checking uses `mypy --strict`.
+
+### Security
+
+- Configurable MCP Host/Origin allow-lists via `AM_ALLOWED_HOSTS` / `AM_ALLOWED_ORIGINS`.
 
 ## [0.1.0] - 2026-10-09
 
@@ -37,3 +45,4 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - The process does not send usage data anywhere.
 
 [Unreleased]: https://github.com/vrijsinghani/Artifactsmith/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/vrijsinghani/Artifactsmith/releases/tag/v0.1.0

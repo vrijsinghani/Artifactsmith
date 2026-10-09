@@ -372,6 +372,15 @@ class Service:
         for _ in range(CFG.max_concurrent_builds):
             self._workers.append(asyncio.create_task(self._worker()))
 
+    async def shutdown(self) -> None:
+        """Cancel workers and close the database. Safe to call more than once."""
+        for task in list(self._workers):
+            task.cancel()
+        if self._workers:
+            await asyncio.gather(*self._workers, return_exceptions=True)
+        self._workers.clear()
+        self.db.close()
+
     async def _worker(self) -> None:
         while True:
             jid = await self.queue.get()
@@ -593,6 +602,27 @@ class Service:
 
     def short_lookup(self, sid: str) -> dict[str, Any] | None:
         return self.db.one("SELECT * FROM short_links WHERE id=? AND expires_at>?", sid, now())
+
+    def revoke_previews(
+        self, principal: dict[str, Any], artifact_id: str, version: int | None = None
+    ) -> dict[str, Any]:
+        """Expire private /p/ preview capabilities for an artifact (or one version)."""
+        self.require(principal, "export")
+        a = self.get_artifact(principal, artifact_id)
+        t = now()
+        with self.db.tx() as c:
+            if version is None:
+                n = c.execute(
+                    "UPDATE short_links SET expires_at=? WHERE artifact_id=? AND expires_at>?",
+                    (t, a["id"], t),
+                ).rowcount
+            else:
+                n = c.execute(
+                    "UPDATE short_links SET expires_at=? WHERE artifact_id=? AND version=? AND expires_at>?",
+                    (t, a["id"], int(version), t),
+                ).rowcount
+        self.audit(principal, "revoke_previews", artifact_id=a["id"], version=version, revoked=n)
+        return {"artifact_id": a["id"], "revoked_previews": n}
 
     def download_link(self, a: dict[str, Any], version: int, fname: str, as_name: str, ttl_s: int = 900) -> str:
         return f"{CFG.preview_url}/dl/{sign({'a': a['id'], 'v': version, 'f': fname, 'n': as_name}, ttl_s)}"

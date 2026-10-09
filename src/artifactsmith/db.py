@@ -146,6 +146,10 @@ class DB:
         with self.tx() as c:
             c.execute(sql, args)
 
+    def close(self) -> None:
+        with self.lock:
+            self.conn.close()
+
 
 def jloads(s: str | None, default: Any = None) -> Any:
     if not s:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from .base import RenderOutput
@@ -33,7 +34,7 @@ def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
     cell.data_type = TYPE_STRING
 
 
-def _write_row(ws: Any, row: int, values: list[object]) -> None:
+def _write_row(ws: Any, row: int, values: Sequence[object]) -> None:
     for col, value in enumerate(values, start=1):
         _literal_cell(ws, row, col, value)
 

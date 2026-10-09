@@ -35,6 +35,7 @@ INSTRUCTIONS = (
     "revokes immediately. A token reaches only its own workspace and only the permissions it was granted."
 )
 
+
 def _transport_security() -> TransportSecuritySettings:
     hosts = list(CFG.allowed_hosts)
     origins = list(CFG.allowed_origins)
@@ -214,6 +215,13 @@ def unshare(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None =
 
 
 @mcp.tool()
+def revoke_previews(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
+    """Expire private /p/ preview links for an artifact (or one version). Token revocation and signing-key
+    rotation do not expire these database-backed capabilities; call this explicitly."""
+    return _run(_svc().revoke_previews, _principal(ctx), artifact_id, version)
+
+
+@mcp.tool()
 def delete(ctx: Context[Any, Any, Any], artifact_id: str, confirm_token: str | None = None) -> dict[str, Any]:
     """Two-step delete. The first call returns a confirm_token. The second call with that token purges every
     stored version and all links. Warn the user before the second call."""
@@ -369,7 +377,11 @@ async def main() -> None:
         await asyncio.sleep(0.5)
         svc.start_workers()
 
-    await asyncio.gather(api.serve(), prev.serve(), start_after_boot())
+    try:
+        await asyncio.gather(api.serve(), prev.serve(), start_after_boot())
+    finally:
+        await svc.shutdown()
+        SVC = None
 
 
 def run() -> None:

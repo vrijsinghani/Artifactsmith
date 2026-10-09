@@ -292,6 +292,21 @@ async def test_enqueue_from_worker_thread(svc):
     assert seen == ["job_from_thread"]
 
 
+def test_revoke_previews(svc):
+    p = _principal()
+    created = svc.create(p, slug="prev", display_name="Prev", kind="web_static", verbatim_request="x")
+    aid = created["artifact_id"]
+    _mark_done(svc, aid, 1)
+    a = svc.db.one("SELECT * FROM artifacts WHERE id=?", aid)
+    assert a is not None
+    url = svc.preview_link(a, 1)
+    tok = url.rsplit("/", 1)[-1]
+    assert svc.short_lookup(tok) is not None
+    out = svc.revoke_previews(p, aid)
+    assert out["revoked_previews"] >= 1
+    assert svc.short_lookup(tok) is None
+
+
 def test_read_file_and_card(svc):
     p = _principal()
     created = svc.create(p, slug="page", display_name="Page", kind="web_static", verbatim_request="x")

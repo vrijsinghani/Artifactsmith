@@ -1,4 +1,6 @@
-from artifactsmith.config import Config, _read_file, _setting, _setting_bool, _setting_int
+import pytest
+
+from artifactsmith.config import Config, ConfigError, _read_file, _setting, _setting_bool, _setting_int
 from artifactsmith.renderers import EXTENSION, get_renderer, source_name
 
 
@@ -26,11 +28,18 @@ def test_setting_helpers(monkeypatch):
     monkeypatch.delenv("AM_TEST_INT", raising=False)
     assert _setting_int("AM_TEST_INT", 3) == 3
     monkeypatch.setenv("AM_TEST_INT", "nope")
-    assert _setting_int("AM_TEST_INT", 4) == 4
+    with pytest.raises(ConfigError, match="integer"):
+        _setting_int("AM_TEST_INT", 4)
+    monkeypatch.setenv("AM_TEST_INT", "-1")
+    with pytest.raises(ConfigError, match=">="):
+        _setting_int("AM_TEST_INT", 4, minimum=0)
     monkeypatch.delenv("AM_TEST_BOOL", raising=False)
     assert _setting_bool("AM_TEST_BOOL", True) is True
     monkeypatch.setenv("AM_TEST_BOOL", "off")
     assert _setting_bool("AM_TEST_BOOL", True) is False
+    monkeypatch.setenv("AM_TEST_BOOL", "maybe")
+    with pytest.raises(ConfigError, match="true/false"):
+        _setting_bool("AM_TEST_BOOL", True)
 
 
 def test_setting_file_variant(monkeypatch, tmp_path):

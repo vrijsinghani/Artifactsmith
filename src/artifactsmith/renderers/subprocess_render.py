@@ -59,7 +59,7 @@ def render_killable(
     ctx = mp.get_context(mp_context)
     parent, child = ctx.Pipe(duplex=False)
     target = worker or _worker
-    proc = ctx.Process(
+    proc = ctx.Process(  # type: ignore[attr-defined]
         target=target,
         args=(fmt, title, body, max_bytes, child),
         daemon=True,

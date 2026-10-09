@@ -30,15 +30,17 @@ artifactsmith token add --name agent-next --workspace alpha --perms create,read,
 artifactsmith token revoke --name agent
 ```
 
-A revoked hash fails the next request. There is no grace window.
+A revoked hash fails the next request. There is no grace window. Revoking a token does not expire already-issued `/p/` preview links; call `revoke_previews` for that.
 
-If the signing key may be leaked, replace `AM_SECRETS_DIR/signing.key` and restart. Existing `/p/` and `/dl/` links stop working. Call `status` or `export` for new preview and download URLs. Public `/s/` links are not HMAC-signed. They stay valid until `unshare` or TTL.
+Private `/p/` preview URLs are database-backed capabilities (short ids in SQLite), not HMAC-signed. Replacing `AM_SECRETS_DIR/signing.key` invalidates `/dl/` download links only. `/p/` links stay usable until their expiry unless you call `revoke_previews(artifact_id)` (or delete the artifact). Public `/s/` links are also not HMAC-signed; they stay valid until `unshare` or TTL.
+
+Separate API and preview ports create separate browser origins. The preview app sets no cookies; that does not stop a browser from sending cookies that already exist for the host.
 
 ## Upgrades
 
 1. Read `CHANGELOG.md`.
 2. Rebuild the image: `docker compose up -d --build`.
-3. SQLite schema is created with `CREATE TABLE IF NOT EXISTS` only. This release has no migrator. Do not assume automatic column adds.
+3. SQLite schema uses `CREATE TABLE IF NOT EXISTS` plus a small column migrator (`deleting_at` on artifacts). Do not assume every future column add is automatic.
 4. Run `python -m tests.e2e.test_end_to_end` against a staging stack before moving clients.
 
 The compose storage image is `rustfs/rustfs:1.0.1`, pinned by digest.

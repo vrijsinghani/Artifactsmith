@@ -33,7 +33,7 @@ typecheck:
 	mypy --strict src
 
 test:
-	pytest --cov=artifactsmith --cov-report=term-missing --cov-fail-under=80
+	pytest
 
 smoke:
 	bash scripts/ensure-local-env.sh

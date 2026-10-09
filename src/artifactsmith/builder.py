@@ -26,7 +26,6 @@ __all__ = [
     "BuildResult",
     "MIME",
     "NeedsInput",
-    "SOURCE_NAME",
     "SUPPORTED_FORMATS",
     "SYSTEM",
     "build_user_prompt",
@@ -40,10 +39,6 @@ __all__ = [
     "source_block",
     "source_name",
 ]
-
-SOURCE_NAME = {
-    "web_static": "index.html",  # legacy alias used by older call sites; prefer source_name(kind, fmt)
-}
 
 # House style. Writing rules adapted from Humanizer (github.com/blader/humanizer, MIT); visual rules adapted from
 # the frontend-design skill in github.com/anthropics/skills (Apache-2.0). See NOTICE.
