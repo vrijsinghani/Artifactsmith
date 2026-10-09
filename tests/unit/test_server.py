@@ -71,7 +71,8 @@ def _seed_done_artifact(svc: Service) -> tuple[str, int, str]:
     aid, ver = "art_preview", 1
     page = b"<html><body>HARBOR-17</body></html>"
     svc.db.exec(
-        "INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO artifacts (id,workspace,slug,display_name,kind,format,created_by,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
         aid,
         "alpha",
         "preview-page",

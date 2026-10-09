@@ -253,6 +253,45 @@ def test_delete_two_step(svc):
         svc.get_artifact(p, created["artifact_id"])
 
 
+def test_delete_blocks_edit_and_cancels_queued(svc):
+    p = _principal()
+    created = svc.create(p, slug="race", display_name="Race", kind="web_static", verbatim_request="x")
+    aid = created["artifact_id"]
+    _mark_done(svc, aid, 1)
+    svc.db.exec("UPDATE jobs SET status='done' WHERE id=?", created["job_id"])
+    # Queue a second edit, then start delete: queued job must be cancelled and edit refused.
+    edited = svc.edit(p, base_version=1, verbatim_request="more", artifact_id=aid)
+    assert edited["status"] == "queued"
+    first = svc.delete(p, aid)
+    done = svc.delete(p, aid, confirm_token=first["confirm_token"])
+    assert done["deleted"] is True
+    with pytest.raises(AMError, match="not found"):
+        svc.edit(p, base_version=1, verbatim_request="nope", artifact_id=aid)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_from_worker_thread(svc):
+    """Sync MCP tools run in threads; enqueue must wake the owning loop safely."""
+    loop = asyncio.get_running_loop()
+    svc._loop = loop
+    seen: list[str] = []
+
+    async def drain_one() -> None:
+        jid = await asyncio.wait_for(svc.queue.get(), timeout=2)
+        seen.append(jid)
+        svc.queue.task_done()
+
+    waiter = asyncio.create_task(drain_one())
+    await asyncio.sleep(0.05)
+
+    def from_thread() -> None:
+        svc._enqueue("job_from_thread")
+
+    await asyncio.to_thread(from_thread)
+    await waiter
+    assert seen == ["job_from_thread"]
+
+
 def test_read_file_and_card(svc):
     p = _principal()
     created = svc.create(p, slug="page", display_name="Page", kind="web_static", verbatim_request="x")

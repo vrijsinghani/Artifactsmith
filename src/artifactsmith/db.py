@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL,
+  deleting_at REAL,
   UNIQUE(workspace, slug)
 );
 CREATE TABLE IF NOT EXISTS versions (
@@ -107,7 +108,13 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.lock = threading.RLock()
+
+    def _migrate(self) -> None:
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(artifacts)").fetchall()}
+        if "deleting_at" not in cols:
+            self.conn.execute("ALTER TABLE artifacts ADD COLUMN deleting_at REAL")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

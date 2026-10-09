@@ -25,7 +25,6 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 WS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 SOURCE_CAP_BYTES = 200 * 1024
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 KINDS = {"web_static", "file"}
 
 
@@ -87,6 +86,22 @@ class Service:
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.progress: dict[str, str] = {}
         self._workers: list[asyncio.Task[None]] = []
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _enqueue(self, jid: str) -> None:
+        """Wake a worker from any thread. asyncio.Queue is not thread-safe for put_nowait."""
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self.queue.put_nowait, jid)
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None:
+            running.call_soon_threadsafe(self.queue.put_nowait, jid)
+        else:
+            self.queue.put_nowait(jid)
 
     # ---------------- access ----------------
     @staticmethod
@@ -213,6 +228,8 @@ class Service:
         prev = self.db.one("SELECT * FROM artifacts WHERE workspace=? AND slug=?", ws, slug)
         newv = 1
         if prev:
+            if prev.get("deleting_at"):
+                raise AMError("artifact is being deleted")
             st = {r["status"] for r in self.db.all("SELECT status FROM versions WHERE artifact_id=?", prev["id"])}
             if st & {"done", "queued", "building"}:
                 raise AMError(f"slug '{slug}' already exists in workspace '{ws}'; use edit")
@@ -231,6 +248,9 @@ class Service:
         }
         with self.db.tx() as c:
             if prev:
+                row = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (aid,)).fetchone()
+                if row and row["deleting_at"]:
+                    raise AMError("artifact is being deleted")
                 c.execute(
                     "UPDATE artifacts SET display_name=?, kind=?, format=?, updated_at=? WHERE id=?",
                     (display_name or slug, kind, format, t, aid),
@@ -239,7 +259,8 @@ class Service:
                 if c.execute("SELECT 1 FROM artifacts WHERE workspace=? AND slug=?", (ws, slug)).fetchone():
                     raise AMError(f"slug '{slug}' already exists in workspace '{ws}'; use edit")
                 c.execute(
-                    "INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO artifacts (id,workspace,slug,display_name,kind,format,created_by,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
                     (aid, ws, slug, display_name or slug, kind, format, principal["name"], t, t),
                 )
             c.execute(
@@ -257,7 +278,7 @@ class Service:
                     (principal["id"], idempotency_key, json.dumps(result), t),
                 )
         self.audit(principal, "create", artifact_id=aid, slug=slug, kind=kind, model=model)
-        self.queue.put_nowait(jid)
+        self._enqueue(jid)
         return result
 
     # ---------------- edit ----------------
@@ -279,6 +300,8 @@ class Service:
         if prior:
             return dict(prior, idempotent_replay=True)
         a = self.get_artifact(principal, artifact_id)
+        if a.get("deleting_at"):
+            raise AMError("artifact is being deleted")
         if not (verbatim_request or "").strip():
             raise AMError("verbatim_request is required")
         model = self._model(model)
@@ -286,6 +309,9 @@ class Service:
         self._quota(principal)
         jid, t = rid("job_"), now()
         with self.db.tx() as c:
+            art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
+            if art and art["deleting_at"]:
+                raise AMError("artifact is being deleted")
             latest = c.execute(
                 "SELECT version,status FROM versions WHERE artifact_id=? "
                 "AND status NOT IN ('failed','needs_input') ORDER BY version DESC LIMIT 1",
@@ -334,14 +360,15 @@ class Service:
                     (principal["id"], idempotency_key, json.dumps(result), t),
                 )
         self.audit(principal, "edit", artifact_id=a["id"], version=newv, base_version=base_version, model=model)
-        self.queue.put_nowait(jid)
+        self._enqueue(jid)
         return result
 
     # ---------------- worker ----------------
     def start_workers(self) -> None:
+        self._loop = asyncio.get_running_loop()
         for j in self.db.all("SELECT id FROM jobs WHERE status IN ('queued','building') ORDER BY created_at"):
             self.db.exec("UPDATE jobs SET status='queued', progress='re-queued after restart' WHERE id=?", j["id"])
-            self.queue.put_nowait(j["id"])
+            self._enqueue(j["id"])
         for _ in range(CFG.max_concurrent_builds):
             self._workers.append(asyncio.create_task(self._worker()))
 
@@ -404,8 +431,23 @@ class Service:
         if not a or not v:
             self._fail(jid, "artifact or version vanished")
             return
+        if a.get("deleting_at"):
+            self._fail(jid, "artifact is being deleted")
+            return
         with self.db.tx() as c:
-            c.execute("UPDATE jobs SET status='building', started_at=? WHERE id=?", (now(), jid))
+            art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
+            if art and art["deleting_at"]:
+                c.execute(
+                    "UPDATE jobs SET status='failed', error=?, finished_at=? WHERE id=?",
+                    ("artifact is being deleted", now(), jid),
+                )
+                return
+            claimed = c.execute(
+                "UPDATE jobs SET status='building', started_at=? WHERE id=? AND status='queued'",
+                (now(), jid),
+            ).rowcount
+            if not claimed and j["status"] != "building":
+                return
             c.execute(
                 "UPDATE versions SET status='building' WHERE artifact_id=? AND version=?", (a["id"], v["version"])
             )
@@ -853,14 +895,42 @@ class Service:
         t = self.db.one("SELECT * FROM delete_tokens WHERE token=?", confirm_token)
         if not t or t["artifact_id"] != a["id"] or t["client"] != principal["id"] or t["expires_at"] < now():
             raise AMError("invalid or expired confirm_token")
-        busy = self.db.one("SELECT 1 FROM jobs WHERE artifact_id=? AND status IN ('queued','building')", a["id"])
-        if busy:
-            raise AMError("a build is still running; wait for it to finish, then delete")
+        with self.db.tx() as c:
+            row = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
+            if not row:
+                raise AMError("artifact not found")
+            if row["deleting_at"]:
+                # Prior attempt left the artifact marked; allow retry to finish purge + row removal.
+                pass
+            else:
+                busy = c.execute(
+                    "SELECT 1 FROM jobs WHERE artifact_id=? AND status='building'",
+                    (a["id"],),
+                ).fetchone()
+                if busy:
+                    raise AMError("a build is still running; wait for it to finish, then delete")
+                c.execute(
+                    "UPDATE jobs SET status='cancelled', error=?, finished_at=? "
+                    "WHERE artifact_id=? AND status='queued'",
+                    ("cancelled: artifact deleting", now(), a["id"]),
+                )
+                c.execute(
+                    "UPDATE versions SET status='cancelled' WHERE artifact_id=? AND status='queued'",
+                    (a["id"],),
+                )
+                c.execute("UPDATE artifacts SET deleting_at=? WHERE id=?", (now(), a["id"]))
         purged = self.store.purge_prefix(Store.prefix(a["workspace"], a["id"]))
         with self.db.tx() as c:
+            busy = c.execute(
+                "SELECT 1 FROM jobs WHERE artifact_id=? AND status='building'",
+                (a["id"],),
+            ).fetchone()
+            if busy:
+                raise AMError("a build is still running during delete; retry after it finishes")
             c.execute("UPDATE shares SET revoked_at=? WHERE artifact_id=? AND revoked_at IS NULL", (now(), a["id"]))
             for tbl in ("versions", "jobs", "shares", "delete_tokens", "short_links"):
                 c.execute(f"DELETE FROM {tbl} WHERE artifact_id=?", (a["id"],))
+            c.execute("DELETE FROM idempotency WHERE result_json LIKE ?", (f'%"{a["id"]}"%',))
             c.execute("DELETE FROM artifacts WHERE id=?", (a["id"],))
         self.audit(principal, "delete", artifact_id=a["id"], slug=a["slug"], purged_objects=purged)
         return {"deleted": True, "artifact_id": a["id"], "purged_object_versions": purged}
