@@ -1,9 +1,9 @@
 # Security audit — 9 October 2026
 
-Independent review of ArtifactSmith PR #2 at
-`a2b873c56365445d3443efb992eda480dafa593e` (`cursor/remove-mock-llm-review-cleanup-3c14`).
-This is a pre-merge snapshot. Status below is checked against later commits
-on that same PR. Application code was not changed in this review.
+Independent review of ArtifactSmith at
+`a2b873c56365445d3443efb992eda480dafa593e`. Application code was not
+changed in this review. Status cites commits that are on `main`
+(`266404e` and its ancestors).
 
 **Scanners:** semgrep 1.180.0 via the Trail of Bits runner (`--metrics=off`),
 bandit 1.9.4, gitleaks 8.30.0 (full history), pip-audit 2.10.1 on the resolved
@@ -20,17 +20,17 @@ Raw scanner output is kept out of git. Store a copy as a CI artifact, or under
 
 | Finding | Severity | Status |
 |---|---|---|
-| Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts | Medium | Fixed in PR #2 (commit 3ef385a) |
-| `artifactsmith serve` listens on all interfaces by default | Medium | Fixed in PR #2 (commit 3ef385a) |
-| MCP DNS-rebinding protection is off until an allow-list is set | Low | Fixed in PR #2 (commit 3ef385a) |
-| `inspect` can return raw object-store exceptions | Low | Fixed in PR #2 (commit 3ef385a) |
-| `start_workers` re-queues in-flight `building` jobs | Low | Fixed in PR #2 (commit 3ef385a) |
+| Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts | Medium | Fixed in `3ef385a` |
+| `artifactsmith serve` listens on all interfaces by default | Medium | Fixed in `3ef385a` |
+| MCP DNS-rebinding protection is off until an allow-list is set | Low | Fixed in `3ef385a` |
+| `inspect` can return raw object-store exceptions | Low | Fixed in `3ef385a` |
+| `start_workers` re-queues in-flight `building` jobs | Low | Fixed in `3ef385a` |
 
 ## Findings
 
 ### Medium — Private-link checks miss IPv6, short IPs, and DNS-to-loopback hosts
 
-**Status:** Fixed in PR #2 (commit 3ef385a).
+**Status:** Fixed in `3ef385a`.
 
 At the audited commit: `src/artifactsmith/renderers/safety.py:10`,
 `safety.py:57`, `safety.py:73`.
@@ -52,13 +52,13 @@ are stripped, and ordinary `http://host` bodies are stripped, so this was a
 metadata / leftover-text bypass of the documented "never point at private
 hosts" control, not server-side SSRF.
 
-**Fix applied in PR #2 (commit 3ef385a):** Parse with `urllib.parse` and accept IPv6; treat
+**Fix (`3ef385a`):** Parse with `urllib.parse` and accept IPv6; treat
 IPv4-mapped, short, octal, hex, and integer forms as IPs; block known
 rebinding suffixes.
 
 ### Medium — `artifactsmith serve` listens on all interfaces by default
 
-**Status:** Fixed in PR #2 (commit 3ef385a).
+**Status:** Fixed in `3ef385a`.
 
 At the audited commit: `src/artifactsmith/config.py:65` (`AM_HOST` default
 `0.0.0.0`). Bandit B104.
@@ -72,12 +72,12 @@ bearer-only, but it was then reachable on every NIC.
 expose MCP and `/p/`, `/dl/`, `/s/` on the LAN. Share links become
 world-reachable if the host has a public address.
 
-**Fix applied in PR #2 (commit 3ef385a):** Default `AM_HOST` to `127.0.0.1`. Compose and the
+**Fix (`3ef385a`):** Default `AM_HOST` to `127.0.0.1`. Compose and the
 container image still set `0.0.0.0` for in-container listen.
 
 ### Low — MCP DNS-rebinding protection is off until an allow-list is set
 
-**Status:** Fixed in PR #2 (commit 3ef385a).
+**Status:** Fixed in `3ef385a`.
 
 At the audited commit: `src/artifactsmith/server.py:39`.
 `enable_dns_rebinding_protection` was true only when `AM_ALLOWED_HOSTS` or
@@ -87,24 +87,24 @@ At the audited commit: `src/artifactsmith/server.py:39`.
 call `/mcp` without a Host check. Bearer tokens are not sent automatically by
 a normal page, so this is defense-in-depth, not a token theft by itself.
 
-**Fix applied in PR #2 (commit 3ef385a):** Default allowed hosts are `127.0.0.1` and
+**Fix (`3ef385a`):** Default allowed hosts are `127.0.0.1` and
 `localhost` on the API port, which turns the MCP transport check on for
 plain `serve`.
 
 ### Low — `inspect` can return raw object-store exceptions
 
-**Status:** Fixed in PR #2 (commit 3ef385a).
+**Status:** Fixed in `3ef385a`.
 
 At the audited commit: `src/artifactsmith/service.py:901`. `manifest_error`
 was `str(e)[:200]` from `store.get`. A missing object or boto error could
 leak endpoint, bucket, or key layout to any token with `read`.
 
-**Fix applied in PR #2 (commit 3ef385a):** Return the fixed string `store_read_failed` and log
+**Fix (`3ef385a`):** Return the fixed string `store_read_failed` and log
 the exception server-side.
 
 ### Low — `start_workers` re-queues in-flight `building` jobs
 
-**Status:** Fixed in PR #2 (commit 3ef385a).
+**Status:** Fixed in `3ef385a`.
 
 At the audited commit: `src/artifactsmith/service.py:462`. Every
 `queued`/`building` row was set back to `queued` and enqueued. The claim
@@ -113,7 +113,7 @@ two threads got the row). A second process sharing the same SQLite file could
 reset a live `building` job and claim it. Two workers then upload the same
 version.
 
-**Fix applied in PR #2 (commit 3ef385a):** Requeue `building` only when `started_at` is older
+**Fix (`3ef385a`):** Requeue `building` only when `started_at` is older
 than the build timeout. Fresh in-flight rows are left alone.
 
 ## Controls that held at `a2b873c`
@@ -134,10 +134,28 @@ than the build timeout. Fresh in-flight rows are left alone.
 6. gitleaks: no leaks in 19 commits. pip-audit on the resolved dependency
    pins: no known vulns.
 
+## Post-audit hardening on `main`
+
+These changes landed after `a2b873c` and are on `main` through `266404e`.
+
+- Public `http://` and `https://` citation links to global hosts are kept in
+  HTML, Markdown, PDF, DOCX, and XLSX. Private and loopback hosts and
+  dangerous schemes stay blocked. Images, CSS, fonts, and iframes stay
+  self-contained (`e39c62a`, `ed43ef6`).
+- Markdown sanitization parses with `markdown-it-py` (CommonMark tokens),
+  rewrites every link and image destination through the shared URL policy,
+  and re-serializes. Text-token escapes are preserved. A fail-closed re-parse
+  checks the policy after serialize (`08459a1`, `6e7bab6`).
+- Emission uses the original destination encoding (trim and space→`%20`
+  only; no HTML-unescape or percent-decode). Emit hosts must agree across
+  de-obfuscated, urllib, and WHATWG-style parses. Userinfo is rejected
+  (`266404e`).
+
 ## False positives discarded
 
-- `rustfs/rustfs:latest` on `compose.yaml:12`: that line is on `main`, not on
-  the audited commit. At `a2b873c` the store image is `compose.yaml:13`,
+- `rustfs/rustfs:latest` on `compose.yaml:12`: that line was on `main` before
+  `1584b3b`, not on the audited commit. At `a2b873c` and on current `main`
+  the store image is `compose.yaml:13`,
   `rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c`.
 - Semgrep `docker-compose.port-all-interfaces` on compose published ports: the
   host bind is `127.0.0.1` by default (`compose.yaml:46` at `a2b873c`).

@@ -102,4 +102,3 @@ Standalone exports and Markdown/PDF/DOCX/XLSX bodies are in scope, not only host
 ## How to record a result
 
 For each item: payload or race setup, file:line of the sink, whether the control held, and one concrete fix if it failed.
-EOF
