@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # Verify that a value set in .env reaches the server service via docker compose config.
+# Restores .env afterward so a probe AM_SHARE_URL cannot poison later smoke runs.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
 marker="am-probe-$(openssl rand -hex 4 2>/dev/null || od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
 bash scripts/ensure-local-env.sh >/dev/null
+
+backup="$(mktemp)"
+cp .env "$backup"
+cleanup() {
+  cp "$backup" .env
+  rm -f "$backup"
+}
+trap cleanup EXIT
 
 # Append a unique probe variable; compose must surface it on the server service.
 printf '\nAM_SHARE_URL=http://probe.example/%s\n' "$marker" >> .env
