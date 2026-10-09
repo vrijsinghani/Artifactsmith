@@ -414,12 +414,32 @@ class Service:
             self.progress[jid] = msg
             self.db.exec("UPDATE jobs SET progress=? WHERE id=?", msg, jid)
 
+        try:
+            await asyncio.wait_for(
+                self._execute_build(jid, j, a, v, progress),
+                timeout=CFG.build_timeout_s,
+            )
+        except TimeoutError:
+            self._fail(jid, f"build timed out after {CFG.build_timeout_s}s")
+        except builder.NeedsInput as e:
+            self._needs_input(jid, str(e))
+        except Exception as e:  # noqa: BLE001
+            self._fail(jid, f"{type(e).__name__}: {e}")
+
+    async def _execute_build(
+        self,
+        jid: str,
+        j: dict[str, Any],
+        a: dict[str, Any],
+        v: dict[str, Any],
+        progress: Any,
+    ) -> None:
+        """Load sources, build, render, and upload under the caller's deadline."""
         base_source = None
         if v["base_version"]:
             bv = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], v["base_version"])
             if not bv:
-                self._fail(jid, "base version vanished")
-                return
+                raise AMError("base version vanished")
             key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
             data, _ = await asyncio.to_thread(self.store.get, key)
             base_source = data.decode("utf-8", errors="replace")
@@ -435,37 +455,23 @@ class Service:
         if v.get("source_key"):
             raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
             source = json.loads(raw)
-        try:
-            res = await asyncio.wait_for(
-                builder.run_build(
-                    kind=a["kind"],
-                    slug=a["slug"],
-                    display_name=a["display_name"],
-                    verbatim=v["verbatim_request"],
-                    model=v["model"] or CFG.default_model,
-                    base_source=base_source,
-                    base_version=v["base_version"],
-                    history=history,
-                    progress=progress,
-                    source=source,
-                    render_timeout=CFG.render_timeout_s,
-                    format=a["format"] or "html",
-                ),
-                timeout=CFG.build_timeout_s,
-            )
-        except TimeoutError:
-            self._fail(jid, f"build timed out after {CFG.build_timeout_s}s")
-            return
-        except builder.NeedsInput as e:
-            self._needs_input(jid, str(e))
-            return
-        except Exception as e:  # noqa: BLE001
-            self._fail(jid, f"{type(e).__name__}: {e}")
-            return
+        res = await builder.run_build(
+            kind=a["kind"],
+            slug=a["slug"],
+            display_name=a["display_name"],
+            verbatim=v["verbatim_request"],
+            model=v["model"] or CFG.default_model,
+            base_source=base_source,
+            base_version=v["base_version"],
+            history=history,
+            progress=progress,
+            source=source,
+            render_timeout=CFG.render_timeout_s,
+            format=a["format"] or "html",
+        )
         total = sum(len(b) for b in res.files.values())
         if total > CFG.max_output_bytes:
-            self._fail(jid, f"output {total} bytes exceeds cap")
-            return
+            raise AMError(f"output {total} bytes exceeds cap")
         progress("uploading to object store")
         prefix = Store.prefix(a["workspace"], a["id"], v["version"])
         file_meta = []

@@ -16,6 +16,7 @@ from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import sanitize_html_document
 from .renderers.safety import URL_RE, check_content, check_fields, sanitize_text
+from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_killable
 
 log = logging.getLogger("artifactsmith.builder")
 
@@ -297,7 +298,6 @@ async def run_build(
     fmt = (format or "html").lower().strip()
     if fmt not in SUPPORTED_FORMATS:
         raise BuildError(f"unsupported format {fmt!r}")
-    renderer = get_renderer(fmt)
     _ = kind, slug  # reserved for future kinds / naming
     system = system_prompt_for(fmt)
     user = build_user_prompt(verbatim, display_name, base_source, base_version, history, source)
@@ -379,10 +379,19 @@ async def run_build(
             continue
         progress(f"rendering {fmt}")
         try:
-            rendered = await asyncio.wait_for(
-                asyncio.to_thread(renderer.render, title=display_name, body=body),
-                timeout=render_timeout,
+            rendered = await asyncio.to_thread(
+                render_killable,
+                fmt=fmt,
+                title=display_name,
+                body=body,
+                timeout_s=float(render_timeout),
+                max_bytes=CFG.max_output_bytes,
             )
+        except (RenderTimeout, RenderTooLarge) as e:
+            last_problems = [str(e)]
+            notes.append(f"attempt {attempt}: {last_problems[0]}")
+            log.warning("renderer bounded failure format=%s: %s", fmt, e)
+            continue
         except Exception as e:  # noqa: BLE001
             last_problems = [f"renderer error: {type(e).__name__}: {e}"]
             notes.append(f"attempt {attempt}: {last_problems[0]}")
