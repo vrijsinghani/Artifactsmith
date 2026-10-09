@@ -310,8 +310,7 @@ def test_viewport_meta_emitted_once_and_overrides_model():
     assert none.count(fixed) == 1
     assert none.count('name="viewport"') == 1
     own = sanitize_html_document(
-        '<html><head><meta name="viewport" content="width=980, user-scalable=no"></head>'
-        "<body><p>x</p></body></html>"
+        '<html><head><meta name="viewport" content="width=980, user-scalable=no"></head><body><p>x</p></body></html>'
     )
     assert own.count(fixed) == 1
     assert own.count('name="viewport"') == 1
