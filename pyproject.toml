@@ -1,0 +1,24 @@
+[project]
+name = "artifactsmith"
+version = "0.1.0"
+description = "Self-hosted MCP server that turns an agent's exact request plus research into a versioned, private page."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.26,<2",
+    "uvicorn>=0.30",
+    "boto3>=1.34",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+artifactsmith = "artifactsmith.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
