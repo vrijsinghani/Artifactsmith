@@ -113,7 +113,7 @@ _CLEAN_CONTENT_TAGS: set[str] = {
 }
 
 _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
-    "*": {"class", "id", "title", "lang", "dir"},
+    "*": {"class", "id", "title", "lang", "dir", "data-label", "aria-label"},
     "a": {"href", "title"},
     "img": {"alt", "width", "height"},
     "td": {"colspan", "rowspan"},
@@ -134,6 +134,7 @@ for _tag in _ALLOWED_TAGS:
 _TITLE_RE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
 _STYLE_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
 _BODY_RE = re.compile(r"<body\b[^>]*>(.*?)</body>", re.I | re.S)
+_VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1">'
 
 
 def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
@@ -234,6 +235,7 @@ def sanitize_html_document(body: str) -> str:
         '<html lang="en">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
+        f"{_VIEWPORT_META}\n"
         f"{title_block}"
         f"{style_block}"
         "</head>\n"
