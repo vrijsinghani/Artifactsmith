@@ -209,7 +209,13 @@ def _url_host(raw: str) -> str | None:
 
 
 def find_private_links(text: str) -> list[str]:
-    """Return problems for http(s) links that resolve to private or local hosts."""
+    """Return problems for http(s) links that resolve to private or local hosts.
+
+    Also flags blocked / authority-confused ``href`` / ``src`` in raw HTML
+    (separators before ``@``, scheme splits) that URL_RE would otherwise miss.
+    """
+    from .md_html import find_bad_html_attr_urls
+
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
@@ -220,6 +226,7 @@ def find_private_links(text: str) -> list[str]:
         if host == "" or _host_is_private(host):
             label = host or raw
             problems.append(f"private or local link host: {label}")
+    problems.extend(find_bad_html_attr_urls(text))
     return problems
 
 

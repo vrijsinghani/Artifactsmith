@@ -1,6 +1,6 @@
 """Real-reader regression for sanitized markdown destinations.
 
-Two corpora:
+Three corpora:
 
 1. **Authority** — WS × SHAPES × FORMS (11 whitespace/odd separators inside
    destinations × 5 attack URL shapes × 11 Markdown forms) plus EXTRA cases
@@ -9,7 +9,10 @@ Two corpora:
    Bare forms terminated by SP/TAB/LF/CR may keep a public prefix link; that
    is not a leak.
 
-2. **Hosts** — private-host shapes in common Markdown forms (kept from the
+2. **Raw HTML** — same WS × SHAPES in ``<a href>`` (inline and block). After
+   sanitize: idempotent; no private/userinfo anchors under all readers.
+
+3. **Hosts** — private-host shapes in common Markdown forms (kept from the
    earlier host corpus). Also known-blocked (no private anchors).
 
 Readers: markdown-it (commonmark, and commonmark+linkify) always; pandoc
@@ -86,6 +89,20 @@ for i, src in enumerate(_EXTRA):
     _AUTHORITY_CASES.append(("extra", f"extra{i}", "-", src))
 
 assert len(_AUTHORITY_CASES) == 610
+
+# --- Raw HTML probe: WS × SHAPES × (inline | block) -------------------------
+
+_HTML_FORMS: list[tuple[str, str]] = [
+    ("html-a-inline", '<a href="{u}">L</a>\n'),
+    ("html-a-block", '<p><a href="{u}">L</a></p>\n'),
+]
+
+_HTML_RAW_CASES: list[tuple[str, str, str, str]] = [
+    (wn, fn, s.format(w=w), ft.format(u=s.format(w=w)))
+    for s, (w, wn), (fn, ft) in itertools.product(_SHAPES, zip(_WS, _WS_NAMES, strict=True), _HTML_FORMS)
+]
+
+assert len(_HTML_RAW_CASES) == len(_WS) * len(_SHAPES) * len(_HTML_FORMS)
 
 # --- Host corpus (private hosts × forms) ------------------------------------
 
@@ -272,6 +289,53 @@ def test_host_corpus_pandoc_no_leaks(form: str, url: str, raw: str, reader: str)
     assert leaks == [], (reader, form, url, out, leaks)
 
 
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _HTML_RAW_CASES,
+    ids=[f"html/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_HTML_RAW_CASES)],
+)
+def test_html_raw_corpus_idempotent(ws: str, form: str, shape: str, raw: str) -> None:
+    once = sanitize_markdown(raw)
+    assert sanitize_markdown(once) == once
+
+
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _HTML_RAW_CASES,
+    ids=[f"html/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_HTML_RAW_CASES)],
+)
+@pytest.mark.parametrize("reader", _MDIT_READERS)
+def test_html_raw_corpus_mdit_no_leaks(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, ws, form, shape, out, leaks)
+
+
+@pytest.mark.parametrize(
+    ("ws", "form", "shape", "raw"),
+    _HTML_RAW_CASES,
+    ids=[f"html/{w}/{f}/{i}" for i, (w, f, _, _) in enumerate(_HTML_RAW_CASES)],
+)
+@pytest.mark.parametrize("reader", _PANDOC_READERS)
+def test_html_raw_corpus_pandoc_no_leaks(ws: str, form: str, shape: str, raw: str, reader: str) -> None:
+    if shutil.which("pandoc") is None:
+        pytest.skip("pandoc not installed")
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, ws, form, shape, out, leaks)
+
+
+@pytest.mark.parametrize("ws", _WS, ids=_WS_NAMES)
+def test_html_raw_anchor_idempotent_all_separators(ws: str) -> None:
+    """Raw HTML anchors stay stable across a second pass for every separator."""
+    raw = f'<a href="https://example.com{ws}@127.0.0.1/x">x</a>\n'
+    once = sanitize_markdown(raw)
+    assert sanitize_markdown(once) == once
+    assert "`" not in once
+
+
 def test_list_continuation_ordered_loose_idempotent() -> None:
     """Ordered loose list items keep marker-width indent across sanitize passes."""
     for raw in (
@@ -291,3 +355,4 @@ def test_list_continuation_ordered_loose_idempotent() -> None:
 def test_authority_corpus_size() -> None:
     assert len(_WS) * len(_SHAPES) * len(_FORMS) + len(_EXTRA) == 610
     assert len(_AUTHORITY_CASES) == 610
+    assert len(_HTML_RAW_CASES) == 110

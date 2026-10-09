@@ -12,7 +12,18 @@ def test_strips_scripts_keeps_public_urls():
     out = sanitize_text(raw)
     assert "<script" not in out.lower()
     assert "https://example.com/x" in out
-    assert "](https://example.com/x)" in out  # linkified
+
+
+def test_check_content_flags_confused_html_href():
+    raw = '<a href="https://example.com @127.0.0.1/x">x</a>'
+    problems = check_content(raw, fmt="markdown", block_private_links=True)
+    assert any("authority-confused HTML" in p or "private or local" in p for p in problems)
+
+
+def test_check_content_allows_public_html_href():
+    raw = '<a href="https://example.com/docs">docs</a>'
+    problems = check_content(raw, fmt="markdown", block_private_links=True)
+    assert not any("HTML href" in p or "private or local" in p for p in problems)
 
 
 def test_html_must_be_complete_document():

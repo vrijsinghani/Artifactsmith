@@ -12,6 +12,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from .links import classify_href, public_href_or_none
+from .md_html import find_bad_html_attr_urls, sanitize_raw_html_attrs
 from .md_serialize import escape_all_md_punctuation, serialize_blocks
 from .safety import URL_RE
 
@@ -161,6 +162,15 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
             out.append(tok)
             i += 1
             continue
+        if tok.type == "html_inline":
+            raw = tok.content or ""
+            cleaned = sanitize_raw_html_attrs(raw)
+            if cleaned != raw:
+                tok = Token("html_inline", "", 0)
+                tok.content = cleaned
+            out.append(tok)
+            i += 1
+            continue
         if tok.type == "text":
             out.extend(_linkify_text_token(tok.content or ""))
             i += 1
@@ -234,8 +244,8 @@ def _line_starts(text: str) -> list[int]:
     return starts
 
 
-def _code_char_ranges(text: str) -> list[tuple[int, int]]:
-    """Character ranges covered by fence/code_block/code_inline (markdown-it maps)."""
+def _skip_char_ranges(text: str) -> list[tuple[int, int]]:
+    """Ranges pretreat must not rewrite: code + raw HTML (markdown-it maps)."""
     md = _parser(linkify=False)
     tokens = md.parse(text)
     starts = _line_starts(text)
@@ -250,7 +260,7 @@ def _code_char_ranges(text: str) -> list[tuple[int, int]]:
         ranges.append((lo, hi))
 
     for tok in tokens:
-        if tok.type in ("fence", "code_block") and tok.map:
+        if tok.type in ("fence", "code_block", "html_block") and tok.map:
             add_lines(tok.map[0], tok.map[1])
         if tok.type != "inline" or not tok.children or not tok.map:
             continue
@@ -261,6 +271,15 @@ def _code_char_ranges(text: str) -> list[tuple[int, int]]:
         block = text[block_off : starts[b] if b < len(starts) else n]
         cursor = 0
         for ch in tok.children:
+            if ch.type == "html_inline":
+                content = ch.content or ""
+                if not content:
+                    continue
+                idx = block.find(content, cursor)
+                if idx >= 0:
+                    ranges.append((block_off + idx, block_off + idx + len(content)))
+                    cursor = idx + len(content)
+                continue
             if ch.type != "code_inline":
                 continue
             ticks = ch.markup or "`"
@@ -382,15 +401,15 @@ def _pretreat_confused_urls(text: str) -> str:
 
     SP/TAB/LF/CR/NBSP + ``@`` is an attack only inside ``(…)``, ``<…>``, or a
     refdef destination. Bare URLs only join across ZWSP (what linkify consumes).
-    Fence / indented / inline code ranges from markdown-it are skipped.
+    Fence / indented / inline code and raw HTML ranges from markdown-it are skipped.
     """
     if not text:
         return text
-    code = _code_char_ranges(text)
+    skip = _skip_char_ranges(text)
     work: list[tuple[int, int, str]] = []
 
     for start, end, raw in _url_spans(text, ext_re=_DEST_EXT_RE, scheme_re=_DEST_SCHEME_SPLIT_RE):
-        if _overlaps(start, end, code) or not _is_destination_context(text, start):
+        if _overlaps(start, end, skip) or not _is_destination_context(text, start):
             continue
         core = raw.rstrip(".,;:)")
         if not _span_is_confused(raw, _DEST_SEP) and _span_is_safe_public(core) is not None:
@@ -398,7 +417,7 @@ def _pretreat_confused_urls(text: str) -> str:
         work.append((start, end, raw))
 
     for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
-        if _overlaps(start, end, code) or _is_destination_context(text, start):
+        if _overlaps(start, end, skip) or _is_destination_context(text, start):
             continue
         # Bare: only ZWSP-joined @ or any scheme-split — never SP/TAB/LF/CR + @mention.
         if not (_span_is_confused(raw, _BARE_JOIN_SEP) or _ANY_SCHEME_SPLIT_RE.fullmatch(raw.rstrip(".,;:)"))):
@@ -467,37 +486,14 @@ def _linkify_text_token(text: str) -> list[Token]:
     return parts or [_text_token(text)]
 
 
-def _linkify_prose_urls(text: str) -> str:
-    """Linkify bare public URLs in residual HTML blocks (not markdown-parsed)."""
-    if not text:
-        return text
-    parts: list[str] = []
-    pos = 0
-    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
-        if start >= 2 and text[start - 2 : start] == "](":
-            continue
-        parts.append(text[pos:start])
-        core = raw.rstrip(".,;:)")
-        trailing = raw[len(core) :]
-        safe = public_href_or_none(core) if not _span_is_confused(core, _BARE_JOIN_SEP) else None
-        if safe and not _span_is_confused(core, _DEST_SEP):
-            parts.append(f"[{safe}]({safe})")
-        elif safe:
-            parts.append(f"[{safe}]({safe})")
-        else:
-            parts.append(_md_inline_code(core.replace("\n", " ").replace("\r", " ")))
-        if trailing:
-            parts.append(trailing)
-        pos = end
-    parts.append(text[pos:])
-    return "".join(parts)
-
-
 def _destinations_policy_clean(md_text: str) -> bool:
     """True when re-parsed output has no images and only allowed link destinations.
 
     Linkify is on so bare private URLs that would re-linkify fail closed.
+    Raw HTML href/src must also pass the attribute policy.
     """
+    if find_bad_html_attr_urls(md_text):
+        return False
     md = _parser(linkify=True)
     tokens = md.parse(md_text)
 
@@ -526,6 +522,8 @@ def _destinations_policy_clean(md_text: str) -> bool:
         if tok.type == "inline" and tok.children is not None and not walk(tok.children):
             return False
         if tok.type == "image":
+            return False
+        if tok.type == "html_block" and find_bad_html_attr_urls(tok.content or ""):
             return False
     return True
 
@@ -573,7 +571,7 @@ def sanitize_markdown(text: str) -> str:
         if tok.type == "inline" and tok.children is not None:
             tok.children = _rewrite_inline(tok.children)
         elif tok.type == "html_block" and tok.content:
-            tok.content = _linkify_prose_urls(tok.content)
+            tok.content = sanitize_raw_html_attrs(tok.content)
     out, _ = serialize_blocks(tokens)
     out = out.rstrip("\n")
     if text.endswith("\n") and out:

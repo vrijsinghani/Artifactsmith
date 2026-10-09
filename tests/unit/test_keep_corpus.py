@@ -112,6 +112,16 @@ _KEEP_CASES: list[tuple[str, str, str]] = [
         "    git log https://github.com/x @bob",
         "    git log https://github.com/x @bob",
     ),
+    (
+        "raw-html-public-link",
+        '<a href="https://example.com/docs">docs</a>\n',
+        '<a href="https://example.com/docs">docs</a>\n',
+    ),
+    (
+        "raw-html-public-img",
+        '<img src="https://example.com/a.png" alt="a">\n',
+        '<img src="https://example.com/a.png" alt="a">\n',
+    ),
 ]
 
 
