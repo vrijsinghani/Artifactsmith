@@ -7,31 +7,41 @@ when their tokens pass the same checks.
 
 from __future__ import annotations
 
+import re
+from html import unescape
+
 import tinycss2  # type: ignore[import-untyped]
 from tinycss2 import ast as css_ast
 
 _STYLE_PROPS: set[str] = set(
     """
-    accent-color align-content align-items align-self aspect-ratio background
-    background-color background-image background-position background-repeat
-    background-size border border-bottom border-collapse border-color border-left
-    border-radius border-right border-spacing border-style border-top border-width
-    bottom box-shadow box-sizing caption-side color column-count column-gap columns
-    content counter-increment counter-reset cursor display flex flex-basis
-    flex-direction flex-flow flex-grow flex-shrink flex-wrap font font-family
-    font-size font-style font-variant-numeric font-weight gap grid-area
-    grid-auto-flow grid-column grid-row grid-template-areas grid-template-columns
-    grid-template-rows height hyphens inset justify-content justify-items
-    justify-self left letter-spacing line-height list-style list-style-position
-    list-style-type margin margin-bottom margin-left margin-right margin-top
-    max-height max-width min-height min-width object-fit object-position opacity
-    order outline outline-offset overflow overflow-wrap overflow-x overflow-y
-    padding padding-bottom padding-left padding-right padding-top place-content
-    place-items place-self position right row-gap scroll-margin-top table-layout
-    text-align text-decoration text-decoration-color text-decoration-thickness
-    text-overflow text-transform text-underline-offset text-wrap top transform
-    transition vertical-align visibility white-space width word-break word-wrap
-    z-index
+    accent-color align-content align-items align-self animation animation-delay
+    animation-direction animation-duration animation-fill-mode animation-iteration-count
+    animation-name animation-timing-function aspect-ratio background background-color
+    background-image background-position background-repeat background-size border
+    border-bottom border-bottom-color border-bottom-left-radius border-bottom-right-radius
+    border-bottom-style border-bottom-width border-collapse border-color
+    border-inline-end border-inline-start border-left border-left-color border-left-style
+    border-left-width border-radius border-right border-right-color border-right-style
+    border-right-width border-spacing border-style border-top border-top-color
+    border-top-left-radius border-top-right-radius border-top-style border-top-width
+    border-width bottom box-shadow box-sizing break-inside caption-side color
+    column-count column-gap columns content counter-increment counter-reset cursor
+    display filter flex flex-basis flex-direction flex-flow flex-grow flex-shrink
+    flex-wrap font font-family font-feature-settings font-size font-style font-variant
+    font-variant-numeric font-weight gap grid-area grid-auto-flow grid-column grid-row
+    grid-template-areas grid-template-columns grid-template-rows height hyphens inset
+    inset-inline justify-content justify-items justify-self left letter-spacing
+    line-height list-style list-style-position list-style-type margin margin-block
+    margin-bottom margin-inline margin-left margin-right margin-top max-height max-width
+    min-height min-width object-fit object-position opacity order outline outline-offset
+    overflow overflow-wrap overflow-x overflow-y padding padding-block padding-bottom
+    padding-inline padding-left padding-right padding-top page-break-inside place-content
+    place-items place-self position right row-gap scroll-behavior scroll-margin-top
+    table-layout text-align text-decoration text-decoration-color
+    text-decoration-thickness text-indent text-overflow text-shadow text-transform
+    text-underline-offset text-wrap top transform transition vertical-align visibility
+    white-space width word-break word-wrap z-index
     """.split()
 )
 
@@ -52,6 +62,65 @@ _GRADIENT_FUNCTIONS: frozenset[str] = frozenset(
 
 _NESTED_AT_RULES: frozenset[str] = frozenset({"media", "supports"})
 _KEYFRAME_AT_RULES: frozenset[str] = frozenset({"keyframes", "-webkit-keyframes"})
+_MAX_AT_NESTING = 8
+_BREAKOUT_RE = re.compile(r"</|<!", re.I)
+_FETCH_LEAK_RE = re.compile(
+    r"(?:url|image-set|-webkit-image-set|(?<![\w-])image|src|expression)\s*\(",
+    re.I,
+)
+_SAFE_CMP_LITERALS = frozenset({"<", ">", "<=", ">=", "="})
+
+
+def _has_breakout(text: str) -> bool:
+    """True for style-element breakout markers, not comparison operators."""
+    return bool(_BREAKOUT_RE.search(text))
+
+
+def _has_fetch_leak(text: str) -> bool:
+    """True if serialized CSS still contains a fetch-capable function."""
+    stripped = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    compact = re.sub(r"\s+", "", stripped)
+    return bool(_FETCH_LEAK_RE.search(compact))
+
+
+def _function_name(tok: css_ast.FunctionBlock) -> str:
+    return re.sub(r"\s+", "", (tok.lower_name or "").lower())
+
+
+def _flat_css_text(tokens: list[object]) -> str:
+    """Concatenate component values so comment-split ``u/**/rl(`` becomes ``url(``."""
+    parts: list[str] = []
+    for tok in tokens:
+        if isinstance(tok, css_ast.WhitespaceToken):
+            continue
+        if isinstance(tok, (css_ast.IdentToken, css_ast.LiteralToken, css_ast.StringToken, css_ast.HashToken)):
+            parts.append(getattr(tok, "value", "") or "")
+        elif isinstance(tok, css_ast.URLToken):
+            parts.append("url(")
+        elif isinstance(tok, css_ast.FunctionBlock):
+            parts.append(_function_name(tok) + "(")
+            parts.append(_flat_css_text(list(tok.arguments)))
+            parts.append(")")
+        elif isinstance(tok, css_ast.ParenthesesBlock):
+            parts.append("(")
+            parts.append(_flat_css_text(list(tok.content)))
+            parts.append(")")
+        elif isinstance(tok, css_ast.SquareBracketsBlock):
+            parts.append("[")
+            parts.append(_flat_css_text(list(tok.content)))
+            parts.append("]")
+        elif isinstance(tok, css_ast.CurlyBracketsBlock):
+            parts.append("{")
+            parts.append(_flat_css_text(list(tok.content)))
+            parts.append("}")
+    return "".join(parts)
+
+
+def _flat_text_safe(tokens: list[object]) -> bool:
+    blob = re.sub(r"\s+", "", _flat_css_text(tokens)).lower().replace("\\", "")
+    if "://" in blob or blob.startswith("//"):
+        return False
+    return not _has_fetch_leak(blob)
 
 
 def _is_custom_property(name: str) -> bool:
@@ -87,7 +156,7 @@ def _tokens_safe(tokens: list[object]) -> bool:
         if isinstance(tok, css_ast.URLToken):
             return False
         if isinstance(tok, css_ast.FunctionBlock):
-            name = (tok.lower_name or "").lower()
+            name = _function_name(tok)
             if name == "var":
                 if not _var_args_safe(list(tok.arguments)):
                     return False
@@ -106,10 +175,9 @@ def _tokens_safe(tokens: list[object]) -> bool:
             if not _tokens_safe(list(tok.content)):
                 return False
         if isinstance(tok, css_ast.LiteralToken):
-            if "<" in (tok.value or "") or ">" in (tok.value or ""):
-                # Combinator '>' is a single-char literal and is allowed.
-                if tok.value != ">":
-                    return False
+            val = tok.value or ""
+            if ("<" in val or ">" in val) and val not in _SAFE_CMP_LITERALS:
+                return False
         if isinstance(tok, (css_ast.StringToken, css_ast.IdentToken)):
             value = getattr(tok, "value", "") or ""
             if "<" in value or ">" in value:
@@ -117,7 +185,7 @@ def _tokens_safe(tokens: list[object]) -> bool:
             low = value.lower()
             if "://" in low or low.startswith("//"):
                 return False
-    return True
+    return _flat_text_safe(tokens)
 
 
 def _background_image_ok(tokens: list[object]) -> bool:
@@ -169,14 +237,12 @@ def _value_allowed(name: str, tokens: list[object]) -> bool:
 
 def _serialize_safe(nodes: list[object]) -> str:
     text = str(tinycss2.serialize(nodes))
-    # '<' is a style-element breakout; '>' is a CSS combinator and must stay.
-    if "<" in text:
+    if _has_breakout(text):
         return ""
     return text
 
 
-def _safe_declarations(content: list[object]) -> list[object]:
-    decls = tinycss2.parse_declaration_list(content, skip_comments=True, skip_whitespace=True)
+def _filter_declarations(decls: list[object]) -> list[object]:
     kept: list[object] = []
     for decl in decls:
         if not isinstance(decl, css_ast.Declaration):
@@ -188,6 +254,10 @@ def _safe_declarations(content: list[object]) -> list[object]:
             continue
         kept.append(decl)
     return kept
+
+
+def _safe_declarations(content: list[object]) -> list[object]:
+    return _filter_declarations(tinycss2.parse_declaration_list(content, skip_comments=True, skip_whitespace=True))
 
 
 def _sanitize_qualified_rule(rule: css_ast.QualifiedRule) -> str | None:
@@ -206,7 +276,9 @@ def _sanitize_qualified_rule(rule: css_ast.QualifiedRule) -> str | None:
     return f"{prelude_text}{{{body}}}"
 
 
-def _sanitize_at_rule(rule: css_ast.AtRule) -> str | None:
+def _sanitize_at_rule(rule: css_ast.AtRule, depth: int) -> str | None:
+    if depth >= _MAX_AT_NESTING:
+        return None
     keyword = (rule.lower_at_keyword or "").lower()
     if keyword not in _NESTED_AT_RULES and keyword not in _KEYFRAME_AT_RULES:
         return None
@@ -215,7 +287,7 @@ def _sanitize_at_rule(rule: css_ast.AtRule) -> str | None:
     if not _tokens_safe(list(rule.prelude)):
         return None
     inner_rules = tinycss2.parse_rule_list(rule.content, skip_comments=True, skip_whitespace=True)
-    inner = "".join(_sanitize_rules(inner_rules))
+    inner = "".join(_sanitize_rules(inner_rules, depth + 1))
     if not inner:
         return None
     prelude_text = _serialize_safe(list(rule.prelude)).strip()
@@ -224,13 +296,13 @@ def _sanitize_at_rule(rule: css_ast.AtRule) -> str | None:
     return f"@{keyword}{{{inner}}}"
 
 
-def _sanitize_rules(rules: list[object]) -> list[str]:
+def _sanitize_rules(rules: list[object], depth: int) -> list[str]:
     kept: list[str] = []
     for rule in rules:
         if isinstance(rule, css_ast.ParseError):
             continue
         if isinstance(rule, css_ast.AtRule):
-            text = _sanitize_at_rule(rule)
+            text = _sanitize_at_rule(rule, depth)
         elif isinstance(rule, css_ast.QualifiedRule):
             text = _sanitize_qualified_rule(rule)
         else:
@@ -240,22 +312,49 @@ def _sanitize_rules(rules: list[object]) -> list[str]:
     return kept
 
 
+def sanitize_inline_style(value: str) -> str:
+    """Sanitize a ``style`` attribute with the same per-declaration rules as blocks.
+
+    Returns an empty string when nothing remains (caller should drop the attribute).
+    HTML entities are decoded so ``&#117;rl(`` is treated as ``url(``.
+    """
+    if not value:
+        return ""
+    text = unescape(value)
+    if _has_breakout(text):
+        return ""
+    try:
+        decls = tinycss2.parse_declaration_list(text, skip_comments=True, skip_whitespace=True)
+        kept = _filter_declarations(decls)
+        if not kept:
+            return ""
+        out = _serialize_safe(kept).strip()
+        if not out or _has_breakout(out) or _has_fetch_leak(out):
+            return ""
+        return out
+    except RecursionError:
+        return ""
+
+
 def sanitize_css(css: str) -> str:
     """Keep allowlisted declarations and custom properties; drop fetch-capable values.
 
     Filters per declaration so one unsafe value does not drop the rest of the rule.
-    Preserves ``@media`` / ``@supports`` and trivial ``@keyframes``. Drops
-    ``@import``, ``@font-face``, ``@namespace``, and ``@charset``.
+    Preserves ``@media`` / ``@supports`` and trivial ``@keyframes`` up to a nesting
+    cap. Drops ``@import``, ``@font-face``, ``@namespace``, and ``@charset``.
 
     Does not HTML-unescape the input: entity-encoded ``</style>`` must stay inert
     text that tinycss2 will not turn into markup.
     """
-    if not css or "<" in css:
-        # Raw '<' in a style block is always treated as a breakout attempt.
+    if not css:
         return ""
-
-    rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
-    out = "".join(_sanitize_rules(rules))
-    if "<" in out:
+    if _has_breakout(css):
         return ""
-    return out
+    try:
+        rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
+        out = "".join(_sanitize_rules(rules, 0))
+        if _has_breakout(out) or _has_fetch_leak(out):
+            return ""
+        return out
+    except RecursionError:
+        return ""

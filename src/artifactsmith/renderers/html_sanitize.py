@@ -11,7 +11,7 @@ from html import unescape
 
 import nh3
 
-from .css_sanitize import _STYLE_PROPS, sanitize_css
+from .css_sanitize import _has_breakout, sanitize_css, sanitize_inline_style
 
 # Document structure is rebuilt after fragment cleaning (Ammonia drops html/head/body).
 _ALLOWED_TAGS: set[str] = {
@@ -138,6 +138,8 @@ _BODY_RE = re.compile(r"<body\b[^>]*>(.*?)</body>", re.I | re.S)
 
 def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
     """Allow public http(s) on <a href> only; reject other remote resource URLs."""
+    if attr == "style":
+        return sanitize_inline_style(value) or None
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
         return value
     from .links import classify_href, emit_href, public_href_or_none
@@ -196,7 +198,7 @@ def sanitize_html_document(body: str) -> str:
     title = nh3.clean_text(unescape(title_m.group(1))).strip() if title_m else ""
     # Do not unescape style contents before sanitizing (entity-encoded tags stay inert).
     css = sanitize_css("\n".join(_STYLE_RE.findall(body)))
-    if "<" in css:
+    if _has_breakout(css):
         css = ""
 
     body_m = _BODY_RE.search(body)
@@ -213,7 +215,6 @@ def sanitize_html_document(body: str) -> str:
         attributes={k: set(v) for k, v in _ALLOWED_ATTRIBUTES.items()},
         attribute_filter=_url_attribute_filter,
         url_schemes={"http", "https"},
-        filter_style_properties=_STYLE_PROPS,
         link_rel="noopener noreferrer nofollow",
         strip_comments=True,
     )
@@ -239,8 +240,8 @@ def sanitize_html_document(body: str) -> str:
         f"<body>\n{cleaned}\n</body>\n"
         "</html>\n"
     )
-    # Final gate: style contents must never contain a tag-open character.
+    # Final gate: style contents must not contain a markup breakout.
     for m in _STYLE_RE.finditer(doc):
-        if "<" in m.group(1):
+        if _has_breakout(m.group(1)):
             doc = _STYLE_RE.sub("<style></style>\n", doc, count=1)
     return doc
