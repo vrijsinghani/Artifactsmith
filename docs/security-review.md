@@ -13,8 +13,10 @@ run time; the index is `.cursor/skills/trail-of-bits.md`.
 | `artifactsmith-security-checklist` | `.cursor/skills/artifactsmith-security-checklist/` | MIT |
 
 Prerequisites: `git`, `bash`, `jq`, `python3`, Semgrep, bandit, gitleaks,
-pip-audit, Trivy, and Docker (for the image scan). `uv` is optional for the
-supply-chain collector. Activate `.venv` when this repo has one.
+pip-audit, Trivy, and Docker (for the image scan). `docker` and `trivy image`
+need permission to the Docker socket (membership in the `docker` group, or
+the equivalent). `uv` is optional for the supply-chain collector. Activate
+`.venv` when this repo has one.
 
 ## 1. Semgrep
 
