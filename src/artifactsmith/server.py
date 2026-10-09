@@ -1,9 +1,12 @@
 """MCP API (port 8780, bearer auth) + a separate cookieless preview origin (port 8781)."""
+
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
+import logging
+from collections.abc import Callable
 from typing import Any
 
 import uvicorn
@@ -14,19 +17,20 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
+from . import __version__
 from .config import CFG
 from .service import AMError, Service, unsign
 
 SVC: Service | None = None
 
 INSTRUCTIONS = (
-    "Artifact service. create/edit queue a background build and return at once (artifact_id, version, job_id); "
-    "call status with wait (<=90s) until done, failed or needs_input, then present the card (title, version, "
-    "preview_url, assumptions). The user's exact words are the whole scope: pass them verbatim; pass researched "
-    "content separately in source_content (or source_files). A build that lacks a needed fact ends as needs_input "
-    "with a short missing message and stores no page. create never publishes. share publishes a public link for one "
-    "exact version (lifetime AM_SHARE_TTL_DAYS, 0 = until revoked); unshare revokes immediately. A token reaches only "
-    "its own workspace and only the permissions it was granted."
+    "Artifact service. create and edit queue a background build and return artifact_id, version, and job_id "
+    "immediately. Call status with wait (up to 90 seconds) until the job is done, failed, or needs_input, then "
+    "show the card (title, version, preview_url, assumptions). Pass the user's exact words in verbatim_request. "
+    "Pass researched content in source_content or source_files. If a needed fact is missing, the job ends as "
+    "needs_input with a short missing message and stores no file. create does not publish a share link. share "
+    "publishes a public link for one exact version (lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare "
+    "revokes immediately. A token reaches only its own workspace and only the permissions it was granted."
 )
 
 mcp = FastMCP(
@@ -39,6 +43,12 @@ mcp = FastMCP(
 )
 
 
+def _svc() -> Service:
+    if SVC is None:
+        raise AMError("server is not ready")
+    return SVC
+
+
 def _principal(ctx: Context) -> dict:
     req = ctx.request_context.request
     principal = req.scope.get("am_principal") if req is not None else None
@@ -47,7 +57,7 @@ def _principal(ctx: Context) -> dict:
     return principal
 
 
-def _run(fn, *a, **k) -> dict:
+def _run(fn: Callable[..., dict], *a: Any, **k: Any) -> dict:
     try:
         return fn(*a, **k)
     except AMError as e:
@@ -55,88 +65,138 @@ def _run(fn, *a, **k) -> dict:
 
 
 @mcp.tool()
-def create(ctx: Context, slug: str, display_name: str, kind: str, verbatim_request: str,
-           source_content: str | None = None, source_files: list[dict[str, str]] | None = None,
-           format: str | None = None, workspace: str | None = None, model: str | None = None,
-           capabilities: dict[str, Any] | None = None, idempotency_key: str | None = None) -> dict:
-    """Start building a new artifact (kind=web_static: one self-contained HTML page). Returns artifact_id, version,
-    job_id at once; then call status(job_id, wait=90).
+def create(
+    ctx: Context,
+    slug: str,
+    display_name: str,
+    kind: str,
+    verbatim_request: str,
+    source_content: str | None = None,
+    source_files: list[dict[str, str]] | None = None,
+    format: str | None = None,
+    workspace: str | None = None,
+    model: str | None = None,
+    capabilities: dict[str, Any] | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Queue a new artifact (kind=web_static). Returns artifact_id, version, and job_id immediately.
+    Then call status(job_id, wait=90).
 
-    - verbatim_request: the user's exact words; the entire scope. Put no research/data here beyond what the user said.
-    - source_content (optional, up to 200 KB total with source_files): researched content/data the page is built from.
-      The builder uses ONLY the request plus this material for facts.
-    - source_files (optional): list of {"name": str, "content": str}, same purpose and shared 200 KB cap.
-    - If facts the request needs are missing, the build ends with status "needs_input" and a short "missing" message
-      (no placeholder page). Supply the data and call create again with the same slug.
-    - create never creates a share link."""
-    return _run(SVC.create, _principal(ctx), slug=slug, display_name=display_name, kind=kind,
-                verbatim_request=verbatim_request, format=format, workspace=workspace, model=model,
-                source_content=source_content, source_files=source_files, capabilities=capabilities,
-                idempotency_key=idempotency_key)
+    format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
+    writes the bytes. html keeps the house-style HTML page. The other formats start from Markdown.
+
+    verbatim_request is the user's exact words and the whole scope. Do not put research there beyond
+    what the user said.
+
+    source_content (optional, up to 200 KB total with source_files) is researched material the page
+    is built from. The builder uses only the request plus this material for facts.
+
+    source_files (optional) is a list of {name, content} objects under the same 200 KB cap.
+
+    If a needed fact is missing, the job ends as needs_input with a short missing message and stores
+    no file. Call create again with the same slug after you supply the data.
+
+    create does not create a share link."""
+    return _run(
+        _svc().create,
+        _principal(ctx),
+        slug=slug,
+        display_name=display_name,
+        kind=kind,
+        verbatim_request=verbatim_request,
+        format=format,
+        workspace=workspace,
+        model=model,
+        source_content=source_content,
+        source_files=source_files,
+        capabilities=capabilities,
+        idempotency_key=idempotency_key,
+    )
 
 
 @mcp.tool()
-def edit(ctx: Context, artifact_id: str, base_version: int, verbatim_request: str,
-         source_content: str | None = None, source_files: list[dict[str, str]] | None = None,
-         workspace: str | None = None, model: str | None = None, idempotency_key: str | None = None) -> dict:
+def edit(
+    ctx: Context,
+    artifact_id: str,
+    base_version: int,
+    verbatim_request: str,
+    source_content: str | None = None,
+    source_files: list[dict[str, str]] | None = None,
+    workspace: str | None = None,
+    model: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
     """Build a new version from base_version (the latest done version) using the user's exact change request.
-    Refused with a conflict if base_version is stale — inspect, then edit from the latest.
-    - source_content / source_files (optional, 200 KB total): new source material for this version; replaces the base
-      version's source. If omitted, the base version's source is reused.
-    - Ends as "needs_input" with a "missing" message if the change needs facts that were not supplied."""
-    return _run(SVC.edit, _principal(ctx), artifact_id=artifact_id, base_version=base_version,
-                verbatim_request=verbatim_request, source_content=source_content, source_files=source_files,
-                workspace=workspace, model=model, idempotency_key=idempotency_key)
+    Returns a conflict if base_version is stale. Inspect, then edit from the latest.
+
+    source_content and source_files (optional, 200 KB total) replace the base version's source.
+    If omitted, the base version's source is reused.
+
+    Ends as needs_input with a missing message if the change needs facts that were not supplied."""
+    return _run(
+        _svc().edit,
+        _principal(ctx),
+        artifact_id=artifact_id,
+        base_version=base_version,
+        verbatim_request=verbatim_request,
+        source_content=source_content,
+        source_files=source_files,
+        workspace=workspace,
+        model=model,
+        idempotency_key=idempotency_key,
+    )
 
 
 @mcp.tool()
 async def status(ctx: Context, artifact_id: str | None = None, job_id: str | None = None, wait: int = 0) -> dict:
-    """Build state (queued/building/done/failed/needs_input; needs_input carries a "missing" message), progress and the
-    presentation card. wait (0-90s) holds the call open until the build finishes."""
+    """Build state (queued, building, done, failed, or needs_input). needs_input includes a missing message.
+    Also returns progress and the presentation card. wait (0 to 90 seconds) holds the call open until the
+    build finishes."""
     try:
-        return await SVC.status(_principal(ctx), artifact_id=artifact_id, job_id=job_id, wait=wait)
+        return await _svc().status(_principal(ctx), artifact_id=artifact_id, job_id=job_id, wait=wait)
     except AMError as e:
         return {"error": str(e)}
 
 
 @mcp.tool()
-def list_artifacts(ctx: Context, workspace: str | None = None, kind: str | None = None,
-                   query: str | None = None, limit: int = 50) -> dict:
-    """Catalog of artifacts in your workspace, newest first. Optional kind filter and text query on slug/title."""
-    return _run(SVC.list, _principal(ctx), workspace=workspace, kind=kind, query=query, limit=limit)
+def list_artifacts(
+    ctx: Context, workspace: str | None = None, kind: str | None = None, query: str | None = None, limit: int = 50
+) -> dict:
+    """Catalog of artifacts in your workspace, newest first. Optional kind filter and text query on slug or title."""
+    return _run(_svc().list, _principal(ctx), workspace=workspace, kind=kind, query=query, limit=limit)
 
 
 @mcp.tool()
 def inspect(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
-    """Manifest, files, build log, request history and share state (latest done version by default)."""
-    return _run(SVC.inspect, _principal(ctx), artifact_id, version)
+    """Manifest, files, build log, request history, and share state. Defaults to the latest done version."""
+    return _run(_svc().inspect, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
 def export(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
-    """Short-lived (15 min) download link for the self-contained .html."""
-    return _run(SVC.export, _principal(ctx), artifact_id, version)
+    """Download link for the rendered file (html, md, pdf, docx, or xlsx). Valid for 15 minutes."""
+    return _run(_svc().export, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
 def share(ctx: Context, artifact_id: str, version: int | None = None, ttl_days: int | None = None) -> dict:
-    """Publish a PUBLIC link for one exact version (default: latest done version), live immediately. create does not
-    do this; anyone with the link can open it. Lifetime follows AM_SHARE_TTL_DAYS (0 = until revoked; otherwise
-    capped by AM_SHARE_TTL_MAX_DAYS). Links never follow later versions. unshare revokes at once."""
-    return _run(SVC.share, _principal(ctx), artifact_id, version, ttl_days)
+    """Publish a public link for one exact version (default: the latest done version). Anyone with the link
+    can open it. Lifetime follows AM_SHARE_TTL_DAYS (0 means until revoked; otherwise capped by
+    AM_SHARE_TTL_MAX_DAYS). The link stays on that version. unshare revokes it immediately."""
+    return _run(_svc().share, _principal(ctx), artifact_id, version, ttl_days)
 
 
 @mcp.tool()
 def unshare(ctx: Context, artifact_id: str, version: int | None = None) -> dict:
-    """Revoke share links for an artifact (or one version). Takes effect immediately."""
-    return _run(SVC.unshare, _principal(ctx), artifact_id, version)
+    """Revoke share links for an artifact, or for one version. Takes effect immediately."""
+    return _run(_svc().unshare, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
 def delete(ctx: Context, artifact_id: str, confirm_token: str | None = None) -> dict:
-    """Permanent two-step delete. First call returns a confirm_token; the second call with it purges every stored
-    version and all links. Warn the user before the second call."""
-    return _run(SVC.delete, _principal(ctx), artifact_id, confirm_token)
+    """Two-step delete. The first call returns a confirm_token. The second call with that token purges every
+    stored version and all links. Warn the user before the second call."""
+    return _run(_svc().delete, _principal(ctx), artifact_id, confirm_token)
 
 
 # ---------------- bearer auth + per-token permissions for the API origin ----------------
@@ -152,10 +212,14 @@ class BearerAuth:
         principal = None
         if auth.lower().startswith("bearer "):
             h = hashlib.sha256(auth[7:].strip().encode()).hexdigest()
-            row = SVC.db.one("SELECT * FROM tokens WHERE token_hash=? AND revoked_at IS NULL", h)
+            row = _svc().db.one("SELECT * FROM tokens WHERE token_hash=? AND revoked_at IS NULL", h)
             if row:
-                principal = {"id": row["id"], "name": row["name"], "workspace": row["workspace"],
-                             "perms": set(json.loads(row["perms"]))}
+                principal = {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "workspace": row["workspace"],
+                    "perms": set(json.loads(row["perms"])),
+                }
         if not principal:
             resp = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
             return await resp(scope, receive, send)
@@ -163,56 +227,63 @@ class BearerAuth:
         return await self.app(scope, receive, send)
 
 
-async def healthz(request: Request):
-    return JSONResponse({"ok": True, "service": "artifactsmith", "version": "0.1.0"})
+async def healthz(request: Request) -> JSONResponse:
+    return JSONResponse({"ok": True, "service": "artifactsmith", "version": __version__})
 
 
 mcp.custom_route("/healthz", methods=["GET"])(healthz)
 
 
 # ---------------- preview origin (separate port = separate origin; no cookies, strict CSP) ----------------
-CSP = ("default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; script-src 'none'; "
-       "font-src data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; sandbox")
+CSP = (
+    "default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; script-src 'none'; "
+    "font-src data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; sandbox"
+)
 
 
 def _serve(data: bytes, ctype: str, fname: str, attachment: bool) -> Response:
-    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-               "Content-Security-Policy": CSP, "Cross-Origin-Resource-Policy": "same-origin"}
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": CSP,
+        "Cross-Origin-Resource-Policy": "same-origin",
+    }
     if attachment:
         headers["Content-Disposition"] = f'attachment; filename="{fname}"'
     return Response(data, media_type=ctype, headers=headers)
 
 
-async def preview(request: Request):
+async def preview(request: Request) -> Response:
     tok = request.path_params["token"]
-    sl = SVC.short_lookup(tok)
+    sl = _svc().short_lookup(tok)
     p = {"a": sl["artifact_id"], "v": sl["version"]} if sl else None
     if not p:
         return PlainTextResponse("link expired or invalid", status_code=404, headers={"Cache-Control": "no-store"})
     try:
-        data, ct, name = await asyncio.to_thread(SVC.read_file, p["a"], int(p["v"]), None)
+        data, ct, name = await asyncio.to_thread(_svc().read_file, p["a"], int(p["v"]), None)
     except AMError:
         return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
     return _serve(data, ct, name, attachment=False)
 
 
-async def download(request: Request):
+async def download(request: Request) -> Response:
     p = unsign(request.path_params["token"])
     if not p or "f" not in p:
         return PlainTextResponse("link expired or invalid", status_code=404, headers={"Cache-Control": "no-store"})
     try:
-        data, ct, _ = await asyncio.to_thread(SVC.read_file, p["a"], int(p["v"]), p["f"])
+        data, ct, _ = await asyncio.to_thread(_svc().read_file, p["a"], int(p["v"]), p["f"])
     except AMError:
         return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
     return _serve(data, ct, p.get("n") or p["f"], attachment=True)
 
 
-async def shared(request: Request):
-    s = SVC.share_lookup(request.path_params["sid"])
+async def shared(request: Request) -> Response:
+    s = _svc().share_lookup(request.path_params["sid"])
     if not s:
         return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
     try:
-        data, ct, name = await asyncio.to_thread(SVC.read_file, s["artifact_id"], s["version"], None)
+        data, ct, name = await asyncio.to_thread(_svc().read_file, s["artifact_id"], s["version"], None)
     except AMError:
         return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
     if hashlib.sha256(data).hexdigest() != s["sha256"]:
@@ -220,27 +291,47 @@ async def shared(request: Request):
     return _serve(data, ct, name, attachment=False)
 
 
-preview_app = Starlette(routes=[
-    Route("/p/{token}", preview), Route("/p/{token}/", preview),
-    Route("/dl/{token}", download),
-    Route("/s/{sid}", shared), Route("/s/{sid}/", shared),
-    Route("/healthz", healthz),
-])
+preview_app = Starlette(
+    routes=[
+        Route("/p/{token}", preview),
+        Route("/p/{token}/", preview),
+        Route("/dl/{token}", download),
+        Route("/s/{sid}", shared),
+        Route("/s/{sid}/", shared),
+        Route("/healthz", healthz),
+    ]
+)
 
 
 async def main() -> None:
     global SVC
-    SVC = Service()
-    SVC.store.ensure_bucket()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    svc = Service()
+    SVC = svc
+    svc.store.ensure_bucket()
     api_app = BearerAuth(mcp.streamable_http_app())
-    api = uvicorn.Server(uvicorn.Config(api_app, host=CFG.host, port=CFG.api_port, log_level="info",
-                                        proxy_headers=False, server_header=False))
-    prev = uvicorn.Server(uvicorn.Config(preview_app, host=CFG.host, port=CFG.preview_port, log_level="warning",
-                                         proxy_headers=False, server_header=False))
+    api = uvicorn.Server(
+        uvicorn.Config(
+            api_app, host=CFG.host, port=CFG.api_port, log_level="info", proxy_headers=False, server_header=False
+        )
+    )
+    prev = uvicorn.Server(
+        uvicorn.Config(
+            preview_app,
+            host=CFG.host,
+            port=CFG.preview_port,
+            log_level="warning",
+            proxy_headers=False,
+            server_header=False,
+        )
+    )
 
-    async def start_after_boot():
+    async def start_after_boot() -> None:
         await asyncio.sleep(0.5)
-        SVC.start_workers()
+        svc.start_workers()
 
     await asyncio.gather(api.serve(), prev.serve(), start_after_boot())
 

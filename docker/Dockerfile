@@ -1,6 +1,11 @@
 FROM python:3.12-slim-bookworm
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+# WeasyPrint needs Pango/Cairo (no headless browser). fonts-liberation covers PDF text.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
+        libgdk-pixbuf-2.0-0 libffi8 libjpeg62-turbo libopenjp2-7 \
+        shared-mime-info fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml ./

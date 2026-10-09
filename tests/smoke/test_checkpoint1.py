@@ -7,6 +7,7 @@
 Exits 0 when every step passes. Uses a real MCP client (mcp streamable-http) plus httpx for the
 preview/share origins, and provisions tokens through the operator CLI inside the server container.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,16 +39,27 @@ def check(cond, msg):
 
 
 def compose(*args, capture=True) -> str:
-    r = subprocess.run(["docker", "compose", *args], cwd=REPO,
-                       capture_output=True, text=True)
+    r = subprocess.run(["docker", "compose", *args], cwd=REPO, capture_output=True, text=True)
     if r.returncode != 0:
         raise Fail(f"docker compose {' '.join(args)} failed: {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout
 
 
 def provision(name: str, workspace: str, perms: str) -> str:
-    out = compose("exec", "-T", "server", "artifactsmith", "token", "add",
-                  "--name", name, "--workspace", workspace, "--perms", perms)
+    out = compose(
+        "exec",
+        "-T",
+        "server",
+        "artifactsmith",
+        "token",
+        "add",
+        "--name",
+        name,
+        "--workspace",
+        workspace,
+        "--perms",
+        perms,
+    )
     # the CLI prints a single JSON object; take the last non-empty JSON line
     for line in reversed(out.strip().splitlines()):
         line = line.strip()
@@ -68,6 +80,7 @@ def parse(res) -> dict:
 
 async def call(session, name, args, read_timeout: int = 120):
     from datetime import timedelta
+
     res = await session.call_tool(name, args, read_timeout_seconds=timedelta(seconds=read_timeout))
     return parse(res)
 
@@ -84,9 +97,9 @@ async def wait_health(url: str, tries: int = 90):
 
 
 async def phase(token, fn):
-    from datetime import timedelta
-    async with streamablehttp_client(MCP_URL, headers={"Authorization": f"Bearer {token}"},
-                                     timeout=60, sse_read_timeout=120) as (r, w, _):
+    async with streamablehttp_client(
+        MCP_URL, headers={"Authorization": f"Bearer {token}"}, timeout=60, sse_read_timeout=120
+    ) as (r, w, _):
         async with ClientSession(r, w) as s:
             await s.initialize()
             return await fn(s)
@@ -109,50 +122,82 @@ async def main() -> int:
 
     async def early(s):
         print("\n[1] create (verbatim request + source with a unique fact)")
-        created = await call(s, "create", {
-            "slug": f"pilot-store-{run_id}", "display_name": "Pilot Store", "kind": "web_static",
-            "verbatim_request": "Show the pilot store code.",
-            "source_content": f"The pilot store code is {fact1}.",
-            "idempotency_key": "ckpt1-create-1",
-        })
-        check("artifact_id" in created and created.get("status") == "queued", "create returns artifact_id/job_id immediately")
+        created = await call(
+            s,
+            "create",
+            {
+                "slug": f"pilot-store-{run_id}",
+                "display_name": "Pilot Store",
+                "kind": "web_static",
+                "verbatim_request": "Show the pilot store code.",
+                "source_content": f"The pilot store code is {fact1}.",
+                "idempotency_key": "ckpt1-create-1",
+            },
+        )
+        check(
+            "artifact_id" in created and created.get("status") == "queued",
+            "create returns artifact_id/job_id immediately",
+        )
         aid, v1 = created["artifact_id"], created["version"]
 
         # idempotency: same key replays the same artifact_id/version, no duplicate
-        replay = await call(s, "create", {
-            "slug": f"pilot-store-{run_id}", "display_name": "Pilot Store", "kind": "web_static",
-            "verbatim_request": "Show the pilot store code.",
-            "source_content": f"The pilot store code is {fact1}.",
-            "idempotency_key": "ckpt1-create-1",
-        })
-        check(replay.get("idempotent_replay") and replay.get("artifact_id") == aid,
-              "idempotency key replays instead of creating a second artifact")
+        replay = await call(
+            s,
+            "create",
+            {
+                "slug": f"pilot-store-{run_id}",
+                "display_name": "Pilot Store",
+                "kind": "web_static",
+                "verbatim_request": "Show the pilot store code.",
+                "source_content": f"The pilot store code is {fact1}.",
+                "idempotency_key": "ckpt1-create-1",
+            },
+        )
+        check(
+            replay.get("idempotent_replay") and replay.get("artifact_id") == aid,
+            "idempotency key replays instead of creating a second artifact",
+        )
 
         print("\n[2] status(wait) -> done; page contains the fact; still private")
         st = await call(s, "status", {"job_id": created["job_id"], "wait": 90})
         check(st.get("status") == "done", "build finished as done")
         page = httpx.get(st["preview_url"], timeout=10)
         check(page.status_code == 200 and fact1 in page.text, f"private preview contains {fact1}")
-        check("script-src 'none'" in page.headers.get("content-security-policy", ""), "CSP blocks scripts (script-src 'none')")
+        check(
+            "script-src 'none'" in page.headers.get("content-security-policy", ""),
+            "CSP blocks scripts (script-src 'none')",
+        )
         check(st.get("share", {}).get("state") == "not_shared", "create did NOT publish a share link")
         probe = httpx.get(f"{PREVIEW}/s/deadbeefcafe1234/", timeout=10)
         check(probe.status_code == 404, "no public /s/ link yet (guess is 404)")
 
         print("\n[3] edit from v1 -> new fact; still private; stale edit refused")
-        ed = await call(s, "edit", {
-            "artifact_id": aid, "base_version": v1, "verbatim_request": "Update the store code.",
-            "source_content": f"The new pilot store code is {fact2}.",
-        })
+        ed = await call(
+            s,
+            "edit",
+            {
+                "artifact_id": aid,
+                "base_version": v1,
+                "verbatim_request": "Update the store code.",
+                "source_content": f"The new pilot store code is {fact2}.",
+            },
+        )
         check("job_id" in ed, "edit queued a new version")
         st2 = await call(s, "status", {"job_id": ed["job_id"], "wait": 90})
         check(st2.get("status") == "done" and st2.get("version") == v1 + 1, "edit produced a new done version")
         page2 = httpx.get(st2["preview_url"], timeout=10)
         check(fact2 in page2.text, f"new page contains {fact2}")
         check(st2.get("share", {}).get("state") == "not_shared", "edit is still private")
-        stale = await call(s, "edit", {
-            "artifact_id": aid, "base_version": v1, "verbatim_request": "stale edit",
-            "source_content": f"x {fact1}",
-        })
+        stale = await call(
+            s,
+            "edit",
+            {
+                "artifact_id": aid,
+                "base_version": v1,
+                "verbatim_request": "stale edit",
+                "source_content": f"x {fact1}",
+            },
+        )
         check("error" in stale and "stale" in stale["error"], "edit refuses a stale base_version")
         state.update(aid=aid, v1=v1, v2=st2["version"])
         return state
@@ -204,21 +249,21 @@ async def main() -> int:
             ("inspect", {"artifact_id": aid}),
             ("export", {"artifact_id": aid}),
             ("share", {"artifact_id": aid}),
-            ("edit", {"artifact_id": aid, "base_version": state["v2"], "verbatim_request": "x",
-                      "source_content": "y"}),
+            ("edit", {"artifact_id": aid, "base_version": state["v2"], "verbatim_request": "x", "source_content": "y"}),
             ("delete", {"artifact_id": aid}),
         ]:
             r = await call(s, tool, args)
-            check("error" in r and "forbidden" in r["error"],
-                  f"token in workspace 'beta' is denied from {tool} (knowing the id is not access)")
+            check(
+                "error" in r and "forbidden" in r["error"],
+                f"token in workspace 'beta' is denied from {tool} (knowing the id is not access)",
+            )
 
     await phase(tok_beta, cross_ws)
 
     async def read_only(s):
         for tool, args in [
             ("share", {"artifact_id": aid}),
-            ("edit", {"artifact_id": aid, "base_version": state["v2"], "verbatim_request": "x",
-                      "source_content": "y"}),
+            ("edit", {"artifact_id": aid, "base_version": state["v2"], "verbatim_request": "x", "source_content": "y"}),
             ("export", {"artifact_id": aid}),
             ("delete", {"artifact_id": aid}),
         ]:
@@ -231,18 +276,29 @@ async def main() -> int:
     await phase(tok_read, read_only)
 
     # unauthenticated HTTP must be 401
-    resp = httpx.post(MCP_URL, json={}, headers={"Content-Type": "application/json",
-                     "Accept": "application/json, text/event-stream"}, timeout=10)
+    resp = httpx.post(
+        MCP_URL,
+        json={},
+        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+        timeout=10,
+    )
     check(resp.status_code == 401, "unauthenticated call to the MCP API is HTTP 401")
 
     # ---- step 8: a create that needs a missing fact -> needs_input, no done page ----
     print("\n[8] create whose needed fact is not supplied -> needs_input, no page")
+
     async def needs_input(s):
-        created = await call(s, "create", {
-            "slug": f"missing-fact-{run_id}", "display_name": "Missing Fact", "kind": "web_static",
-            "verbatim_request": "Report the launch revenue figure. FACTS_MISSING",
-            "source_content": "There was a launch last quarter.",
-        })
+        created = await call(
+            s,
+            "create",
+            {
+                "slug": f"missing-fact-{run_id}",
+                "display_name": "Missing Fact",
+                "kind": "web_static",
+                "verbatim_request": "Report the launch revenue figure. FACTS_MISSING",
+                "source_content": "There was a launch last quarter.",
+            },
+        )
         check("job_id" in created, "needs-input create returns a job_id")
         st = await call(s, "status", {"job_id": created["job_id"], "wait": 90})
         check(st.get("status") == "needs_input", "status is needs_input")
@@ -259,6 +315,7 @@ async def main() -> int:
 
 def _show(exc):
     import traceback
+
     traceback.print_exception(type(exc), exc, exc.__traceback__)
     for sub in getattr(exc, "exceptions", []):
         print("SUB-EXC:")

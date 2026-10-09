@@ -12,3 +12,5 @@ adapted from third-party works:
 
 2. Humanizer skill, from https://github.com/blader/humanizer
    Copyright (c) 2025 Siqi Chen. Licensed under the MIT License (copy in licenses/MIT-humanizer.txt). Changes: condensed a subset of its writing-pattern rules into prompt rules.
+
+Renderers (see docs/formats.md) use WeasyPrint (BSD-3-Clause), python-docx (MIT), and openpyxl (MIT).

@@ -1,5 +1,6 @@
 """LLM adapter. AM_LLM_API=chat (Chat Completions, default) or "responses". The output is one text string
 that the builder parses; this module never executes model output."""
+
 from __future__ import annotations
 
 import httpx
@@ -52,7 +53,9 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
         raise LLMError(f"LLM HTTP {r.status_code}: {r.text[:400]}")
     data = r.json()
     text = "".join(
-        c.get("text", "") for item in data.get("output", []) for c in item.get("content", [])
+        c.get("text", "")
+        for item in data.get("output", [])
+        for c in item.get("content", [])
         if c.get("type") in ("output_text", "text")
     )
     if not text.strip():
