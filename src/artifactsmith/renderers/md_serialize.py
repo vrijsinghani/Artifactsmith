@@ -6,6 +6,21 @@ import re
 
 from markdown_it.token import Token
 
+# Inline text: escape characters that can open links, images, emphasis, or HTML.
+_MD_TEXT_ESCAPE_RE = re.compile(r"([\\`*_{}\[\]()!<>])")
+# Fail-closed: every CommonMark-special character.
+_MD_FAIL_CLOSED_RE = re.compile(r"([\\`*_{}\[\]()#+.!|<>~-])")
+
+
+def escape_md_text(text: str) -> str:
+    """Escape Markdown-significant characters in a prose text token."""
+    return _MD_TEXT_ESCAPE_RE.sub(r"\\\1", text)
+
+
+def escape_all_md_punctuation(text: str) -> str:
+    """Fail-closed: escape every Markdown-special character in a full document."""
+    return _MD_FAIL_CLOSED_RE.sub(r"\\\1", text)
+
 
 def _attr_str(tok: Token, name: str) -> str:
     val = tok.attrGet(name)
@@ -30,7 +45,7 @@ def serialize_inline(children: list[Token] | None) -> str:
     while i < len(children):
         tok = children[i]
         if tok.type == "text":
-            parts.append(tok.content or "")
+            parts.append(escape_md_text(tok.content or ""))
         elif tok.type == "code_inline":
             tick = tok.markup or "`"
             parts.append(f"{tick}{tok.content}{tick}")

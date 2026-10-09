@@ -51,6 +51,8 @@ AM_ALLOWED_HOSTS=192.0.2.10:8780,127.0.0.1:8780,localhost:8780
 
 Then `docker compose up -d --build`. Clients open `http://192.0.2.10:8780/mcp` and preview/share links use `192.0.2.10`, not `127.0.0.1`. Browser-based MCP clients also need `AM_ALLOWED_ORIGINS` set to the page origin.
 
+Share and preview URLs are built from `AM_SHARE_URL` / `AM_PREVIEW_URL` when the server returns them. Links you copied before switching to LAN serving still use the old base host; call `share` again (or copy the URL from `inspect` / `status`) after changing those settings.
+
 ### Reverse proxy with TLS
 
 Keep the host bind on loopback and terminate TLS on nginx or Caddy. Set the public URLs and allow-lists to the external hostname:
@@ -134,8 +136,8 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | Tool | Permission | What it does |
 | ---- | ---------- | ------------ |
 | `create` | `create` | Queue a private build. Optional `format`. Does not create a share link. |
-| `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
+| `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `list_artifacts` | `read` | Catalog for the token's workspace. |
 | `inspect` | `read` | Manifest, history, share state. |
 | `export` | `export` | Download link for the rendered file, valid 15 minutes. |
@@ -143,10 +145,6 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | `unshare` | `share` | Revoke the public link immediately. |
 | `revoke_previews` | `export` | Expire private `/p/` preview links for an artifact (optional version). |
 | `delete` | `delete` | Two-step purge. First call returns a confirm token. |
-| `list_prompts` | — | MCP discovery. Empty in this release. |
-| `get_prompt` | — | MCP discovery. Empty in this release. |
-| `list_resources` | — | MCP discovery. Empty in this release. |
-| `read_resource` | — | MCP discovery. Empty in this release. |
 
 ### `create` arguments
 
@@ -166,13 +164,14 @@ Optional:
 - `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
 - `model`, `workspace`, `idempotency_key`, `capabilities`.
 
-Working example (title only; slug becomes `pilot-store-brief`):
+Working example (title only; slug becomes `pilot-store-brief`). The source text must
+support every fact the request asks for (including “why it matters”):
 
 ```json
 {
   "display_name": "Pilot store brief",
   "verbatim_request": "One page that states the pilot store code and why it matters.",
-  "source_content": "The pilot store code is HARBOR-17.",
+  "source_content": "The pilot store code is HARBOR-17. It matters because it is the single identifier used across inventory, support, and rollout reports for the pilot.",
   "format": "html"
 }
 ```
@@ -240,12 +239,9 @@ artifactsmith token revoke --id ID | --name NAME
 ## Uninstall / reset
 
 ```bash
-# Stop containers and delete the compose volumes (SQLite data, object-store data, secrets volume).
-docker compose down --volumes
-
-# Optional: remove the built server image.
-docker image rm artifactsmith-server 2>/dev/null || true
-docker image ls | awk '/artifactsmith/ {print $3}' | xargs -r docker image rm
+# Stop containers, delete compose volumes, and remove images created for this project
+# (server, storage-init, and the rustfs/rustfs pull). Requires store keys in .env like other compose commands.
+docker compose down --volumes --rmi all
 ```
 
 Copy `.env.example` again and re-run the quickstart to start clean.

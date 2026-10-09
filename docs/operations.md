@@ -32,6 +32,8 @@ AM_ALLOWED_HOSTS=192.0.2.10:8780,127.0.0.1:8780,localhost:8780
 
 Clients open `http://192.0.2.10:8780/mcp`. Preview and share links use the LAN host, not `127.0.0.1`.
 
+Share and preview URLs embed `AM_SHARE_URL` / `AM_PREVIEW_URL` when returned. After you change those settings for LAN serving, previously copied links still point at the old base host — call `share` again or copy the URL from `inspect` / `status`.
+
 ### Reverse proxy with TLS
 
 Keep the bind on loopback and terminate TLS on the proxy:
@@ -118,7 +120,7 @@ The compose storage image is `rustfs/rustfs:1.0.1`, pinned by digest.
 ## Uninstall / reset
 
 ```bash
-docker compose down --volumes
+docker compose down --volumes --rmi all
 docker image rm artifactsmith-server 2>/dev/null || true
 ```
 

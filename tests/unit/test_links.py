@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from artifactsmith.renderers.links import classify_href, is_public_http_url, sanitize_markdown
+from artifactsmith.renderers.md_sanitize import collect_link_destinations
 from artifactsmith.renderers.safety import find_private_links, sanitize_text
+
+
+def _assert_destinations_allowed(md: str) -> None:
+    """Every re-parsed destination must be public http(s), relative, or fragment."""
+    for dest in collect_link_destinations(md):
+        kind = classify_href(dest)
+        assert kind in ("public", "relative", "fragment"), (dest, kind)
+        assert kind != "public" or is_public_http_url(dest), dest
 
 
 @pytest.mark.parametrize(
@@ -130,8 +139,26 @@ _COMMONMARK_CASES: list[tuple[str, str, list[str], list[str]]] = [
     (
         "stray_parens_not_a_link",
         "text (not a link)",
-        ["text (not a link)"],
+        ["text", "not a link"],
         ["]("],
+    ),
+    (
+        "escaped_image_marker_stays_escaped",
+        r"\![alt](https://example.com/x.png)",
+        [r"\![alt](https://example.com/x.png)"],
+        [],  # destination check below ensures it is a link, not an image token
+    ),
+    (
+        "escaped_bracket_js_stays_inert",
+        r"\[x](javascript:alert(1))",
+        ["x"],
+        [],
+    ),
+    (
+        "percent_encoded_zwsp_js_neutralized",
+        "[x](java%E2%80%8Bscript:alert(1))",
+        ["x"],
+        [],
     ),
     (
         "protocol_relative_upgraded",
@@ -184,23 +211,31 @@ def test_commonmark_link_image_forms(name, raw, must_contain, must_not):
     for banned in must_not:
         assert banned not in out, f"{name}: banned {banned!r} in {out!r}"
         assert banned.lower() not in out.lower(), f"{name}: banned {banned!r} in {out!r}"
+    _assert_destinations_allowed(out)
+    # Escaped javascript forms must not revive as destinations.
+    if "javascript" in raw.lower() or "%e2%80%8b" in raw.lower() or "\u200b" in raw:
+        assert collect_link_destinations(out) == [], (name, out)
 
 
 def test_dangerous_markdown_destinations_neutralized():
     cases = [
-        ("[x](javascript:alert(1))", "x", "javascript:"),
-        ("[x](vbscript:msgbox(1))", "x", "vbscript:"),
-        ("[x](data:text/html,hi)", "x", "data:"),
-        ("[x](file:///etc/passwd)", "x", "file:"),
-        ("[x](//evil.example/a)", "x", "](//"),
-        ("[x](java\u200bscript:alert(1))", "x", "javascript:"),
-        ("[x](https:\\\\127.0.0.1\\a)", "x", "127.0.0.1"),
+        "[x](javascript:alert(1))",
+        "[x](vbscript:msgbox(1))",
+        "[x](data:text/html,hi)",
+        "[x](file:///etc/passwd)",
+        "[x](java\u200bscript:alert(1))",
+        "[x](java%E2%80%8Bscript:alert(1))",
+        "[x](https:\\\\127.0.0.1\\a)",
+        r"\[x](javascript:alert(1))",
     ]
-    for raw, label, banned in cases:
+    for raw in cases:
         out = sanitize_markdown(raw)
-        assert label in out, raw
-        assert f"]({banned}" not in out.lower().replace("\u200b", ""), raw
-        assert "javascript:" not in out.lower().replace("\u200b", "")
+        assert "x" in out, raw
+        dests = collect_link_destinations(out)
+        assert dests == [], (raw, out, dests)
+    # Protocol-relative public hosts upgrade (not neutralized).
+    upgraded = sanitize_markdown("[x](//evil.example/a)")
+    assert collect_link_destinations(upgraded) == ["https://evil.example/a"]
 
 
 def test_reference_and_autolink_dangerous_neutralized():
@@ -286,3 +321,51 @@ def test_https_markdown_link_survives_byte_for_byte():
 def test_protocol_relative_upgraded_to_https():
     out = sanitize_markdown("[NSF](//www.nsf.gov/)")
     assert out == "[NSF](https://www.nsf.gov/)"
+    assert collect_link_destinations(out) == ["https://www.nsf.gov/"]
+
+
+def test_percent_encoded_format_char_scheme_blocked():
+    """markdown-it percent-encodes Zwsp; classifier must still see javascript:."""
+    assert classify_href("java%E2%80%8Bscript:alert(1)") == "blocked"
+    assert classify_href("java\u200bscript:alert(1)") == "blocked"
+    out = sanitize_markdown("[click](java%E2%80%8Bscript:alert(1))")
+    assert collect_link_destinations(out) == []
+
+
+_TRICKY_CORPUS = [
+    '![alt](https://example.com/x.png "t")',
+    r"\![alt](https://example.com/x.png)",
+    r"\[x](javascript:alert(1))",
+    "[x]( javascript:alert(1) )",
+    "[x](java%E2%80%8Bscript:alert(1))",
+    "[x](java\u200bscript:alert(1))",
+    "[lab][r]\n\n[r]: javascript:alert(1)\n",
+    "go <javascript:alert(1)> now",
+    "see https://example.com/a and [NSF](https://www.nsf.gov/)",
+    "[NSF](//www.nsf.gov/)",
+    "Use `https://example.com/inline` and\n\n```\nhttps://example.com/fence\n```\n",
+    "text (not a link)",
+    "[x](<>)",
+    "[x]()",
+    '![a]( https://example.com/x.png "t" )',
+]
+
+
+@pytest.mark.parametrize("raw", _TRICKY_CORPUS, ids=[f"c{i}" for i in range(len(_TRICKY_CORPUS))])
+def test_sanitize_reparsed_is_policy_clean_and_idempotent(raw):
+    once = sanitize_markdown(raw)
+    _assert_destinations_allowed(once)
+    # No image tokens after sanitize.
+    from markdown_it import MarkdownIt
+
+    md = MarkdownIt("commonmark", {"linkify": True})
+    md.enable("linkify")
+    md.validateLink = lambda _url: True  # type: ignore[assignment]
+    for tok in md.parse(once):
+        if tok.type == "image":
+            raise AssertionError(f"image survived: {once!r}")
+        if tok.children:
+            for ch in tok.children:
+                assert ch.type != "image", once
+    twice = sanitize_markdown(once)
+    assert twice == once

@@ -12,7 +12,7 @@ import re
 import unicodedata
 from html import escape, unescape
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from .safety import URL_RE, _host_is_private, _url_host
 
@@ -26,10 +26,23 @@ def _strip_format_chars(s: str) -> str:
 
 
 def normalize_href(value: str) -> str:
-    """Unescape HTML entities, strip Unicode format chars, normalize backslashes."""
+    """De-obfuscate an href/src before classification.
+
+    Percent-decodes repeatedly until stable, applies NFKC, strips Unicode format
+    characters (Cf), whitespace, and backslashes. Shared by HTML, Markdown, PDF,
+    DOCX, and XLSX paths.
+    """
     raw = unescape(value)
-    raw = _strip_format_chars(raw).replace("\\", "/").strip()
-    return raw
+    for _ in range(8):
+        nxt = unquote(raw)
+        if nxt == raw:
+            break
+        raw = nxt
+    raw = unicodedata.normalize("NFKC", raw)
+    raw = _strip_format_chars(raw)
+    raw = re.sub(r"\s+", "", raw)
+    raw = raw.replace("\\", "/")
+    return raw.strip()
 
 
 def classify_href(value: str) -> HrefClass:
@@ -40,11 +53,10 @@ def classify_href(value: str) -> HrefClass:
     if raw.startswith("#"):
         return "fragment"
     low = raw.lower()
-    compact = re.sub(r"\s+", "", low)
-    if compact.startswith("//") or low.startswith("//"):
+    if low.startswith("//"):
         return "blocked"
     for prefix in _DANGEROUS_PREFIXES:
-        if compact.startswith(prefix) or low.startswith(prefix):
+        if low.startswith(prefix):
             return "blocked"
     if low.startswith(("http://", "https://")):
         host = _url_host(raw)
@@ -57,9 +69,7 @@ def classify_href(value: str) -> HrefClass:
         except Exception:  # noqa: BLE001
             return "blocked"
         return "public"
-    if re.match(r"^[a-z][a-z0-9+.-]*:", low) or re.match(r"^[a-z][a-z0-9+.-]*:", compact):
-        return "blocked"
-    if low.startswith("//") or (low.startswith("/") and low[1:2] == "/"):
+    if re.match(r"^[a-z][a-z0-9+.-]*:", low):
         return "blocked"
     return "relative"
 
@@ -76,7 +86,7 @@ def public_href_or_none(url: str) -> str | None:
     return None (they are not upgraded).
     """
     raw = normalize_href(url)
-    if raw.startswith("//") and not raw.lower().startswith(("///",)):
+    if raw.startswith("//") and not raw.lower().startswith("///"):
         raw = "https:" + raw
     if classify_href(raw) != "public":
         return None

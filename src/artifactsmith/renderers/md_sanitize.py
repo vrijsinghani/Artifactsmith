@@ -12,7 +12,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from .links import classify_href, public_href_or_none
-from .md_serialize import serialize_blocks
+from .md_serialize import escape_all_md_punctuation, serialize_blocks
 from .safety import URL_RE
 
 
@@ -175,8 +175,72 @@ def _linkify_prose_urls(text: str) -> str:
     return "".join(parts)
 
 
+def _destinations_policy_clean(md_text: str) -> bool:
+    """True when re-parsed output has no images and only allowed link destinations."""
+    md = _parser()
+    tokens = md.parse(md_text)
+
+    def walk(children: list[Token] | None) -> bool:
+        if not children:
+            return True
+        i = 0
+        while i < len(children):
+            tok = children[i]
+            if tok.type == "image":
+                return False
+            if tok.type == "link_open":
+                href = _attr_str(tok, "href")
+                kind = classify_href(href)
+                if kind == "public":
+                    if public_href_or_none(href) is None:
+                        return False
+                elif kind not in ("relative", "fragment"):
+                    return False
+            if tok.children and not walk(tok.children):
+                return False
+            i += 1
+        return True
+
+    for tok in tokens:
+        if tok.type == "inline" and tok.children is not None and not walk(tok.children):
+            return False
+        if tok.type == "image":
+            return False
+    return True
+
+
+def collect_link_destinations(md_text: str) -> list[str]:
+    """Return every link/image destination in ``md_text`` after CommonMark parse."""
+    md = _parser()
+    tokens = md.parse(md_text)
+    found: list[str] = []
+
+    def walk(children: list[Token] | None) -> None:
+        if not children:
+            return
+        for tok in children:
+            if tok.type == "image":
+                found.append(_attr_str(tok, "src"))
+            elif tok.type == "link_open":
+                found.append(_attr_str(tok, "href"))
+            if tok.children:
+                walk(tok.children)
+
+    for tok in tokens:
+        if tok.type == "inline":
+            walk(tok.children)
+        elif tok.type == "image":
+            found.append(_attr_str(tok, "src"))
+    return found
+
+
 def sanitize_markdown(text: str) -> str:
-    """Rewrite markdown links/images via CommonMark tokens; leave code untouched."""
+    """Rewrite markdown links/images via CommonMark tokens; leave code untouched.
+
+    After serialize, re-parse and require policy-clean destinations (no images;
+    only public/relative/fragment links). If that check fails, fall back to
+    escaping all Markdown punctuation so nothing parses as a link or image.
+    """
     if not text:
         return text
     md = _parser()
@@ -190,6 +254,11 @@ def sanitize_markdown(text: str) -> str:
     out = out.rstrip("\n")
     if text.endswith("\n") and out:
         out += "\n"
+    if out and not _destinations_policy_clean(out):
+        escaped = escape_all_md_punctuation(out)
+        if text.endswith("\n") and escaped and not escaped.endswith("\n"):
+            escaped += "\n"
+        return escaped
     return out
 
 
