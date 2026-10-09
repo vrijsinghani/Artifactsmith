@@ -14,6 +14,7 @@ from typing import Any
 from . import llm
 from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
+from .renderers.html_sanitize import sanitize_html_document
 from .renderers.safety import URL_RE, check_content, sanitize_text
 
 log = logging.getLogger("artifactsmith.builder")
@@ -255,8 +256,8 @@ def parse_output(text: str) -> tuple[list[str], str, str]:
 
 
 def sanitize_html(body: str) -> str:
-    """No generated JavaScript and no remote resources: strip script tags and any http(s)/ftp URL."""
-    return sanitize_text(body)
+    """Allowlist HTML via nh3 and sanitize author CSS; no scripts or remote fetches."""
+    return sanitize_html_document(body)
 
 
 def check_source(body: str) -> list[str]:
