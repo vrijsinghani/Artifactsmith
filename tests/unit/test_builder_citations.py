@@ -83,8 +83,7 @@ async def _fake_md_call(model, system, user, timeout=300):
 async def _fake_html_call(model, system, user, timeout=300):
     assert "public http(s)" in system.lower()
     return (
-        "===ASSUMPTIONS===\n- none\n===SUMMARY===\nSources brief.\n"
-        f"===FILE: index.html===\n{_MODEL_HTML}\n===END===\n"
+        f"===ASSUMPTIONS===\n- none\n===SUMMARY===\nSources brief.\n===FILE: index.html===\n{_MODEL_HTML}\n===END===\n"
     )
 
 
@@ -138,9 +137,7 @@ async def test_run_build_formats_keep_clickable_public_links(fmt, monkeypatch):
         assert b"https://www.nsf.gov/images/logo.png" in uris
     elif fmt == "docx":
         with zipfile.ZipFile(io.BytesIO(res.files["document.docx"])) as zf:
-            rels = "\n".join(
-                zf.read(n).decode("utf-8", errors="replace") for n in zf.namelist() if n.endswith(".rels")
-            )
+            rels = "\n".join(zf.read(n).decode("utf-8", errors="replace") for n in zf.namelist() if n.endswith(".rels"))
         assert "https://www.nsf.gov/" in rels
         assert "https://www.nsf.gov/images/logo.png" in rels
     else:
