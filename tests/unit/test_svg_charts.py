@@ -50,3 +50,28 @@ def test_sanitize_html_is_idempotent_for_charts():
     twice = sanitize_html(once)
     assert BAR in once and LINE in once and DONUT in once
     assert BAR in twice and LINE in twice and DONUT in twice
+
+
+def test_chart_colored_via_css_class_keeps_fill():
+    raw = """<!DOCTYPE html><html><head>
+    <style>
+    :root { --blue: #087f8c; --mute: #b7cbd0; }
+    .bar { fill: var(--blue); }
+    .bar-mute { fill: var(--mute); }
+    .axis { fill: none; stroke: #17212b; stroke-width: 1; }
+    </style>
+    </head><body>
+    <svg viewBox="0 0 100 40" role="img" aria-label="Quarterly leads">
+    <rect class="bar" x="0" y="10" width="40" height="20"></rect>
+    <rect class="bar-mute" x="50" y="4" width="30" height="26"></rect>
+    <line class="axis" x1="0" y1="38" x2="100" y2="38"></line>
+    </svg>
+    </body></html>"""
+    out = sanitize_html(raw)
+    compact = "".join(out.split()).lower()
+    assert "fill:var(--blue)" in compact
+    assert "fill:var(--mute)" in compact
+    assert "stroke:#17212b" in compact
+    assert 'class="bar"' in out
+    assert "<rect" in out.lower()
+    assert "url(" not in compact

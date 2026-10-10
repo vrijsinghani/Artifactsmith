@@ -49,6 +49,37 @@ def test_page_wide_nesting_limit_runs_on_clean_input():
     assert "<rect" not in out
 
 
+def test_g_nesting_counts_toward_depth_limit():
+    inner = '<rect x="0" y="0" width="1" height="1" fill="#111"></rect>'
+    nested = inner
+    for _ in range(20):
+        nested = f"<g>{nested}</g>"
+    raw = _doc(f'<svg viewBox="0 0 1 1" role="img" aria-label="deep g">{nested}</svg>')
+    out = sanitize_html(raw).lower()
+    assert "<rect" not in out
+
+
+def test_aria_labelledby_dropped_when_id_missing():
+    raw = _doc(
+        '<svg viewBox="0 0 10 10" role="img" aria-labelledby="missing">'
+        '<rect x="0" y="0" width="1" height="1" fill="#111"></rect></svg>'
+    )
+    out = sanitize_html(raw).lower()
+    assert "aria-labelledby" not in out
+    assert "<rect" in out
+
+
+def test_aria_labelledby_kept_when_id_exists():
+    raw = _doc(
+        '<h2 id="chart-title">Sales</h2>'
+        '<svg viewBox="0 0 10 10" role="img" aria-labelledby="chart-title">'
+        '<rect x="0" y="0" width="1" height="1" fill="#111"></rect></svg>'
+    )
+    out = sanitize_html(raw)
+    assert 'aria-labelledby="chart-title"' in out
+    assert 'id="chart-title"' in out
+
+
 def test_html_over_2mb_is_rejected():
     raw = "<html><body><p>" + ("x" * 2_000_000) + "</p></body></html>"
     with pytest.raises(HtmlSanitizeError, match="page too large"):

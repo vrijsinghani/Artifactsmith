@@ -105,6 +105,13 @@ def _compact(css: str) -> str:
     return "".join(css.split()).lower()
 
 
+def test_css_keeps_svg_paint_and_drops_url():
+    assert "fill:#087f8c" in _compact(sanitize_css(".bar{fill:#087f8c;stroke-width:2}"))
+    assert "url(" not in sanitize_css(".bar{fill:url(https://evil/x.svg);stroke:#111}")
+    assert "stroke:#111" in _compact(sanitize_css(".bar{fill:url(https://evil/x.svg);stroke:#111}"))
+    assert "fill:var(--blue)" in _compact(sanitize_inline_style("fill:var(--blue);stroke:none"))
+
+
 # Builder house-style page: :root tokens and var() for color, type, and layout.
 _BUILDER_SHARE_FIXTURE = """
 :root {

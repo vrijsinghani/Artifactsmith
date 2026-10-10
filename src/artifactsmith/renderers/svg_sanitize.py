@@ -231,10 +231,9 @@ def _sanitize_node(node: Node, budget: _Budget, depth: int, in_svg: bool) -> lis
     if tag in SVG_TAGS:
         if not in_svg and tag != "svg":
             return []
-        next_depth = depth + 1 if tag == "svg" else depth
+        next_depth = depth + 1
         if tag == "svg":
             budget.add_root()
-            next_depth = depth + 1
         budget.add_element(next_depth)
         cleaned = Node(tag, _clean_attrs(tag, node.attrs, budget, budget.page_ids))
         if tag == "desc":
@@ -283,10 +282,9 @@ def _account(node: Node, budget: _Budget, depth: int, in_svg: bool) -> None:
         return
     if not in_svg and tag != "svg":
         return
-    next_depth = depth + 1 if tag == "svg" else depth
+    next_depth = depth + 1
     if tag == "svg":
         budget.add_root()
-        next_depth = depth + 1
     budget.add_element(next_depth)
     for raw_name, raw_value in node.attrs:
         name = canonical_svg_attr(raw_name)
@@ -304,10 +302,10 @@ def _account(node: Node, budget: _Budget, depth: int, in_svg: bool) -> None:
             _account(child, budget, next_depth, True)
 
 
-def _svg_already_clean(node: Node, in_svg: bool) -> bool:
+def _svg_already_clean(node: Node, in_svg: bool, page_ids: set[str]) -> bool:
     tag = node.tag
     if not tag:
-        return all(isinstance(c, str) or _svg_already_clean(c, in_svg) for c in node.children)
+        return all(isinstance(c, str) or _svg_already_clean(c, in_svg, page_ids) for c in node.children)
     if ":" in tag or tag in SVG_CLEAN_CONTENT:
         return False
     if tag == "a" and in_svg:
@@ -323,13 +321,15 @@ def _svg_already_clean(node: Node, in_svg: bool) -> bool:
                 return False
             if filter_svg_attribute(tag, name, value) is None:
                 return False
+            if canon == "aria-labelledby" and any(tok not in page_ids for tok in value.split()):
+                return False
             seen.add(canon.lower())
         if tag == "desc" and any(isinstance(c, Node) for c in node.children):
             return False
-        return all(isinstance(c, str) or _svg_already_clean(c, True) for c in node.children)
+        return all(isinstance(c, str) or _svg_already_clean(c, True, page_ids) for c in node.children)
     if in_svg:
         return False
-    return all(isinstance(c, str) or _svg_already_clean(c, False) for c in node.children)
+    return all(isinstance(c, str) or _svg_already_clean(c, False, page_ids) for c in node.children)
 
 
 def sanitize_svg_fragment(html: str) -> str:
@@ -339,10 +339,10 @@ def sanitize_svg_fragment(html: str) -> str:
     tree = parse_fragment(html)
     counted = _Budget()
     _account(tree, counted, 0, False)
-    if not counted.over and _svg_already_clean(tree, False):
-        return html
     page_ids: set[str] = set()
     _collect_ids(tree, page_ids)
+    if not counted.over and _svg_already_clean(tree, False, page_ids):
+        return html
     budget = _Budget()
     budget.page_ids = page_ids
     parts: list[str] = []
