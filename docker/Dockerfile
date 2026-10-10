@@ -1,5 +1,5 @@
-# python:3.12-slim-bookworm
-FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+# python:3.14-slim-trixie
+FROM python:3.14-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint needs Pango/Cairo (no headless browser). fonts-liberation covers PDF text.
 RUN apt-get update && apt-get install -y --no-install-recommends \
