@@ -40,11 +40,13 @@ _STYLE_PROPS: set[str] = set(
     padding-inline padding-left padding-right padding-top page-break-inside place-content
     place-items place-self pointer-events position print-color-adjust
     -webkit-print-color-adjust resize right row-gap scroll-behavior scroll-margin-top
-    table-layout text-align text-decoration text-decoration-color
+    table-layout text-align text-anchor text-decoration text-decoration-color
     -webkit-overflow-scrolling
     text-decoration-thickness text-indent text-overflow text-shadow text-transform
     text-underline-offset text-wrap top transform transition vertical-align visibility
     white-space width word-break word-wrap z-index
+    dominant-baseline fill fill-opacity stroke stroke-dasharray stroke-dashoffset
+    stroke-linecap stroke-linejoin stroke-opacity stroke-width
     """.split()
 )
 
