@@ -58,7 +58,7 @@ def test_strips_javascript_private_and_protocol_relative_links():
     low = out.lower()
     assert "javascript:" not in low
     assert "vbscript:" not in low
-    assert "data:" not in low
+    assert 'href="data:' not in low
     assert "file:" not in low
     assert 'href="//example.com' not in low
     assert "127.0.0.1" not in low

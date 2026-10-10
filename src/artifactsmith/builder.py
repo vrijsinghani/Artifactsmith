@@ -14,7 +14,7 @@ from typing import Any
 from . import llm
 from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
-from .renderers.html_sanitize import sanitize_html_document
+from .renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
 from .renderers.safety import check_content, check_fields, sanitize_text
 from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_killable
 from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
@@ -95,7 +95,8 @@ Visual design:
 - Make the structure visible, so the page can be scanned in ten seconds. Put the verdict or recommendation in a
   distinct block at the top. Show status, scores and ratings as color-coded labels or table cells (green, amber,
   red, always with the text label too). Turn real numeric comparisons into simple inline SVG bar charts or tables
-  with bars. Use these only where they carry information, never as decoration.
+  with bars. Label each chart svg with role="img" and a nonempty aria-label (not title or aria-labelledby).
+  Use these only where they carry information, never as decoration.
 - One or two typefaces from system font stacks, a clear type scale, body lines under 80 characters (about 68ch
   max-width) with comfortable line-height. Left-aligned single column by default; use tables for tabular data.
 - Borders, numbering, dividers and labels must carry information, not decorate. Number items or sections only when
@@ -381,7 +382,10 @@ async def run_build(
             last_problems = hard
             notes.append(f"attempt {attempt}: " + "; ".join(hard))
             continue
-        body = sanitize_html(body) if fmt == "html" else sanitize_text(body)
+        try:
+            body = sanitize_html(body) if fmt == "html" else sanitize_text(body)
+        except HtmlSanitizeError as exc:
+            raise BuildError(str(exc)) from exc
         problems = check_content(
             body,
             fmt=fmt,

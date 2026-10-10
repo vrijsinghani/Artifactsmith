@@ -270,10 +270,15 @@ def attribute_ok(name: str, value: str) -> bool:
         return transform_ok(value)
     if key == "class":
         return class_ok(value)
+    if key == "id":
+        return bool(_IDENT.fullmatch(value.strip()) and len(value.strip()) <= 64)
     if key == "role":
         return value.strip().lower() in {"img", "presentation"}
     if key == "aria-hidden":
         return value.strip().lower() in {"true", "false"}
     if key == "aria-label":
         return 0 < len(value) <= 300
+    if key == "aria-labelledby":
+        tokens = value.split()
+        return 1 <= len(tokens) <= 4 and all(_IDENT.fullmatch(tok) and len(tok) <= 64 for tok in tokens)
     return False

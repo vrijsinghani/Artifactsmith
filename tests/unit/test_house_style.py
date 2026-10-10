@@ -14,6 +14,8 @@ def test_prompt():
         "never override factual accuracy",
         "Visual design:",
         "Spend boldness in one place",
+        'role="img"',
+        "aria-label",
     ):
         assert phrase.lower() in s.lower(), phrase
 

@@ -48,9 +48,8 @@ SVG_CLEAN_CONTENT: frozenset[str] = frozenset(
 _SHARED = frozenset(
     {
         "class",
+        "id",
         "style",
-        "role",
-        "aria-label",
         "aria-hidden",
         "fill",
         "stroke",
@@ -65,7 +64,8 @@ _SHARED = frozenset(
     }
 )
 _ATTRS: dict[str, frozenset[str]] = {
-    "svg": _SHARED | frozenset({"viewBox", "width", "height", "preserveAspectRatio"}),
+    "svg": _SHARED
+    | frozenset({"viewBox", "width", "height", "preserveAspectRatio", "role", "aria-label", "aria-labelledby"}),
     "g": _SHARED,
     "rect": _SHARED | frozenset({"x", "y", "width", "height", "rx", "ry"}),
     "line": _SHARED | frozenset({"x1", "y1", "x2", "y2"}),
@@ -78,7 +78,7 @@ _ATTRS: dict[str, frozenset[str]] = {
     | frozenset({"x", "y", "font-size", "font-family", "font-weight", "text-anchor", "dominant-baseline"}),
     "tspan": _SHARED
     | frozenset({"x", "y", "font-size", "font-family", "font-weight", "text-anchor", "dominant-baseline"}),
-    "desc": frozenset({"class", "aria-hidden"}),
+    "desc": frozenset({"class", "id", "aria-hidden"}),
 }
 _CANON = {"viewbox": "viewBox", "preserveaspectratio": "preserveAspectRatio"}
 _MAX_ROOTS = 50
@@ -101,6 +101,8 @@ class _Budget:
         self.text_nodes = 0
         self.text_chars = 0
         self.over = False
+        self.used_ids: set[str] = set()
+        self.page_ids: set[str] = set()
 
     def add_root(self) -> None:
         self.roots += 1
@@ -172,7 +174,24 @@ def filter_svg_attribute(tag: str, attr: str, value: str) -> str | None:
     return value
 
 
-def _clean_attrs(tag: str, attrs: list[tuple[str, str]], budget: _Budget) -> list[tuple[str, str]]:
+def _collect_ids(node: Node, ids: set[str]) -> None:
+    for raw_name, raw_value in node.attrs:
+        if canonical_svg_attr(raw_name) == "id" and attribute_ok("id", raw_value):
+            ids.add(raw_value.strip())
+    for child in node.children:
+        if isinstance(child, Node):
+            _collect_ids(child, ids)
+
+
+def _charge_attr(name: str, value: str, budget: _Budget) -> None:
+    budget.add_attr(value)
+    if name == "d":
+        budget.add_path(value)
+    elif name == "points":
+        budget.add_points(value)
+
+
+def _clean_attrs(tag: str, attrs: list[tuple[str, str]], budget: _Budget, page_ids: set[str]) -> list[tuple[str, str]]:
     kept: list[tuple[str, str]] = []
     seen: set[str] = set()
     for raw_name, raw_value in attrs:
@@ -182,12 +201,15 @@ def _clean_attrs(tag: str, attrs: list[tuple[str, str]], budget: _Budget) -> lis
         filtered = filter_svg_attribute(tag, raw_name, raw_value)
         if filtered is None:
             continue
+        if name == "id":
+            key = filtered.strip()
+            if key in budget.used_ids:
+                continue
+            budget.used_ids.add(key)
+        if name == "aria-labelledby" and any(tok not in page_ids for tok in filtered.split()):
+            continue
         seen.add(name.lower())
-        budget.add_attr(filtered)
-        if name == "d":
-            budget.add_path(filtered)
-        elif name == "points":
-            budget.add_points(filtered)
+        _charge_attr(name, filtered, budget)
         kept.append((name, filtered))
     return kept
 
@@ -214,7 +236,7 @@ def _sanitize_node(node: Node, budget: _Budget, depth: int, in_svg: bool) -> lis
             budget.add_root()
             next_depth = depth + 1
         budget.add_element(next_depth)
-        cleaned = Node(tag, _clean_attrs(tag, node.attrs, budget))
+        cleaned = Node(tag, _clean_attrs(tag, node.attrs, budget, budget.page_ids))
         if tag == "desc":
             text = "".join(c if isinstance(c, str) else "" for c in node.children)
             budget.add_text(text)
@@ -234,6 +256,52 @@ def _sanitize_node(node: Node, budget: _Budget, depth: int, in_svg: bool) -> lis
     if in_svg:
         return []
     return [node]
+
+
+def _account(node: Node, budget: _Budget, depth: int, in_svg: bool) -> None:
+    """Charge page-wide limits without rewriting. Removed-root usage still counts."""
+    tag = node.tag
+    if not tag:
+        for child in node.children:
+            if isinstance(child, str):
+                continue
+            _account(child, budget, depth, in_svg)
+        return
+    if tag == "a" and in_svg:
+        for child in node.children:
+            if isinstance(child, str):
+                budget.add_text(child)
+            else:
+                _account(child, budget, depth, True)
+        return
+    if tag not in SVG_TAGS:
+        if in_svg:
+            return
+        for child in node.children:
+            if isinstance(child, Node):
+                _account(child, budget, depth, False)
+        return
+    if not in_svg and tag != "svg":
+        return
+    next_depth = depth + 1 if tag == "svg" else depth
+    if tag == "svg":
+        budget.add_root()
+        next_depth = depth + 1
+    budget.add_element(next_depth)
+    for raw_name, raw_value in node.attrs:
+        name = canonical_svg_attr(raw_name)
+        filtered = filter_svg_attribute(tag, raw_name, raw_value)
+        if filtered is None:
+            continue
+        _charge_attr(name, filtered, budget)
+    if tag == "desc":
+        budget.add_text("".join(c if isinstance(c, str) else "" for c in node.children))
+        return
+    for child in node.children:
+        if isinstance(child, str):
+            budget.add_text(child)
+        else:
+            _account(child, budget, next_depth, True)
 
 
 def _svg_already_clean(node: Node, in_svg: bool) -> bool:
@@ -265,12 +333,18 @@ def _svg_already_clean(node: Node, in_svg: bool) -> bool:
 
 
 def sanitize_svg_fragment(html: str) -> str:
-    """Rewrite SVG roots in an nh3 fragment; keep already-safe markup intact."""
+    """Enforce page-wide SVG limits; keep already-safe markup when it fits."""
     if "<svg" not in html.lower():
         return html
-    if _svg_already_clean(parse_fragment(html), False):
+    tree = parse_fragment(html)
+    counted = _Budget()
+    _account(tree, counted, 0, False)
+    if not counted.over and _svg_already_clean(tree, False):
         return html
+    page_ids: set[str] = set()
+    _collect_ids(tree, page_ids)
     budget = _Budget()
+    budget.page_ids = page_ids
     parts: list[str] = []
     last = 0
     for start, end in svg_root_spans(html):

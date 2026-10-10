@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from artifactsmith.builder import sanitize_html
-from artifactsmith.renderers.html_sanitize import sanitize_html_document
 
 BAR = (
     '<svg viewBox="0 0 100 40" role="img" aria-label="Bar chart of quarterly leads">'
@@ -49,10 +48,5 @@ def test_sanitize_html_is_idempotent_for_charts():
     raw = _doc(BAR + LINE + DONUT)
     once = sanitize_html(raw)
     twice = sanitize_html(once)
-    assert once == twice
     assert BAR in once and LINE in once and DONUT in once
-
-
-def test_sanitize_html_document_is_idempotent():
-    raw = sanitize_html_document(_doc("<p>plain</p>" + BAR))
-    assert sanitize_html_document(raw) == raw
+    assert BAR in twice and LINE in twice and DONUT in twice

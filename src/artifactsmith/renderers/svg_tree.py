@@ -143,16 +143,20 @@ def remove_elements_with_content(html: str, names: frozenset[str]) -> str:
 
 
 def _tag_gt(html: str, start: int) -> int:
+    """Index of the ``>`` that ends the tag at ``start``, without copying the tail."""
     quote = ""
-    for i, ch in enumerate(html[start:], start):
+    i = start
+    n = len(html)
+    while i < n:
+        ch = html[i]
         if quote:
             if ch == quote:
                 quote = ""
-            continue
-        if ch in "\"'":
+        elif ch in "\"'":
             quote = ch
         elif ch == ">":
             return i
+        i += 1
     return -1
 
 
