@@ -6,6 +6,12 @@ Agents call it to turn their work into documents: web pages, PDFs, Word files, s
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
+## Why I built this
+
+My agents did good work and then handed it back as a wall of chat text. Useful, sure. Fun to read? Not so much.
+
+Then I saw Meta's Muse artifacts, where the agent hands you a real page you can look at, share, and pull back later. I wanted that for my own agents, on my own servers. So I vibe coded it. And here we are.
+
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
 ## Quickstart
@@ -31,6 +37,10 @@ Host ports bind to `127.0.0.1`:
 
 - `http://127.0.0.1:8780/mcp` is the MCP API (bearer token required)
 - `http://127.0.0.1:8781/` is the cookieless preview and share origin (`/p/…`, `/s/…`)
+
+### Use the published image
+
+`ghcr.io/vrijsinghani/artifactsmith:0.1.0` is published for `linux/amd64` on each release. Building from source (the Compose steps above) stays the default.
 
 ## Serving on your network or behind a proxy
 
@@ -127,15 +137,40 @@ Documents may cite public http(s) sources as clickable links. The server strips 
 | DOCX       | `docx`                 | `document.docx` | [python-docx](https://python-docx.readthedocs.io/) |
 | XLSX       | `xlsx`                 | `document.xlsx` | [openpyxl](https://openpyxl.readthedocs.io/) |
 
-HTML uses the house-style prompt and stores a complete page. The other formats ask the model for Markdown, then a renderer converts it. PDF, DOCX, and XLSX also store `content.md` so later edits have a text base.
+HTML uses a visual style (house by default) and stores a complete page. The other formats ask the model for Markdown, then a renderer converts it. PDF, DOCX, and XLSX also store `content.md` so later edits have a text base.
 
 PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does not include Chromium. Details are in [docs/formats.md](docs/formats.md).
+
+## Styles
+
+`create` and `edit` take an optional `style` for HTML: `house`, `bold`, `editorial`, `playful`, `terminal`, or `swiss`. The default is `AM_DEFAULT_STYLE` (usually `house`). Other formats accept `style` and ignore it. Omit `style` on `edit` to keep the last style.
+
+- `house`: today's quiet page — white, one accent, boldness in one place.
+- `bold`: dark navy-to-violet hero, huge white headline, saturated cards and chips.
+
+![Desktop and phone preview of the bold HTML style: a dark gradient hero with a huge headline, then colored step cards](docs/images/style-bold.png)
+
+- `editorial`: magazine feature — off-white paper, large serif headline, thin rules, one deep red accent.
+
+![Desktop and phone preview of the editorial HTML style: a large serif headline, a red-ruled lead, and two columns](docs/images/style-editorial.png)
+
+- `playful`: cream page, candy-colored rounded cards, thick outlines and offset shadows.
+
+![Desktop and phone preview of the playful HTML style: a coral rounded banner, googly-eye accents, and mint chat cards](docs/images/style-playful.png)
+
+- `terminal`: dark mode, monospace, neon green and cyan, sections as fake terminal windows.
+
+![Desktop and phone preview of the terminal HTML style: a green shell-prompt headline and dark windows with three title-bar dots](docs/images/style-terminal.png)
+
+- `swiss`: white grid, huge black grotesque type, signal-orange only on numbers and rules.
+
+![Desktop and phone preview of the swiss HTML style: a huge black headline, an orange rule, and oversized orange numerals](docs/images/style-swiss.png)
 
 ## MCP tools
 
 | Tool | Permission | What it does |
 | ---- | ---------- | ------------ |
-| `create` | `create` | Queue a private build. Optional `format`. Does not create a share link. |
+| `create` | `create` | Queue a private build. Optional `format` and `style`. Does not create a share link. |
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
 | `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `list_artifacts` | `read` | Catalog for the token's workspace. |
@@ -161,6 +196,7 @@ Optional:
 
 - `kind`: defaults to `web_static` (the only kind in this release).
 - `format`: `html` (default), `markdown`, `pdf`, `docx`, or `xlsx`.
+- `style`: `house` (default), `bold`, `editorial`, `playful`, `terminal`, or `swiss`. HTML only; ignored on other formats.
 - `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
 - `model`, `workspace`, `idempotency_key`, `capabilities`.
 
@@ -188,6 +224,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_LLM_API` | `chat` | `chat` (Chat Completions) or `responses`. |
 | `AM_LLM_BASE` | `https://api.openai.com` | OpenAI-compatible host root. With or without a trailing `/v1`. |
 | `AM_DEFAULT_MODEL` | `gpt-4o-mini` | Model name sent to the LLM. |
+| `AM_DEFAULT_STYLE` | `house` | HTML visual style when `create` omits `style`. |
 | `AM_SHARE_TTL_DAYS` | `30` | `0` means until revoked. |
 | `AM_SHARE_TTL_MAX_DAYS` | `365` | Cap on positive TTLs. |
 | `AM_STORE_ENDPOINT` | (required) | S3-compatible object store. |

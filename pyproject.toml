@@ -15,7 +15,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mcp>=1.26,<2",
+    "mcp>=1.26,<2",  # mcp 2.x renamed FastMCP; keep the v1 server API
     "uvicorn>=0.30",
     "boto3>=1.34",
     "httpx>=0.27",

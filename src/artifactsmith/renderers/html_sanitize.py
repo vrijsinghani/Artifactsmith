@@ -10,8 +10,8 @@ import re
 from html import unescape
 
 import nh3
-import tinycss2  # type: ignore[import-untyped]
-from tinycss2 import ast as css_ast
+
+from .css_sanitize import _has_breakout, sanitize_css, sanitize_inline_style
 
 # Document structure is rebuilt after fragment cleaning (Ammonia drops html/head/body).
 _ALLOWED_TAGS: set[str] = {
@@ -113,7 +113,7 @@ _CLEAN_CONTENT_TAGS: set[str] = {
 }
 
 _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
-    "*": {"class", "id", "title", "lang", "dir"},
+    "*": {"class", "id", "title", "lang", "dir", "data-label", "aria-label"},
     "a": {"href", "title"},
     "img": {"alt", "width", "height"},
     "td": {"colspan", "rowspan"},
@@ -128,172 +128,19 @@ _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
     "ins": {"cite", "datetime"},
 }
 
-_STYLE_PROPS: set[str] = {
-    "align-items",
-    "background-color",
-    "border",
-    "border-bottom",
-    "border-color",
-    "border-left",
-    "border-radius",
-    "border-right",
-    "border-style",
-    "border-top",
-    "border-width",
-    "box-sizing",
-    "color",
-    "display",
-    "flex",
-    "flex-direction",
-    "flex-wrap",
-    "font-family",
-    "font-size",
-    "font-style",
-    "font-weight",
-    "gap",
-    "grid-template-columns",
-    "height",
-    "justify-content",
-    "letter-spacing",
-    "line-height",
-    "list-style-type",
-    "margin",
-    "margin-bottom",
-    "margin-left",
-    "margin-right",
-    "margin-top",
-    "max-height",
-    "max-width",
-    "min-height",
-    "min-width",
-    "opacity",
-    "overflow",
-    "padding",
-    "padding-bottom",
-    "padding-left",
-    "padding-right",
-    "padding-top",
-    "text-align",
-    "text-decoration",
-    "vertical-align",
-    "white-space",
-    "width",
-    "word-break",
-    "z-index",
-}
-
-# Rejected CSS function names (after tinycss2 escape resolution).
-_BAD_FUNCTIONS: frozenset[str] = frozenset(
-    {
-        "url",
-        "image-set",
-        "-webkit-image-set",
-        "image",
-        "cross-fade",
-        "src",
-        "element",
-        "expression",
-        "var",  # custom props can smuggle urls; keep CSS simple
-    }
-)
-
 for _tag in _ALLOWED_TAGS:
     _ALLOWED_ATTRIBUTES.setdefault(_tag, set()).add("style")
 
 _TITLE_RE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
 _STYLE_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
 _BODY_RE = re.compile(r"<body\b[^>]*>(.*?)</body>", re.I | re.S)
-
-
-def _tokens_safe(tokens: list[object]) -> bool:
-    """False if any token can fetch remote content or break out of a style element."""
-    for tok in tokens:
-        if isinstance(tok, css_ast.URLToken):
-            return False
-        if isinstance(tok, css_ast.FunctionBlock):
-            name = (tok.lower_name or "").lower()
-            if name in _BAD_FUNCTIONS:
-                return False
-            if not _tokens_safe(list(tok.arguments)):
-                return False
-        if isinstance(tok, css_ast.SquareBracketsBlock):
-            if not _tokens_safe(list(tok.content)):
-                return False
-        if isinstance(tok, css_ast.ParenthesesBlock):
-            if not _tokens_safe(list(tok.content)):
-                return False
-        if isinstance(tok, css_ast.CurlyBracketsBlock):
-            if not _tokens_safe(list(tok.content)):
-                return False
-        if isinstance(tok, (css_ast.StringToken, css_ast.IdentToken)):
-            value = getattr(tok, "value", "") or ""
-            if "<" in value or ">" in value:
-                return False
-            low = value.lower()
-            if "://" in low or low.startswith("//"):
-                return False
-    return True
-
-
-def _serialize_safe(nodes: list[object]) -> str:
-    text = str(tinycss2.serialize(nodes))
-    if "<" in text or ">" in text:
-        return ""
-    return text
-
-
-def sanitize_css(css: str) -> str:
-    """Keep only allowlisted declarations; drop at-rules and fetch-capable values.
-
-    Does not HTML-unescape the input: entity-encoded ``</style>`` must stay inert text
-    that tinycss2 will not turn into markup.
-    """
-    if not css or "<" in css:
-        # Raw '<' in a style block is always treated as a breakout attempt.
-        return ""
-
-    rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
-    kept: list[str] = []
-    for rule in rules:
-        if isinstance(rule, css_ast.AtRule):
-            # Drop @import, @font-face, @namespace, @media, …
-            continue
-        if isinstance(rule, css_ast.ParseError):
-            continue
-        if not isinstance(rule, css_ast.QualifiedRule):
-            continue
-        prelude = list(rule.prelude)
-        content = list(rule.content)
-        if not _tokens_safe(prelude) or not _tokens_safe(content):
-            continue
-        decls = tinycss2.parse_declaration_list(content, skip_comments=True, skip_whitespace=True)
-        safe_decls: list[object] = []
-        for decl in decls:
-            if not isinstance(decl, css_ast.Declaration):
-                continue
-            name = (decl.lower_name or "").lower()
-            if name not in _STYLE_PROPS:
-                continue
-            if not _tokens_safe(list(decl.value)):
-                continue
-            safe_decls.append(decl)
-        if not safe_decls:
-            continue
-        body = _serialize_safe(safe_decls)
-        if not body.strip():
-            continue
-        prelude_text = _serialize_safe(prelude).strip()
-        if not prelude_text or "<" in prelude_text:
-            continue
-        kept.append(f"{prelude_text}{{{body}}}")
-    out = "".join(kept)
-    if "<" in out or ">" in out:
-        return ""
-    return out
+_VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1">'
 
 
 def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
     """Allow public http(s) on <a href> only; reject other remote resource URLs."""
+    if attr == "style":
+        return sanitize_inline_style(value) or None
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
         return value
     from .links import classify_href, emit_href, public_href_or_none
@@ -352,7 +199,7 @@ def sanitize_html_document(body: str) -> str:
     title = nh3.clean_text(unescape(title_m.group(1))).strip() if title_m else ""
     # Do not unescape style contents before sanitizing (entity-encoded tags stay inert).
     css = sanitize_css("\n".join(_STYLE_RE.findall(body)))
-    if "<" in css or ">" in css:
+    if _has_breakout(css):
         css = ""
 
     body_m = _BODY_RE.search(body)
@@ -369,7 +216,6 @@ def sanitize_html_document(body: str) -> str:
         attributes={k: set(v) for k, v in _ALLOWED_ATTRIBUTES.items()},
         attribute_filter=_url_attribute_filter,
         url_schemes={"http", "https"},
-        filter_style_properties=_STYLE_PROPS,
         link_rel="noopener noreferrer nofollow",
         strip_comments=True,
     )
@@ -389,14 +235,15 @@ def sanitize_html_document(body: str) -> str:
         '<html lang="en">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
+        f"{_VIEWPORT_META}\n"
         f"{title_block}"
         f"{style_block}"
         "</head>\n"
         f"<body>\n{cleaned}\n</body>\n"
         "</html>\n"
     )
-    # Final gate: style contents must never contain a tag-open character.
+    # Final gate: style contents must not contain a markup breakout.
     for m in _STYLE_RE.finditer(doc):
-        if "<" in m.group(1):
+        if _has_breakout(m.group(1)):
             doc = _STYLE_RE.sub("<style></style>\n", doc, count=1)
     return doc

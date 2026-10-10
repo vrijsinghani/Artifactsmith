@@ -17,6 +17,7 @@ from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import sanitize_html_document
 from .renderers.safety import check_content, check_fields, sanitize_text
 from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_killable
+from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
 
 log = logging.getLogger("artifactsmith.builder")
 
@@ -284,9 +285,9 @@ _XLSX_LINK_HINT = (
 )
 
 
-def system_prompt_for(fmt: str) -> str:
+def system_prompt_for(fmt: str, style: str = DEFAULT_STYLE) -> str:
     if fmt == "html":
-        return SYSTEM
+        return html_system_prompt(SYSTEM, style)
     if fmt == "xlsx":
         return CONTENT_SYSTEM + _XLSX_LINK_HINT
     return CONTENT_SYSTEM
@@ -306,12 +307,14 @@ async def run_build(
     source: dict[str, Any] | None = None,
     render_timeout: int = 120,
     format: str = "html",
+    style: str = DEFAULT_STYLE,
 ) -> BuildResult:
     fmt = (format or "html").lower().strip()
     if fmt not in SUPPORTED_FORMATS:
         raise BuildError(f"unsupported format {fmt!r}")
     _ = kind, slug  # reserved for future kinds / naming
-    system = system_prompt_for(fmt)
+    chosen = parse_style(style)
+    system = system_prompt_for(fmt, chosen)
     user = build_user_prompt(verbatim, display_name, base_source, base_version, history, source)
 
     notes: list[str] = []

@@ -20,6 +20,7 @@ from .db import DB, jloads
 from .renderers import EXTENSION, SUPPORTED_FORMATS
 from .renderers.safety import strip_ooxml_controls
 from .store import Store
+from .styles import DEFAULT_STYLE, StyleError, parse_style
 
 log = logging.getLogger("artifactsmith.service")
 
@@ -269,6 +270,7 @@ class Service:
         source_files: list[dict[str, Any]] | None = None,
         capabilities: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        style: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "create")
         ws = workspace or principal["workspace"]
@@ -284,6 +286,10 @@ class Service:
         if fmt not in SUPPORTED_FORMATS:
             raise AMError(f"format must be one of {sorted(SUPPORTED_FORMATS)}")
         format = fmt
+        try:
+            style = parse_style(style, default=CFG.default_style)
+        except StyleError as e:
+            raise AMError(str(e)) from e
         title = (display_name or "").strip()
         raw_slug = (slug or "").strip()
         if not title and not raw_slug:
@@ -318,6 +324,7 @@ class Service:
                 "source_content": source_content,
                 "source_files": source_files,
                 "capabilities": caps,
+                "style": style,
             }
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
@@ -344,6 +351,7 @@ class Service:
             "model": model,
             "status": "queued",
             "source_bytes": bundle["bytes"] if bundle else 0,
+            "style": style,
         }
         with self.db.tx() as c:
             self._check_quota(c, principal)
@@ -375,8 +383,8 @@ class Service:
                 )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (aid, newv, None, verbatim_request, "queued", jid, model, skey, principal["name"], t),
+                "source_key,style,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (aid, newv, None, verbatim_request, "queued", jid, model, skey, style, principal["name"], t),
             )
             c.execute(
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
@@ -404,6 +412,7 @@ class Service:
         source_content: str | None = None,
         source_files: list[dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
+        style: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "edit")
         a = self.get_artifact(principal, artifact_id)
@@ -414,6 +423,16 @@ class Service:
         verbatim_request = self._validate_verbatim(verbatim_request)
         model = self._model(model)
         idempotency_key = self._validate_idempotency_key(idempotency_key)
+        if style is None or str(style).strip() == "":
+            prev = self.db.one(
+                "SELECT style FROM versions WHERE artifact_id=? AND status='done' ORDER BY version DESC LIMIT 1",
+                a["id"],
+            )
+            style = (prev or {}).get("style") or DEFAULT_STYLE
+        try:
+            style = parse_style(style)
+        except StyleError as e:
+            raise AMError(str(e)) from e
         bundle = self._source(source_content, source_files)
         fingerprint = self._request_fingerprint(
             {
@@ -424,6 +443,7 @@ class Service:
                 "verbatim_request": verbatim_request,
                 "source_content": source_content,
                 "source_files": source_files,
+                "style": style,
             }
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
@@ -469,8 +489,20 @@ class Service:
             )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (a["id"], newv, int(base_version), verbatim_request, "queued", jid, model, skey, principal["name"], t),
+                "source_key,style,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    a["id"],
+                    newv,
+                    int(base_version),
+                    verbatim_request,
+                    "queued",
+                    jid,
+                    model,
+                    skey,
+                    style,
+                    principal["name"],
+                    t,
+                ),
             )
             c.execute(
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
@@ -486,6 +518,7 @@ class Service:
                 "job_id": jid,
                 "model": model,
                 "status": "queued",
+                "style": style,
             }
             if idempotency_key:
                 c.execute(
@@ -671,6 +704,7 @@ class Service:
             source=source,
             render_timeout=CFG.render_timeout_s,
             format=a["format"] or "html",
+            style=v.get("style") or DEFAULT_STYLE,
         )
         total = sum(len(b) for b in res.files.values())
         if total > CFG.max_output_bytes:
@@ -710,6 +744,7 @@ class Service:
             "created_by": v["created_by"],
             "created_at": iso(v["created_at"]),
             "built_at": iso(now()),
+            "style": v.get("style") or DEFAULT_STYLE,
         }
         await asyncio.to_thread(
             self.store.put, prefix + "manifest.json", json.dumps(manifest, indent=2).encode(), "application/json"
@@ -795,6 +830,7 @@ class Service:
             "job_id": v["job_id"],
             "created_by": v["created_by"],
             "created_at": iso(v["created_at"]),
+            "style": v.get("style") or DEFAULT_STYLE,
         }
         if v["status"] == "done":
             card.update(
@@ -920,6 +956,7 @@ class Service:
                 "created_at": iso(x["created_at"]),
                 "model": x["model"],
                 "sha256": x["sha256"],
+                "style": x.get("style") or DEFAULT_STYLE,
             }
             for x in vs
         ]
@@ -940,6 +977,7 @@ class Service:
                 raise AMError("version not found")
             j = self.db.one("SELECT * FROM jobs WHERE id=?", v["job_id"]) or {}
             out["version"] = int(target)
+            out["style"] = v.get("style") or DEFAULT_STYLE
             out["build_log"] = {"status": j.get("status"), "progress": j.get("progress"), "error": j.get("error")}
             if v["status"] == "done":
                 try:
