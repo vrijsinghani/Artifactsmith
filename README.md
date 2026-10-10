@@ -223,6 +223,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `OPENAI_API_KEY` / `AM_LLM_KEY` | empty | LLM credential for the configured endpoint. |
 | `AM_LLM_API` | `chat` | `chat` (Chat Completions) or `responses`. |
 | `AM_LLM_BASE` | `https://api.openai.com` | OpenAI-compatible host root. With or without a trailing `/v1`. |
+| `AM_LLM_TEMPERATURE` | unset | Chat Completions temperature. Unset sends `0`; `none` omits the field. |
 | `AM_DEFAULT_MODEL` | `gpt-4o-mini` | Model name sent to the LLM. |
 | `AM_DEFAULT_STYLE` | `house` | HTML visual style when `create` omits `style`. |
 | `AM_SHARE_TTL_DAYS` | `30` | `0` means until revoked. |

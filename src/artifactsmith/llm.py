@@ -14,6 +14,9 @@ log = logging.getLogger("artifactsmith.llm")
 # Cap the raw HTTP response body while streaming so a runaway reply cannot fill memory.
 LLM_RESPONSE_CAP_BYTES = 2_000_000
 
+# Models that rejected `temperature` during this process. Later calls omit the field.
+_MODELS_WITHOUT_TEMPERATURE: set[str] = set()
+
 
 class LLMError(RuntimeError):
     pass
@@ -36,22 +39,43 @@ async def _read_capped(response: httpx.Response) -> bytes:
     return b"".join(chunks)
 
 
+async def _post_chat(
+    client: httpx.AsyncClient,
+    url: str,
+    payload: dict[str, object],
+    headers: dict[str, str],
+) -> tuple[int, bytes]:
+    async with client.stream("POST", url, json=payload, headers=headers) as r:
+        body = await _read_capped(r)
+        return r.status_code, body
+
+
+def _temperature_rejected(status: int, body: bytes, payload: dict[str, object]) -> bool:
+    if status != 400 or "temperature" not in payload:
+        return False
+    return "temperature" in body.decode("utf-8", errors="replace").lower()
+
+
 async def call_chat(model: str, system: str, user: str, timeout: float = 300) -> str:
     key = CFG.llm_key()
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    payload = {
+    payload: dict[str, object] = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": 0,
     }
+    if CFG.llm_send_temperature() and model not in _MODELS_WITHOUT_TEMPERATURE:
+        payload["temperature"] = 0
     url = CFG.normalized_llm_base() + "/v1/chat/completions"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as r:
-            body = await _read_capped(r)
-            if r.status_code != 200:
-                raise _scrub_http_error(r.status_code, body.decode("utf-8", errors="replace"))
+        status, body = await _post_chat(client, url, payload, headers)
+        if _temperature_rejected(status, body, payload):
+            _MODELS_WITHOUT_TEMPERATURE.add(model)
+            payload.pop("temperature", None)
+            status, body = await _post_chat(client, url, payload, headers)
+        if status != 200:
+            raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
     data = httpx.Response(200, content=body).json()
     try:
         text = data["choices"][0]["message"]["content"] or ""

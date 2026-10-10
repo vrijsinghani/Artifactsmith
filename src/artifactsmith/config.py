@@ -142,6 +142,10 @@ class Config:
     def llm_key(self) -> str:
         return _setting("AM_LLM_KEY") or _setting("OPENAI_API_KEY")
 
+    def llm_send_temperature(self) -> bool:
+        """False when AM_LLM_TEMPERATURE is the literal value none."""
+        return _setting("AM_LLM_TEMPERATURE") != "none"
+
     def normalized_llm_base(self) -> str:
         """Host root without a trailing slash or trailing /v1.
 
