@@ -12,6 +12,17 @@ from html import unescape
 import nh3
 
 from .css_sanitize import _has_breakout, sanitize_css, sanitize_inline_style
+from .html_export import EXPORT_CSP_META, verify_export_document
+from .svg_sanitize import SVG_CLEAN_CONTENT, SVG_TAGS, filter_svg_attribute, sanitize_svg_fragment, svg_allowed_attrs
+from .svg_tree import remove_elements_with_content
+
+MAX_HTML_BYTES = 2_000_000
+_DATA_IMAGE = re.compile(r"^data:image/(?:png|jpe?g|gif|webp|avif)[;,]", re.I)
+
+
+class HtmlSanitizeError(ValueError):
+    """Unrecoverable HTML sanitizer failure (size, mutation, or missing policy)."""
+
 
 # Document structure is rebuilt after fragment cleaning (Ammonia drops html/head/body).
 _ALLOWED_TAGS: set[str] = {
@@ -93,7 +104,6 @@ _CLEAN_CONTENT_TAGS: set[str] = {
     "iframe",
     "object",
     "embed",
-    "svg",
     "math",
     "noscript",
     "template",
@@ -110,12 +120,13 @@ _CLEAN_CONTENT_TAGS: set[str] = {
     "head",
     "html",
     "body",
+    *SVG_CLEAN_CONTENT,
 }
 
 _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
     "*": {"class", "id", "title", "lang", "dir", "data-label", "aria-label"},
     "a": {"href", "title"},
-    "img": {"alt", "width", "height"},
+    "img": {"alt", "width", "height", "src"},
     "td": {"colspan", "rowspan"},
     "th": {"colspan", "rowspan", "scope"},
     "col": {"span"},
@@ -130,6 +141,8 @@ _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
 
 for _tag in _ALLOWED_TAGS:
     _ALLOWED_ATTRIBUTES.setdefault(_tag, set()).add("style")
+for _tag, _names in svg_allowed_attrs().items():
+    _ALLOWED_ATTRIBUTES.setdefault(_tag, set()).update(_names)
 
 _TITLE_RE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
 _STYLE_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
@@ -137,8 +150,10 @@ _BODY_RE = re.compile(r"<body\b[^>]*>(.*?)</body>", re.I | re.S)
 _VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1">'
 
 
-def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
+def _attribute_filter(tag: str, attr: str, value: str) -> str | None:
     """Allow public http(s) on <a href> only; reject other remote resource URLs."""
+    if tag in SVG_TAGS:
+        return filter_svg_attribute(tag, attr, value)
     if attr == "style":
         return sanitize_inline_style(value) or None
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
@@ -153,6 +168,8 @@ def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
     if tag == "a" and attr == "href":
         # Public http(s), or intentional //host upgraded when the host is public.
         return public_href_or_none(value)
+    if tag == "img" and attr == "src" and _DATA_IMAGE.match(value.strip()):
+        return value.strip()
     # img src, cite, and every other URL-bearing attribute stay local-only.
     return None
 
@@ -176,6 +193,8 @@ def rewrite_remote_images_to_links(html: str) -> str:
     def repl(m: re.Match[str]) -> str:
         attrs = m.group(1)
         src = _attr(attrs, "src") or ""
+        if _DATA_IMAGE.match(src.strip()):
+            return m.group(0)
         alt = (_attr(attrs, "alt") or "").strip() or "image"
         href = public_href_or_none(src)
         if not href:
@@ -195,6 +214,8 @@ def sanitize_html_document(body: str) -> str:
     ``<img src>`` becomes a clickable link to the image URL. CSS ``url()``, fonts,
     and iframes stay self-contained — no remote subresource fetch on open.
     """
+    if len(body.encode("utf-8")) > MAX_HTML_BYTES:
+        raise HtmlSanitizeError("page too large")
     title_m = _TITLE_RE.search(body)
     title = nh3.clean_text(unescape(title_m.group(1))).strip() if title_m else ""
     # Do not unescape style contents before sanitizing (entity-encoded tags stay inert).
@@ -208,14 +229,17 @@ def sanitize_html_document(body: str) -> str:
     fragment = _TITLE_RE.sub("", fragment)
     # Before nh3 drops remote img src, rewrite public ones to anchors.
     fragment = rewrite_remote_images_to_links(fragment)
+    # nh3 unwraps unknown SVG tags and can leak their children; drop active ones first.
+    if "<svg" in fragment.lower():
+        fragment = remove_elements_with_content(fragment, SVG_CLEAN_CONTENT)
 
     cleaned = nh3.clean(
         fragment,
-        tags=_ALLOWED_TAGS,
+        tags=_ALLOWED_TAGS | set(SVG_TAGS),
         clean_content_tags=_CLEAN_CONTENT_TAGS,
         attributes={k: set(v) for k, v in _ALLOWED_ATTRIBUTES.items()},
-        attribute_filter=_url_attribute_filter,
-        url_schemes={"http", "https"},
+        attribute_filter=_attribute_filter,
+        url_schemes={"http", "https", "data"},
         link_rel="noopener noreferrer nofollow",
         strip_comments=True,
     )
@@ -225,6 +249,7 @@ def sanitize_html_document(body: str) -> str:
     # Private-host URLs left as text fail check_content; attribute filter already
     # dropped them from href/src. Do not run strip_remote_urls here — it would
     # also erase allowed href values.
+    cleaned = sanitize_svg_fragment(cleaned)
     cleaned = linkify_html_text(cleaned)
     cleaned = harden_external_anchors(cleaned)
 
@@ -234,6 +259,7 @@ def sanitize_html_document(body: str) -> str:
         "<!DOCTYPE html>\n"
         '<html lang="en">\n'
         "<head>\n"
+        f"{EXPORT_CSP_META}\n"
         '<meta charset="utf-8">\n'
         f"{_VIEWPORT_META}\n"
         f"{title_block}"
@@ -246,4 +272,8 @@ def sanitize_html_document(body: str) -> str:
     for m in _STYLE_RE.finditer(doc):
         if _has_breakout(m.group(1)):
             doc = _STYLE_RE.sub("<style></style>\n", doc, count=1)
+    try:
+        verify_export_document(doc, _ALLOWED_TAGS)
+    except ValueError as exc:
+        raise HtmlSanitizeError(str(exc)) from exc
     return doc

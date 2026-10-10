@@ -21,6 +21,7 @@ dependencies = [
     "httpx>=0.27",
     "nh3>=0.2.18",
     "tinycss2>=1.2",
+    "tinyhtml5>=2,<3",
     "markdown-it-py>=4,<5",
     "linkify-it-py>=2,<3",
     "weasyprint>=70,<71",
@@ -85,7 +86,7 @@ disallow_untyped_defs = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["weasyprint", "docx", "docx.*", "mcp", "mcp.*", "boto3", "botocore.*"]
+module = ["weasyprint", "docx", "docx.*", "mcp", "mcp.*", "boto3", "botocore.*", "tinyhtml5"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
