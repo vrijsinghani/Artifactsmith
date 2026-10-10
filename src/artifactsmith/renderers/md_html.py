@@ -16,8 +16,12 @@ from markdown_it.token import Token
 
 from .links import classify_href, public_href_or_none
 
-# Same separator class as destination confusion in md_sanitize.
-_DEST_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff]"
+# Destination-style separators, plus C0 file separators (U+001C–U+001F) that
+# browsers keep inside a srcset URL token but ``str.split()`` would treat as WS.
+_ATTR_CONFUSION_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff\x1c-\x1f]"
+# Browsers split srcset/ping on ASCII whitespace only (not C0 like U+001F).
+_ASCII_WS_RE = re.compile(r"[\t\n\f\r ]+")
+_ASCII_WS_STRIP = "\t\n\f\r "
 
 _URL_ATTRS = frozenset(
     {
@@ -37,11 +41,12 @@ _URL_ATTRS = frozenset(
 
 
 def _attr_value_confused(value: str) -> bool:
-    if re.search(rf"https?:{_DEST_SEP}+//", value, re.I):
+    sep = _ATTR_CONFUSION_SEP
+    if re.search(rf"https?:{sep}+//", value, re.I):
         return True
-    if re.search(rf"{_DEST_SEP}+@", value):
+    if re.search(rf"{sep}+@", value):
         return True
-    if re.search(rf"{_DEST_SEP}+:[^\s]*@", value):
+    if re.search(rf"{sep}+:[^\s]*@", value):
         return True
     return False
 
@@ -56,6 +61,19 @@ def href_src_attr_ok(value: str) -> bool:
     return kind in ("relative", "fragment")
 
 
+def _normalize_abrupt_comments(html: str) -> str:
+    """Make abrupt HTML comment ends parse like browsers (CPython < 3.13.6).
+
+    ``<!-->`` / ``<!--->`` and ``--!>`` otherwise swallow following tags so
+    their URL attributes are never inspected.
+    """
+    # Longer abrupt opener first so ``<!--->`` is not partially matched.
+    out = html.replace("<!--->", "<!---->")
+    out = out.replace("<!-->", "<!---->")
+    out = out.replace("--!>", "-->")
+    return out
+
+
 def _url_attr_ok(name: str, value: str | None) -> bool:
     """True when a URL-bearing attribute (possibly list-valued) may stay."""
     if value is None:
@@ -63,16 +81,16 @@ def _url_attr_ok(name: str, value: str | None) -> bool:
     lname = name.lower()
     if lname == "srcset":
         for part in value.split(","):
-            piece = part.strip()
+            piece = part.strip(_ASCII_WS_STRIP)
             if not piece:
                 continue
-            url = piece.split()[0]
+            url = _ASCII_WS_RE.split(piece, maxsplit=1)[0]
             if url and not href_src_attr_ok(url):
                 return False
         return True
     if lname == "ping":
-        for url in value.split():
-            if not href_src_attr_ok(url):
+        for url in _ASCII_WS_RE.split(value):
+            if url and not href_src_attr_ok(url):
                 return False
         return True
     return href_src_attr_ok(value)
@@ -177,6 +195,7 @@ def sanitize_raw_html_attrs(html: str) -> str:
     """Drop blocked/confused URL-bearing attributes; leave public tags untouched."""
     if not html:
         return html
+    html = _normalize_abrupt_comments(html)
     parser = _HtmlAttrParser(rewrite=True)
     try:
         parser.feed(html)
@@ -190,6 +209,7 @@ def find_bad_html_element_attrs(html: str) -> list[str]:
     """Problems for blocked URL-bearing attrs on real HTML elements (not text)."""
     if not html:
         return []
+    html = _normalize_abrupt_comments(html)
     parser = _HtmlAttrParser(rewrite=False)
     try:
         parser.feed(html)
