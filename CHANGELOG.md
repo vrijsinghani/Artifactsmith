@@ -12,6 +12,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Authority-confused Markdown destinations (separators before `@`, scheme splits) are neutralized before parse.
 - Raw HTML URL-bearing attributes on real tags are parsed with an HTML tokenizer and dropped when blocked or confused; public tags stay as written. Shown-as-code `href=` / `src=` snippets are not treated as links.
 - Tailscale MagicDNS names (`*.ts.net`) are treated as private hosts when private-link blocking is on.
+- Raw HTML `srcset` / `ping` split on ASCII whitespace only (so C0 separators inside a candidate URL stay part of the URL); abrupt HTML comment ends are normalized so following tags are still checked on Python 3.11/3.12.
 
 ## [0.1.0] - 2026-10-10
 
