@@ -125,12 +125,8 @@ for c0 in [chr(i) for i in range(0x00, 0x20)] + ["\x7f"]:
 
 # srcset: C0 file separators stay inside the URL token (browsers); must not split.
 for c0 in ("\x1c", "\x1d", "\x1e", "\x1f"):
-    _HTML_BYPASS_CASES.append(
-        ("srcset-c0", f'<img srcset="http://example.com{c0}@127.0.0.1/ 1x">\n')
-    )
-    _HTML_BYPASS_CASES.append(
-        ("srcset-c0-block", f'<p><img srcset="https://example.com{c0}@192.168.0.1/x 2x"></p>\n')
-    )
+    _HTML_BYPASS_CASES.append(("srcset-c0", f'<img srcset="http://example.com{c0}@127.0.0.1/ 1x">\n'))
+    _HTML_BYPASS_CASES.append(("srcset-c0-block", f'<p><img srcset="https://example.com{c0}@192.168.0.1/x 2x"></p>\n'))
 
 # Abrupt HTML comments (CPython HTMLParser < 3.13.6) must not hide following tags.
 for tmpl in (
