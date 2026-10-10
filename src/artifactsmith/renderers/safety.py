@@ -54,6 +54,7 @@ PRIVATE_DNS_SUFFIXES = (
     ".internal",
     ".intranet",
     ".private",
+    ".ts.net",  # Tailscale MagicDNS / tailnet names
 )
 
 # Wildcard DNS products that commonly alias private/loopback addresses into public DNS.
@@ -208,11 +209,12 @@ def _url_host(raw: str) -> str | None:
     return ""
 
 
-def find_private_links(text: str) -> list[str]:
+def find_private_links(text: str, *, fmt: str | None = None) -> list[str]:
     """Return problems for http(s) links that resolve to private or local hosts.
 
-    Also flags blocked / authority-confused ``href`` / ``src`` in raw HTML
-    (separators before ``@``, scheme splits) that URL_RE would otherwise miss.
+    Also flags blocked / authority-confused URL-bearing attributes on real HTML
+    elements only (markdown ``html_*`` tokens, or parsed HTML attrs) — never
+    code fences, inline code, or prose that merely shows ``href=`` / ``src=``.
     """
     from .md_html import find_bad_html_attr_urls
 
@@ -226,7 +228,7 @@ def find_private_links(text: str) -> list[str]:
         if host == "" or _host_is_private(host):
             label = host or raw
             problems.append(f"private or local link host: {label}")
-    problems.extend(find_bad_html_attr_urls(text))
+    problems.extend(find_bad_html_attr_urls(text, fmt=fmt))
     return problems
 
 
@@ -291,7 +293,7 @@ def check_content(
         problems.append(f"content exceeds {max_chars} characters")
     problems.extend(find_secrets(text))
     if block_private_links:
-        problems.extend(find_private_links(text))
+        problems.extend(find_private_links(text, fmt=fmt))
     problems.extend(find_disallowed_links(text, allowed_link_domains or []))
     if fmt == "html":
         low = text.lower()

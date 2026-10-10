@@ -122,6 +122,34 @@ _KEEP_CASES: list[tuple[str, str, str]] = [
         '<img src="https://example.com/a.png" alt="a">\n',
         '<img src="https://example.com/a.png" alt="a">\n',
     ),
+    (
+        "fence-html-mailto",
+        "# Email links\n\nUse [NSF](https://www.nsf.gov/).\n\n```html\n"
+        '<a href="mailto:me@example.com">Email me</a>\n```\n',
+        "# Email links\n\nUse [NSF](https://www.nsf.gov/).\n\n```html\n"
+        '<a href="mailto:me@example.com">Email me</a>\n```\n',
+    ),
+    (
+        "inline-code-data-img",
+        'Use `<img src="data:image/png;base64,AAAA">` in docs.\n',
+        'Use `<img src="data:image/png;base64,AAAA">` in docs.\n',
+    ),
+    (
+        "indented-code-javascript",
+        '    <a href="javascript:void(0)">x</a>\n',
+        '    <a href="javascript:void(0)">x</a>\n',
+    ),
+    (
+        "fence-html-tel-cdn",
+        "```html\n"
+        '<a href="tel:+15551234567">call</a>\n'
+        '<img src="//cdn.example.com/a.png">\n'
+        "```\n",
+        "```html\n"
+        '<a href="tel:+15551234567">call</a>\n'
+        '<img src="//cdn.example.com/a.png">\n'
+        "```\n",
+    ),
 ]
 
 

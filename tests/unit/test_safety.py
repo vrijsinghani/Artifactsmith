@@ -26,6 +26,43 @@ def test_check_content_allows_public_html_href():
     assert not any("HTML href" in p or "private or local" in p for p in problems)
 
 
+def test_check_content_ignores_href_in_fenced_code():
+    raw = (
+        "# Email links\n\nUse [NSF](https://www.nsf.gov/).\n\n```html\n"
+        '<a href="mailto:me@example.com">Email me</a>\n'
+        '<a href="tel:+15551234567">call</a>\n```\n'
+    )
+    out = sanitize_text(raw)
+    assert out == raw
+    problems = check_content(out, fmt="markdown", block_private_links=True)
+    assert not any("HTML" in p for p in problems)
+
+
+def test_html_pre_code_mailto_snippet_builds():
+    doc = (
+        "<!DOCTYPE html><html><head><title>t</title></head><body>"
+        "<pre><code>&lt;a href=\"mailto:hello@example.com\"&gt;</code></pre>"
+        "</body></html>"
+    )
+    problems = check_content(doc, fmt="html", block_private_links=True)
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://llm.dunker-mahi.ts.net/",
+        "https://foo.bar.ts.net/path",
+        "http://ts.net/",
+    ],
+)
+def test_rejects_tailscale_ts_net_hosts(url: str) -> None:
+    hits = find_private_links(f"see {url} please")
+    assert hits, f"expected private hit for {url}"
+    problems = check_content(f"see {url}", fmt="markdown", block_private_links=True)
+    assert any("private or local" in p for p in problems)
+
+
 def test_html_must_be_complete_document():
     problems = check_content("<p>no html tags</p>", fmt="html")
     assert any("complete HTML" in p for p in problems)

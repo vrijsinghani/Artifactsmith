@@ -102,6 +102,27 @@ _HTML_RAW_CASES: list[tuple[str, str, str, str]] = [
     for s, (w, wn), (fn, ft) in itertools.product(_SHAPES, zip(_WS, _WS_NAMES, strict=True), _HTML_FORMS)
 ]
 
+# Quote-confusion + leading C0 / DEL (tokenizer must see the real href/src).
+_HTML_BYPASS_URLS: list[str] = [
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "vbscript:msg",
+    "file:///etc/passwd",
+    "http://example.com&#64;127.0.0.1/",
+    "http://127.0.0.1\\@example.com/",
+    "http:&#9;//127.0.0.1/x",
+    "//127.0.0.1/x",
+    "\\\\127.0.0.1/x",
+]
+_HTML_BYPASS_CASES: list[tuple[str, str]] = []
+for u in _HTML_BYPASS_URLS:
+    _HTML_BYPASS_CASES.append(("quote-conf", f'See <a data-x="a href=\'" href="{u}" y=\'z\'>here</a>\n'))
+    _HTML_BYPASS_CASES.append(("quote-conf-block", f'<p><a data-x="a href=\'" href="{u}" y=\'z\'>here</a></p>\n'))
+for c0 in [chr(i) for i in range(0x00, 0x20)] + ["\x7f"]:
+    _HTML_BYPASS_CASES.append(("c0-href", f'<a href="{c0}javascript:alert(1)">x</a>\n'))
+    _HTML_BYPASS_CASES.append(("c0-src", f'<img src="{c0}javascript:alert(1)">\n'))
+    _HTML_BYPASS_CASES.append(("c0-href-unquoted", f"<a href={c0}javascript:alert(1)>x</a>\n"))
+
 assert len(_HTML_RAW_CASES) == len(_WS) * len(_SHAPES) * len(_HTML_FORMS)
 
 # --- Host corpus (private hosts × forms) ------------------------------------
@@ -182,23 +203,37 @@ def _pandoc_hrefs(text: str, fmt: str) -> list[str]:
 
 
 def _href_is_private_or_userinfo(href: str) -> bool:
+    """True for private/userinfo destinations; WHATWG-invalid hrefs are not leaks."""
+    from artifactsmith.renderers.href_host import urllib_host, whatwg_host
+    from artifactsmith.renderers.links import deobfuscate_href
+
     low = href.lower()
+    if low.startswith(("javascript:", "vbscript:", "data:", "file:", "blob:")):
+        return True
     if low.startswith("mailto:"):
         addr = href.split(":", 1)[1]
         host = addr.rsplit("@", 1)[-1] if "@" in addr else ""
         return (not host) or _host_is_private(host)
+    # Navigable http(s) only: if neither urllib nor WHATWG-style parse yields a
+    # host, the href is not browser-navigable (e.g. pandoc-gfm autolink quirks).
+    hosts = [h for h in (urllib_host(href), whatwg_host(href), urllib_host(deobfuscate_href(href))) if h]
+    if not hosts:
+        try:
+            parsed = urlparse(href)
+        except Exception:  # noqa: BLE001
+            return False
+        if parsed.scheme in ("http", "https") and (parsed.username is not None or "@" in (parsed.netloc or "")):
+            return True
+        return False
     try:
         parsed = urlparse(href)
     except Exception:  # noqa: BLE001
-        return True
+        return False
     if parsed.username is not None or parsed.password is not None:
         return True
     if "@" in (parsed.netloc or ""):
         return True
-    host = parsed.hostname
-    if host is not None and _host_is_private(host):
-        return True
-    return False
+    return any(_host_is_private(h) for h in hosts)
 
 
 _MDIT_READERS = ("markdown-it-commonmark", "markdown-it-linkify")
@@ -334,6 +369,44 @@ def test_html_raw_anchor_idempotent_all_separators(ws: str) -> None:
     once = sanitize_markdown(raw)
     assert sanitize_markdown(once) == once
     assert "`" not in once
+
+
+@pytest.mark.parametrize(
+    ("kind", "raw"),
+    _HTML_BYPASS_CASES,
+    ids=[f"bypass/{k}/{i}" for i, (k, _) in enumerate(_HTML_BYPASS_CASES)],
+)
+def test_html_bypass_corpus_idempotent(kind: str, raw: str) -> None:
+    once = sanitize_markdown(raw)
+    assert sanitize_markdown(once) == once
+
+
+@pytest.mark.parametrize(
+    ("kind", "raw"),
+    _HTML_BYPASS_CASES,
+    ids=[f"bypass/{k}/{i}" for i, (k, _) in enumerate(_HTML_BYPASS_CASES)],
+)
+@pytest.mark.parametrize("reader", _MDIT_READERS)
+def test_html_bypass_corpus_mdit_no_leaks(kind: str, raw: str, reader: str) -> None:
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, kind, out, leaks)
+
+
+@pytest.mark.parametrize(
+    ("kind", "raw"),
+    _HTML_BYPASS_CASES,
+    ids=[f"bypass/{k}/{i}" for i, (k, _) in enumerate(_HTML_BYPASS_CASES)],
+)
+@pytest.mark.parametrize("reader", _PANDOC_READERS)
+def test_html_bypass_corpus_pandoc_no_leaks(kind: str, raw: str, reader: str) -> None:
+    if shutil.which("pandoc") is None:
+        pytest.skip("pandoc not installed")
+    out = sanitize_markdown(raw)
+    hrefs = _reader_hrefs(out, reader)
+    leaks = [h for h in hrefs if _href_is_private_or_userinfo(h)]
+    assert leaks == [], (reader, kind, out, leaks)
 
 
 def test_list_continuation_ordered_loose_idempotent() -> None:

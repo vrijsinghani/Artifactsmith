@@ -422,7 +422,8 @@ async def run_build(
                     last_problems = ["script survived rendering"]
                     notes.append(f"attempt {attempt}: {last_problems[0]}")
                     break
-                if CFG.block_private_links and find_private_links(text_out):
+                link_fmt = "html" if name.endswith(".html") else "markdown"
+                if CFG.block_private_links and find_private_links(text_out, fmt=link_fmt):
                     last_problems = ["private link survived rendering"]
                     notes.append(f"attempt {attempt}: {last_problems[0]}")
                     break

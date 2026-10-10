@@ -33,7 +33,8 @@ def deobfuscate_href(value: str) -> str:
     """De-obfuscate an href/src for classification only.
 
     Percent-decodes repeatedly until stable, applies NFKC, strips Unicode format
-    characters (Cf), whitespace, and backslashes. Never used as the emitted URL.
+    characters (Cf), tab/LF/CR anywhere, leading/trailing C0 and DEL, other
+    whitespace, and backslashes. Never used as the emitted URL.
     """
     raw = unescape(value)
     for _ in range(8):
@@ -43,6 +44,9 @@ def deobfuscate_href(value: str) -> str:
         raw = nxt
     raw = unicodedata.normalize("NFKC", raw)
     raw = _strip_format_chars(raw)
+    # WHATWG strips tab/LF/CR in the URL; browsers strip C0/DEL at the ends.
+    raw = raw.replace("\t", "").replace("\n", "").replace("\r", "")
+    raw = re.sub(r"^[\x00-\x20\x7f]+|[\x00-\x20\x7f]+$", "", raw)
     raw = re.sub(r"\s+", "", raw)
     raw = raw.replace("\\", "/")
     return raw.strip()

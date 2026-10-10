@@ -12,7 +12,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from .links import classify_href, public_href_or_none
-from .md_html import find_bad_html_attr_urls, sanitize_raw_html_attrs
+from .md_html import find_bad_html_element_attrs, sanitize_raw_html_attrs
 from .md_serialize import escape_all_md_punctuation, serialize_blocks
 from .safety import URL_RE
 
@@ -206,24 +206,18 @@ def _scheme_split_re(sep: str) -> re.Pattern[str]:
 
 _DEST_EXT_RE = _confusion_ext_re(_DEST_SEP)
 _BARE_EXT_RE = _confusion_ext_re(_BARE_JOIN_SEP)
-_DEST_SCHEME_SPLIT_RE = _scheme_split_re(_DEST_SEP)
 # Scheme splits with SP/TAB/LF/CR still matter in destinations and bare prose.
-_ANY_SCHEME_SPLIT_RE = _scheme_split_re(_DEST_SEP)
+_SCHEME_SPLIT_RE = _scheme_split_re(_DEST_SEP)
 
 
 def _md_inline_code(content: str) -> str:
-    longest = 0
-    run = 0
-    for ch in content:
-        if ch == "`":
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
-    ticks = "`" * (longest + 1)
-    if content.startswith("`") or content.endswith("`"):
-        return f"{ticks} {content} {ticks}"
-    return f"{ticks}{content}{ticks}"
+    """Serialize inline code the same way ``_code_inline_token`` would."""
+    tok = _code_inline_token(content)
+    ticks = tok.markup or "`"
+    body = tok.content or ""
+    if body.startswith("`") or body.endswith("`"):
+        return f"{ticks} {body} {ticks}"
+    return f"{ticks}{body}{ticks}"
 
 
 def _span_is_confused(raw: str, sep: str) -> bool:
@@ -408,7 +402,7 @@ def _pretreat_confused_urls(text: str) -> str:
     skip = _skip_char_ranges(text)
     work: list[tuple[int, int, str]] = []
 
-    for start, end, raw in _url_spans(text, ext_re=_DEST_EXT_RE, scheme_re=_DEST_SCHEME_SPLIT_RE):
+    for start, end, raw in _url_spans(text, ext_re=_DEST_EXT_RE, scheme_re=_SCHEME_SPLIT_RE):
         if _overlaps(start, end, skip) or not _is_destination_context(text, start):
             continue
         core = raw.rstrip(".,;:)")
@@ -416,11 +410,11 @@ def _pretreat_confused_urls(text: str) -> str:
             continue
         work.append((start, end, raw))
 
-    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
+    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_SCHEME_SPLIT_RE):
         if _overlaps(start, end, skip) or _is_destination_context(text, start):
             continue
         # Bare: only ZWSP-joined @ or any scheme-split — never SP/TAB/LF/CR + @mention.
-        if not (_span_is_confused(raw, _BARE_JOIN_SEP) or _ANY_SCHEME_SPLIT_RE.fullmatch(raw.rstrip(".,;:)"))):
+        if not (_span_is_confused(raw, _BARE_JOIN_SEP) or _SCHEME_SPLIT_RE.fullmatch(raw.rstrip(".,;:)"))):
             continue
         work.append((start, end, raw))
 
@@ -443,7 +437,7 @@ def _linkify_text_token(text: str) -> list[Token]:
         return []
     parts: list[Token] = []
     pos = 0
-    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_ANY_SCHEME_SPLIT_RE):
+    for start, end, raw in _url_spans(text, ext_re=_BARE_EXT_RE, scheme_re=_SCHEME_SPLIT_RE):
         before = text[pos:start]
         after = text[end:]
         core = raw.rstrip(".,;:)")
@@ -490,10 +484,8 @@ def _destinations_policy_clean(md_text: str) -> bool:
     """True when re-parsed output has no images and only allowed link destinations.
 
     Linkify is on so bare private URLs that would re-linkify fail closed.
-    Raw HTML href/src must also pass the attribute policy.
+    Raw HTML URL attrs are checked only on ``html_inline`` / ``html_block`` tokens.
     """
-    if find_bad_html_attr_urls(md_text):
-        return False
     md = _parser(linkify=True)
     tokens = md.parse(md_text)
 
@@ -504,6 +496,8 @@ def _destinations_policy_clean(md_text: str) -> bool:
         while i < len(children):
             tok = children[i]
             if tok.type == "image":
+                return False
+            if tok.type == "html_inline" and find_bad_html_element_attrs(tok.content or ""):
                 return False
             if tok.type == "link_open":
                 href = _attr_str(tok, "href")
@@ -523,7 +517,7 @@ def _destinations_policy_clean(md_text: str) -> bool:
             return False
         if tok.type == "image":
             return False
-        if tok.type == "html_block" and find_bad_html_attr_urls(tok.content or ""):
+        if tok.type == "html_block" and find_bad_html_element_attrs(tok.content or ""):
             return False
     return True
 
