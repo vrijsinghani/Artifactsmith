@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
 - DOCX/XLSX strip C0 controls (except tab/LF/CR) in titles, sheet names, and body text.
 - Blocked Markdown autolinks (including mailto) render as safely fenced inline code instead of vanishing.
 - Authority-confused Markdown destinations (separators before `@`, scheme splits) are neutralized before parse.

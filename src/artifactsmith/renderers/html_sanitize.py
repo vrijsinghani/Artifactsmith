@@ -12,6 +12,8 @@ from html import unescape
 import nh3
 
 from .css_sanitize import _has_breakout, sanitize_css, sanitize_inline_style
+from .svg_sanitize import SVG_CLEAN_CONTENT, SVG_TAGS, filter_svg_attribute, sanitize_svg_fragment, svg_allowed_attrs
+from .svg_tree import remove_elements_with_content
 
 # Document structure is rebuilt after fragment cleaning (Ammonia drops html/head/body).
 _ALLOWED_TAGS: set[str] = {
@@ -93,7 +95,6 @@ _CLEAN_CONTENT_TAGS: set[str] = {
     "iframe",
     "object",
     "embed",
-    "svg",
     "math",
     "noscript",
     "template",
@@ -110,6 +111,7 @@ _CLEAN_CONTENT_TAGS: set[str] = {
     "head",
     "html",
     "body",
+    *SVG_CLEAN_CONTENT,
 }
 
 _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
@@ -130,6 +132,8 @@ _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
 
 for _tag in _ALLOWED_TAGS:
     _ALLOWED_ATTRIBUTES.setdefault(_tag, set()).add("style")
+for _tag, _names in svg_allowed_attrs().items():
+    _ALLOWED_ATTRIBUTES.setdefault(_tag, set()).update(_names)
 
 _TITLE_RE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
 _STYLE_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
@@ -137,8 +141,10 @@ _BODY_RE = re.compile(r"<body\b[^>]*>(.*?)</body>", re.I | re.S)
 _VIEWPORT_META = '<meta name="viewport" content="width=device-width, initial-scale=1">'
 
 
-def _url_attribute_filter(tag: str, attr: str, value: str) -> str | None:
+def _attribute_filter(tag: str, attr: str, value: str) -> str | None:
     """Allow public http(s) on <a href> only; reject other remote resource URLs."""
+    if tag in SVG_TAGS:
+        return filter_svg_attribute(tag, attr, value)
     if attr == "style":
         return sanitize_inline_style(value) or None
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
@@ -203,18 +209,21 @@ def sanitize_html_document(body: str) -> str:
         css = ""
 
     body_m = _BODY_RE.search(body)
-    fragment = body_m.group(1) if body_m else body
+    # Strip wrapper newlines so a second sanitize does not keep accumulating them.
+    fragment = (body_m.group(1) if body_m else body).strip("\n")
     fragment = _STYLE_RE.sub("", fragment)
     fragment = _TITLE_RE.sub("", fragment)
     # Before nh3 drops remote img src, rewrite public ones to anchors.
     fragment = rewrite_remote_images_to_links(fragment)
+    # nh3 unwraps unknown SVG tags and can leak their children; drop active ones first.
+    fragment = remove_elements_with_content(fragment, SVG_CLEAN_CONTENT)
 
     cleaned = nh3.clean(
         fragment,
-        tags=_ALLOWED_TAGS,
+        tags=_ALLOWED_TAGS | set(SVG_TAGS),
         clean_content_tags=_CLEAN_CONTENT_TAGS,
         attributes={k: set(v) for k, v in _ALLOWED_ATTRIBUTES.items()},
-        attribute_filter=_url_attribute_filter,
+        attribute_filter=_attribute_filter,
         url_schemes={"http", "https"},
         link_rel="noopener noreferrer nofollow",
         strip_comments=True,
@@ -225,6 +234,7 @@ def sanitize_html_document(body: str) -> str:
     # Private-host URLs left as text fail check_content; attribute filter already
     # dropped them from href/src. Do not run strip_remote_urls here — it would
     # also erase allowed href values.
+    cleaned = sanitize_svg_fragment(cleaned)
     cleaned = linkify_html_text(cleaned)
     cleaned = harden_external_anchors(cleaned)
 

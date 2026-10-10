@@ -212,6 +212,7 @@ def linkify_html_text(html: str) -> str:
     out: list[str] = []
     in_anchor = 0
     in_code = 0
+    in_svg = 0
     for part in parts:
         if part.startswith("<"):
             low = part.lower()
@@ -219,13 +220,17 @@ def linkify_html_text(html: str) -> str:
                 in_anchor += 1
             elif low.startswith("</a"):
                 in_anchor = max(0, in_anchor - 1)
+            elif low.startswith("<svg"):
+                in_svg += 1
+            elif low.startswith("</svg"):
+                in_svg = max(0, in_svg - 1)
             elif low.startswith("<code") or low.startswith("<pre"):
                 in_code += 1
             elif low.startswith("</code") or low.startswith("</pre"):
                 in_code = max(0, in_code - 1)
             out.append(part)
             continue
-        if in_anchor or in_code:
+        if in_anchor or in_code or in_svg:
             out.append(part)
             continue
         buf: list[str] = []

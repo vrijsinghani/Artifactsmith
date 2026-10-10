@@ -505,11 +505,11 @@ def test_style_block_urls_do_not_survive_document_sanitize():
     assert "<p>ok</p>" in out
 
 
-def test_svg_iframe_removed():
+def test_iframe_removed():
     raw = '<html><body><svg onload="alert(1)"></svg><iframe src="https://evil.com"></iframe><p>x</p></body></html>'
     out = sanitize_html(raw).lower()
-    assert "<svg" not in out
     assert "<iframe" not in out
+    assert "onload" not in out
     assert "<p>x</p>" in out
 
 
@@ -752,6 +752,41 @@ def test_html_export_with_public_link_does_not_fetch_remote():
         assert "paper" in dom.lower()
         remote = [t for t in proxy.targets if any(h in t for h in watched)]
         # Anchors (including rewritten images) must not be fetched on open.
+        assert remote == [], remote
+
+
+@pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
+def test_svg_chart_survives_in_chrome_dom():
+    raw = """<!DOCTYPE html><html><body>
+    <svg viewBox="0 0 100 40" role="img" aria-label="Bar chart">
+      <rect x="0" y="10" width="40" height="20" fill="#087f8c"></rect>
+    </svg>
+    </body></html>"""
+    cleaned = sanitize_html(raw)
+    assert "<svg" in cleaned.lower() and "<rect" in cleaned.lower()
+    dom = _chrome_dump_dom(cleaned).lower()
+    assert "<svg" in dom
+    assert "<rect" in dom
+    assert "onload" not in dom
+
+
+@pytest.mark.skipif(_chrome() is None, reason="no headless Chrome available")
+def test_svg_export_does_not_fetch_remote():
+    raw = """<!DOCTYPE html><html><body>
+    <svg viewBox="0 0 10 10" onload="alert(1)">
+      <use href="https://track.example.net/icon.svg#i"></use>
+      <image href="https://track.example.net/x.png"></image>
+      <rect fill="url(https://track.example.net/p.png)" width="1" height="1"></rect>
+      <a href="https://track.example.net/click">x</a>
+    </svg>
+    </body></html>"""
+    cleaned = sanitize_html(raw)
+    assert "track.example.net" not in cleaned.lower()
+    assert "onload" not in cleaned.lower()
+    with _ProxyRecorder() as proxy:
+        dom = _chrome_open_via_proxy(cleaned, proxy.url)
+        assert "<html" in dom.lower()
+        remote = [t for t in proxy.targets if "track.example.net" in t]
         assert remote == [], remote
 
 
