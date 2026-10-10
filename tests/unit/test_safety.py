@@ -41,7 +41,7 @@ def test_check_content_ignores_href_in_fenced_code():
 def test_html_pre_code_mailto_snippet_builds():
     doc = (
         "<!DOCTYPE html><html><head><title>t</title></head><body>"
-        "<pre><code>&lt;a href=\"mailto:hello@example.com\"&gt;</code></pre>"
+        '<pre><code>&lt;a href="mailto:hello@example.com"&gt;</code></pre>'
         "</body></html>"
     )
     problems = check_content(doc, fmt="html", block_private_links=True)

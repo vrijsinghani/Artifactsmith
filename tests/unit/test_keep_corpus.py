@@ -141,14 +141,8 @@ _KEEP_CASES: list[tuple[str, str, str]] = [
     ),
     (
         "fence-html-tel-cdn",
-        "```html\n"
-        '<a href="tel:+15551234567">call</a>\n'
-        '<img src="//cdn.example.com/a.png">\n'
-        "```\n",
-        "```html\n"
-        '<a href="tel:+15551234567">call</a>\n'
-        '<img src="//cdn.example.com/a.png">\n'
-        "```\n",
+        '```html\n<a href="tel:+15551234567">call</a>\n<img src="//cdn.example.com/a.png">\n```\n',
+        '```html\n<a href="tel:+15551234567">call</a>\n<img src="//cdn.example.com/a.png">\n```\n',
     ),
 ]
 
