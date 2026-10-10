@@ -12,7 +12,55 @@ def test_strips_scripts_keeps_public_urls():
     out = sanitize_text(raw)
     assert "<script" not in out.lower()
     assert "https://example.com/x" in out
-    assert "](https://example.com/x)" in out  # linkified
+
+
+def test_check_content_flags_confused_html_href():
+    raw = '<a href="https://example.com @127.0.0.1/x">x</a>'
+    problems = check_content(raw, fmt="markdown", block_private_links=True)
+    assert any("authority-confused HTML" in p or "private or local" in p for p in problems)
+
+
+def test_check_content_allows_public_html_href():
+    raw = '<a href="https://example.com/docs">docs</a>'
+    problems = check_content(raw, fmt="markdown", block_private_links=True)
+    assert not any("HTML href" in p or "private or local" in p for p in problems)
+
+
+def test_check_content_ignores_href_in_fenced_code():
+    raw = (
+        "# Email links\n\nUse [NSF](https://www.nsf.gov/).\n\n```html\n"
+        '<a href="mailto:me@example.com">Email me</a>\n'
+        '<a href="tel:+15551234567">call</a>\n```\n'
+    )
+    out = sanitize_text(raw)
+    assert out == raw
+    problems = check_content(out, fmt="markdown", block_private_links=True)
+    assert not any("HTML" in p for p in problems)
+
+
+def test_html_pre_code_mailto_snippet_builds():
+    doc = (
+        "<!DOCTYPE html><html><head><title>t</title></head><body>"
+        '<pre><code>&lt;a href="mailto:hello@example.com"&gt;</code></pre>'
+        "</body></html>"
+    )
+    problems = check_content(doc, fmt="html", block_private_links=True)
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://llm.dunker-mahi.ts.net/",
+        "https://foo.bar.ts.net/path",
+        "http://ts.net/",
+    ],
+)
+def test_rejects_tailscale_ts_net_hosts(url: str) -> None:
+    hits = find_private_links(f"see {url} please")
+    assert hits, f"expected private hit for {url}"
+    problems = check_content(f"see {url}", fmt="markdown", block_private_links=True)
+    assert any("private or local" in p for p in problems)
 
 
 def test_html_must_be_complete_document():

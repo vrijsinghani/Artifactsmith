@@ -97,6 +97,20 @@ def test_create_defaults_slug_and_kind(svc):
         svc.create(p, verbatim_request="x")
 
 
+def test_display_name_strips_ooxml_controls(svc):
+    p = _principal()
+    created = svc.create(
+        p,
+        slug="ctrl-title",
+        display_name="Pi\x0blot\x0c Brief",
+        verbatim_request="x",
+    )
+    art = svc.get_artifact(p, created["artifact_id"])
+    assert "\x0b" not in art["display_name"]
+    assert "\x0c" not in art["display_name"]
+    assert art["display_name"] == "Pilot Brief"
+
+
 def test_create_validations(svc):
     p = _principal()
     with pytest.raises(AMError, match="invalid workspace"):

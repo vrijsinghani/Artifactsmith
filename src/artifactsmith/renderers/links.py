@@ -1,10 +1,12 @@
 """Public http(s) link policy shared by sanitizer and renderers.
 
 Classification uses a de-obfuscated *view* plus WHATWG-style and urllib parses of
-the exact emit string; all must agree on one public host. Emission keeps the
-original destination (trim, literal spaces → ``%20``, intentional ``//`` →
-``https://``). Never HTML-entity-decode or percent-decode on emit. Userinfo is
-rejected. Does not fetch anything.
+the exact emit string; all must agree on one public host. That agreement
+guarantees accepted links do not reach private hosts; ``href_host`` is a
+WHATWG-style approximation and does not claim every accepted link is
+browser-valid. Emission keeps the original destination (trim, literal spaces →
+``%20``, intentional ``//`` → ``https://``). Never HTML-entity-decode or
+percent-decode on emit. Userinfo is rejected. Does not fetch anything.
 """
 
 from __future__ import annotations
@@ -31,7 +33,8 @@ def deobfuscate_href(value: str) -> str:
     """De-obfuscate an href/src for classification only.
 
     Percent-decodes repeatedly until stable, applies NFKC, strips Unicode format
-    characters (Cf), whitespace, and backslashes. Never used as the emitted URL.
+    characters (Cf), tab/LF/CR anywhere, leading/trailing C0 and DEL, other
+    whitespace, and backslashes. Never used as the emitted URL.
     """
     raw = unescape(value)
     for _ in range(8):
@@ -41,6 +44,9 @@ def deobfuscate_href(value: str) -> str:
         raw = nxt
     raw = unicodedata.normalize("NFKC", raw)
     raw = _strip_format_chars(raw)
+    # WHATWG strips tab/LF/CR in the URL; browsers strip C0/DEL at the ends.
+    raw = raw.replace("\t", "").replace("\n", "").replace("\r", "")
+    raw = re.sub(r"^[\x00-\x20\x7f]+|[\x00-\x20\x7f]+$", "", raw)
     raw = re.sub(r"\s+", "", raw)
     raw = raw.replace("\\", "/")
     return raw.strip()
@@ -118,7 +124,8 @@ def public_href_or_none(url: str) -> str | None:
 
     Emit keeps the original bytes (plus trim / space→%20 / intentional ``//`` upgrade).
     Drops the link unless the de-obfuscated view is an allowed http(s) URL *and*
-    urllib + WHATWG-style parses of the emit string agree on the same public host.
+    urllib + WHATWG-style parses of the emit string agree on the same public host
+    (private-host guarantee; not a claim that the URL is browser-valid).
     """
     emit = emit_href(url)
     if emit.startswith("//") and not emit.lower().startswith("///"):

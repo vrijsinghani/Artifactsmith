@@ -54,6 +54,7 @@ PRIVATE_DNS_SUFFIXES = (
     ".internal",
     ".intranet",
     ".private",
+    ".ts.net",  # Tailscale MagicDNS / tailnet names
 )
 
 # Wildcard DNS products that commonly alias private/loopback addresses into public DNS.
@@ -66,6 +67,18 @@ WILDCARD_DNS_SUFFIXES = (
     ".vcap.me",
     ".traefik.me",
 )
+
+
+# C0 controls illegal in OOXML / openpyxl (keep tab, LF, CR).
+_OOXML_ILLEGAL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def strip_ooxml_controls(text: str) -> str:
+    """Remove C0 controls that DOCX/XLSX cannot hold (VT, FF, NUL, etc.).
+
+    Tab, newline, and carriage return are kept. Apply before writing runs/cells.
+    """
+    return _OOXML_ILLEGAL_CTRL_RE.sub("", text)
 
 
 def strip_scripts(text: str) -> str:
@@ -196,8 +209,15 @@ def _url_host(raw: str) -> str | None:
     return ""
 
 
-def find_private_links(text: str) -> list[str]:
-    """Return problems for http(s) links that resolve to private or local hosts."""
+def find_private_links(text: str, *, fmt: str | None = None) -> list[str]:
+    """Return problems for http(s) links that resolve to private or local hosts.
+
+    Also flags blocked / authority-confused URL-bearing attributes on real HTML
+    elements only (markdown ``html_*`` tokens, or parsed HTML attrs) — never
+    code fences, inline code, or prose that merely shows ``href=`` / ``src=``.
+    """
+    from .md_html import find_bad_html_attr_urls
+
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
@@ -208,6 +228,7 @@ def find_private_links(text: str) -> list[str]:
         if host == "" or _host_is_private(host):
             label = host or raw
             problems.append(f"private or local link host: {label}")
+    problems.extend(find_bad_html_attr_urls(text, fmt=fmt))
     return problems
 
 
@@ -272,7 +293,7 @@ def check_content(
         problems.append(f"content exceeds {max_chars} characters")
     problems.extend(find_secrets(text))
     if block_private_links:
-        problems.extend(find_private_links(text))
+        problems.extend(find_private_links(text, fmt=fmt))
     problems.extend(find_disallowed_links(text, allowed_link_domains or []))
     if fmt == "html":
         low = text.lower()

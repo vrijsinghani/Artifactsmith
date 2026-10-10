@@ -5,7 +5,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-12
+### Changed
+
+- DOCX/XLSX strip C0 controls (except tab/LF/CR) in titles, sheet names, and body text.
+- Blocked Markdown autolinks (including mailto) render as safely fenced inline code instead of vanishing.
+- Authority-confused Markdown destinations (separators before `@`, scheme splits) are neutralized before parse.
+- Raw HTML URL-bearing attributes on real tags are parsed with an HTML tokenizer and dropped when blocked or confused; public tags stay as written. Shown-as-code `href=` / `src=` snippets are not treated as links.
+- Tailscale MagicDNS names (`*.ts.net`) are treated as private hosts when private-link blocking is on.
+
+## [0.1.0] - 2026-10-10
 
 ### Added
 

@@ -257,7 +257,7 @@ Builds stay private until you call `share`. That creates a public `/s/…` URL. 
 
 Preview runs on its own port, sends no cookies, and sets CSP `script-src 'none'`.
 
-Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Protocol-relative `//host` citations are upgraded to `https://` only when the host is public; private or dangerous `//` destinations are neutralized, not upgraded. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
+Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Host checks use urllib plus a WHATWG-style approximation; they guarantee accepted links do not reach private hosts, not that every accepted link is browser-valid. Protocol-relative `//host` citations are upgraded to `https://` only when the host is public; private or dangerous `//` destinations are neutralized, not upgraded. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
 
 The process does not send usage data anywhere.
 
@@ -308,6 +308,25 @@ python -m tests.e2e.test_bind_address   # AM_BIND_ADDRESS=0.0.0.0 via non-loopba
 `make smoke` runs the same stack and scripts. Compose commands need a `.env` with `AM_STORE_KEY` and `AM_STORE_SECRET` set (including `docker compose down`), because those variables are required by `compose.yaml`.
 
 [docs/architecture.md](docs/architecture.md), [docs/operations.md](docs/operations.md), [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## How this was built
+
+Artifactsmith was vibe-coded. A person set the direction and made the calls, and AI agents wrote and checked the code:
+
+- **Grok Bot** ran the project. It planned the work, reviewed every pull request file by file, and decided what had to be fixed before anything merged.
+- **Cursor** cloud agents wrote the code, tests and docs, and fixed what the reviews found.
+- **Hermes** agents gave independent checks. One reviewed the code as a senior engineer and signed off on each round. Another installed it from scratch, following only this README, the way a new user would.
+
+Before release it went through:
+
+- Several rounds of line-by-line code review, each one repeated until no blocking issues were left.
+- An independent security audit with Semgrep, Bandit, gitleaks, pip-audit and Trivy, plus a written threat model.
+- Hands-on attack testing of the HTML cleaner, link handling and export formats.
+- Real builds with a live model in all five formats, checking that links stay clickable and nothing loads from outside when a document is opened.
+- Clean installs on a separate machine, including serving it to other machines on a local network.
+- Automated checks on every change: lint, strict type checking, unit tests on Python 3.11 and 3.12, a Docker build, dependency scanning, and secret scanning.
+
+The audit report is in `docs/security-audit-2026-10-09.md`. If you find something we missed, see `SECURITY.md`.
 
 ## License
 

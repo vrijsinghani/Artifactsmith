@@ -14,12 +14,14 @@ from typing import Any
 from .base import RenderOutput
 from .links import iter_inline_segments, public_href_or_none
 from .md_parse import parse_blocks
+from .safety import strip_ooxml_controls
 
 _SHEET_SAFE = re.compile(r"[\[\]\*\:\/\\\?]")
 
 
 def _sheet_name(title: str, used: set[str], index: int) -> str:
-    base = _SHEET_SAFE.sub("", title).strip() or f"Sheet{index}"
+    cleaned = strip_ooxml_controls(title)
+    base = _SHEET_SAFE.sub("", cleaned).strip() or f"Sheet{index}"
     base = base[:28]
     name = base
     n = 2
@@ -46,7 +48,7 @@ def _literal_cell(ws: Any, row: int, col: int, value: object) -> None:
     """
     from openpyxl.cell.cell import TYPE_STRING
 
-    text = "" if value is None else str(value)
+    text = strip_ooxml_controls("" if value is None else str(value))
     cell = ws.cell(row=row, column=col, value=text)
     cell.data_type = TYPE_STRING
     href = _first_public_href(text) if text else None
@@ -75,6 +77,7 @@ class XlsxRenderer:
         used: set[str] = set()
         notes: list[str] = []
         table_i = 0
+        title = strip_ooxml_controls(title)
         if title:
             notes.append(title)
         for b in parse_blocks(body):
