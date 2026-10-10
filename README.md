@@ -309,10 +309,6 @@ python -m tests.e2e.test_bind_address   # AM_BIND_ADDRESS=0.0.0.0 via non-loopba
 
 [docs/architecture.md](docs/architecture.md), [docs/operations.md](docs/operations.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## License
-
-MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). Attribution is in `NOTICE`; third-party license texts are under `licenses/`. The Docker image ships those files at `/app`.
-
 ## How this was built
 
 Artifactsmith was vibe-coded. A person set the direction and made the calls, and AI agents wrote and checked the code:
@@ -331,3 +327,7 @@ Before release it went through:
 - Automated checks on every change: lint, strict type checking, unit tests on Python 3.11 and 3.12, a Docker build, dependency scanning, and secret scanning.
 
 The audit report is in `docs/security-audit-2026-10-09.md`. If you find something we missed, see `SECURITY.md`.
+
+## License
+
+MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). Attribution is in `NOTICE`; third-party license texts are under `licenses/`. The Docker image ships those files at `/app`.
