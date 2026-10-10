@@ -38,6 +38,10 @@ Host ports bind to `127.0.0.1`:
 - `http://127.0.0.1:8780/mcp` is the MCP API (bearer token required)
 - `http://127.0.0.1:8781/` is the cookieless preview and share origin (`/p/…`, `/s/…`)
 
+### Use the published image
+
+`ghcr.io/vrijsinghani/artifactsmith:0.1.0` is published for `linux/amd64` on each release. Building from source (the Compose steps above) stays the default.
+
 ## Serving on your network or behind a proxy
 
 Compose publishes API (`8780`) and preview/share (`8781`) on `AM_BIND_ADDRESS` (default `127.0.0.1`). Cards and links use `AM_API_URL`, `AM_PREVIEW_URL`, and `AM_SHARE_URL` (empty `AM_SHARE_URL` falls back to `AM_PREVIEW_URL`). Exposing the ports without TLS puts bearer tokens and artifact content on the wire in cleartext.
