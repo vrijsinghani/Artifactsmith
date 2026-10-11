@@ -2,6 +2,8 @@
 
 ArtifactSmith is an open source artifact server for AI agents.
 
+![ArtifactSmith building the same page in five styles](docs/images/demo.gif)
+
 Agents call it to turn their work into documents: web pages, PDFs, Word files, spreadsheets and Markdown. Each artifact is versioned and stays private until someone shares it, and a shared link can be revoked at any time.
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
