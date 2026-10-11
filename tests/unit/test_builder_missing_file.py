@@ -9,6 +9,7 @@ import pytest
 from artifactsmith import builder as b
 
 _HTML = "<!DOCTYPE html>\n<html><body>ok</body></html>"
+_INLINE_HTML = "<!DOCTYPE html><html><body>ok</body></html>"
 _MARKED = f"===ASSUMPTIONS===\n- used the source\n===SUMMARY===\nA page.\n===FILE: index.html===\n{_HTML}\n===END===\n"
 
 
@@ -30,11 +31,16 @@ def test_parse_output_recovers_html_inside_html_fence() -> None:
     assert body == _HTML
 
 
+def test_parse_output_whole_output_html_without_markers() -> None:
+    assumptions, summary, body = b.parse_output(_HTML, fmt="html")
+    assert (assumptions, summary, body) == ([], "", _HTML)
+
+
 def test_parse_output_leading_prose_fails_unless_document_is_separable() -> None:
-    inline = f"Here is the page: {_HTML}"
+    inline = f"Here is the page: {_INLINE_HTML}"
     with pytest.raises(b.BuildError, match="section markers"):
         b.parse_output(inline, fmt="html")
-    after_summary = f"===SUMMARY===\nEnjoy this: {_HTML}\n===END===\n"
+    after_summary = f"===SUMMARY===\nEnjoy this: {_INLINE_HTML}\n===END===\n"
     with pytest.raises(b.BuildError, match="no FILE"):
         b.parse_output(after_summary, fmt="html")
 
@@ -72,6 +78,8 @@ def test_parse_output_markdown_recovers_only_when_document_is_clear() -> None:
     prose = "===SUMMARY===\nA note.\nJust some sentences, no heading.\n===END===\n"
     with pytest.raises(b.BuildError, match="no FILE"):
         b.parse_output(prose, fmt="markdown")
+    with pytest.raises(b.BuildError, match="section markers"):
+        b.parse_output(_HTML, fmt="markdown")
 
 
 def test_parse_output_pdf_and_two_html_documents_stay_strict() -> None:
