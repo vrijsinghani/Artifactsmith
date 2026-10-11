@@ -97,6 +97,25 @@ def test_create_defaults_slug_and_kind(svc):
         svc.create(p, verbatim_request="x")
 
 
+def test_fast_styles_apply_only_when_mode_is_omitted(svc, monkeypatch):
+    monkeypatch.setattr(CFG, "fast_styles", frozenset({"house"}))
+    monkeypatch.setattr(CFG, "build_mode", "full")
+    p = _principal()
+    house = svc.create(p, display_name="House Page", verbatim_request="show the code", style="house")
+    assert house["mode"] == "fast"
+    omitted = svc.create(p, display_name="Default Style", verbatim_request="show the code")
+    assert omitted["style"] == "house" and omitted["mode"] == "fast"
+    bold = svc.create(p, display_name="Bold Page", verbatim_request="show the code", style="bold")
+    assert bold["mode"] == "full"
+    explicit = svc.create(p, display_name="Full House", verbatim_request="show the code", style="house", mode="full")
+    assert explicit["mode"] == "full"
+    pdf = svc.create(p, display_name="House Pdf", verbatim_request="show the code", style="house", format="pdf")
+    assert pdf["mode"] == "full"
+    monkeypatch.setattr(CFG, "fast_styles", frozenset())
+    plain = svc.create(p, display_name="House Again", verbatim_request="show the code", style="house")
+    assert plain["mode"] == "full"
+
+
 def test_display_name_strips_ooxml_controls(svc):
     p = _principal()
     created = svc.create(

@@ -138,7 +138,7 @@ _PALETTES: dict[str, dict[str, str]] = {
 }
 
 _BASE = """
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5;overflow-wrap:anywhere}
 .asl-title,main{max-width:72rem;margin:0 auto;padding-left:1.25rem;padding-right:1.25rem;box-sizing:border-box}
 .asl-title{padding-top:1.25rem;margin-bottom:1.2rem}
 main{padding-top:0;padding-bottom:3rem}
@@ -230,7 +230,7 @@ _TAIL = """
   [class*="sp-"]{grid-column:auto}
   .cols-2{columns:1}
   .asl-title.variant-split{display:block}
-  .asl-table-wrap{overflow:visible}
+  .asl-table-wrap.stack{overflow:visible}
   table.stack thead{display:none}
   table.stack tr{display:block;margin:0 0 .75rem;border:1px solid var(--line);padding:.45rem .65rem}
   table.stack td,table.stack th{display:block;border:0;text-align:left;padding:.2rem 0}
@@ -239,7 +239,7 @@ _TAIL = """
   table.stack tr.total-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .55rem;border:0;margin:0;padding:.35rem 0}
   table.stack tr.total-line td,table.stack tr.total-line th{display:inline;width:auto;border:0;padding:0;font-weight:700}
   table.stack tr.total-line td::before,table.stack tr.total-line th::before{content:none;display:inline}
-  table.scroll{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.scroll{display:block;overflow-x:auto}
   pre,.asl-code{overflow-x:auto}
 }
 @media (prefers-reduced-motion:reduce){

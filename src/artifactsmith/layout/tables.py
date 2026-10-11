@@ -187,7 +187,11 @@ def _is_total_row(row: list[Cell]) -> bool:
 
 
 def render_table(block: Block) -> str:
-    """One table. Wide tables stack on a phone unless ``phone=scroll``."""
+    """One table. Four or more columns stack on a phone unless ``phone=scroll``.
+
+    Narrower tables, and ``phone=scroll``, stay in the wrapper. The wrapper is
+    the scrollport, so the page itself does not scroll sideways.
+    """
     headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
     width_guess = _width(headers, rows)
     rows = [_trim_pads(row, width_guess) for row in rows]
@@ -201,7 +205,7 @@ def render_table(block: Block) -> str:
     foot = rows[-1:] if marked_total and len(rows) > 1 else []
     numeric = _numeric_columns(body or rows, width)
     phone = block.attrs.get("phone") or ""
-    stack = phone != "scroll" and width > 4
+    stack = phone != "scroll" and width >= 4
     names = ["asl-table"]
     if block.attrs.get("variant"):
         names.append("variant-" + block.attrs["variant"])
@@ -236,7 +240,8 @@ def render_table(block: Block) -> str:
         parts.append(_row(foot[0], width, headers, block.groups, numeric, rowhead, "td", total_line=True))
         parts.append("</tfoot>")
     parts.append("</table>")
-    return f'<div class="asl-table-wrap">{"".join(parts)}</div>'
+    wrap = "asl-table-wrap stack" if stack else "asl-table-wrap"
+    return f'<div class="{wrap}">{"".join(parts)}</div>'
 
 
 def _row(
@@ -283,21 +288,24 @@ _QUANTITY_HEADER = re.compile(
     r"rates?|taxes|tax|profits?|margins?|percents?|pct|figures?|values?|sums?",
     re.I,
 )
-# Row labels that name a measure. Two or more means a key-value fact table.
-_METRIC_LABEL = re.compile(
-    _QUANTITY_HEADER.pattern + r"|months?|days?|weeks?|years?|people|users?|rate|ratio|average|median|count of",
+# A row label is a measure only when every word is one (fillers ignored).
+# "Corporate" and "Paid search" are names; "Rebate rate" and "Invoices" are measures.
+_MEASURE_WORD = re.compile(
+    rf"^(?:{_QUANTITY_HEADER.pattern}|months?|days?|weeks?|years?|people|users?|ratios?|averages?|medians?)$",
     re.I,
 )
+_FILLER_WORDS = frozenset({"a", "an", "and", "for", "of", "per", "the", "to"})
 _PRIMARY_MONEY = re.compile(r"billed|revenue|sales|totals?|amounts?|spend|costs?|paid|balance", re.I)
+_CURRENCY = frozenset("$€£¥")
 
 
 def auto_bar_chart(block: Block) -> Block | None:
     """A bar chart for one measured amount column, 3 to 12 data rows.
 
-    A 2-column table uses the second column. A wider table with several amount
-    columns charts the one primary money column (billed, revenue, total, and so
-    on). Years, IDs, ranks, and key-value fact tables are left as tables. The
-    caller skips this when the page already has a chart.
+    A 2-column table uses the second column. A wider table charts the one
+    currency column, or the single primary money column (billed, revenue, total)
+    when several currency columns qualify. Years, IDs, ranks, and key-value fact
+    tables are left as tables. The caller skips this when the page already has a chart.
     """
     headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
     data = rows[:-1] if rows and _is_total_row(rows[-1]) else list(rows)
@@ -328,27 +336,32 @@ def auto_bar_chart(block: Block) -> Block | None:
 
 
 def _amount_column(columns: list[tuple[str, list[str]]], amounts: list[int], width: int) -> int | None:
-    """The one amount column, or the single primary money column when several qualify."""
+    """The one amount column, preferring a single currency column when several qualify."""
     if len(amounts) == 1:
         chosen = amounts[0]
         if width == 2 and chosen != 1:
             return None
         return chosen
-    primary = [
-        index
-        for index in amounts
-        if (series := _amount_series(columns[index])) is not None
-        and series[1] in "$€£¥"
-        and _PRIMARY_MONEY.search(columns[index][0])
+    currency = [
+        index for index in amounts if (series := _amount_series(columns[index])) is not None and series[1] in _CURRENCY
     ]
+    if len(currency) == 1:
+        return currency[0]
+    pool = currency or amounts
+    primary = [index for index in pool if _PRIMARY_MONEY.search(columns[index][0])]
     if len(primary) == 1:
         return primary[0]
     return None
 
 
 def _mixed_measures(labels: list[str]) -> bool:
-    """True when the row labels name different measures, as in a fact table."""
-    return sum(1 for label in labels if _METRIC_LABEL.search(label)) >= 2
+    """True when two or more row labels are measure names, as in a fact table."""
+    return sum(1 for label in labels if _measure_label(label)) >= 2
+
+
+def _measure_label(label: str) -> bool:
+    words = [word for word in re.findall(r"[A-Za-z]+", label) if word.lower() not in _FILLER_WORDS]
+    return bool(words) and all(_MEASURE_WORD.fullmatch(word) for word in words)
 
 
 def _plain_columns(headers: list[Cell], rows: list[list[Cell]], width: int) -> list[tuple[str, list[str]]] | None:

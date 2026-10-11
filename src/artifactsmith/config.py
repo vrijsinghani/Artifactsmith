@@ -66,6 +66,23 @@ def _setting_style(name: str, default: str) -> str:
         raise ConfigError(f"{name}: {e}") from e
 
 
+def _setting_styles(name: str) -> frozenset[str]:
+    """Comma-separated style names. Empty means none. An unknown name fails closed."""
+    raw = _setting(name, "")
+    if raw == "":
+        return frozenset()
+    names: list[str] = []
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            names.append(parse_style(token))
+        except StyleError as e:
+            raise ConfigError(f"{name}: {e}") from e
+    return frozenset(names)
+
+
 def _setting_bool(name: str, default: bool) -> bool:
     raw = _setting(name, "").lower()
     if raw == "":
@@ -112,6 +129,8 @@ class Config:
     default_style: str = field(default_factory=lambda: _setting_style("AM_DEFAULT_STYLE", DEFAULT_STYLE))
     # full: model writes HTML. fast: model writes Markdown and the server renders it.
     build_mode: str = field(default_factory=lambda: _setting_mode("AM_BUILD_MODE", DEFAULT_MODE))
+    # Styles whose omitted create mode is fast. Empty keeps build_mode for every style.
+    fast_styles: frozenset[str] = field(default_factory=lambda: _setting_styles("AM_FAST_STYLES"))
 
     # Object store (S3-compatible). rustfs in compose.
     store_endpoint: str = field(default_factory=lambda: _setting("AM_STORE_ENDPOINT", ""))

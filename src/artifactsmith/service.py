@@ -304,7 +304,10 @@ class Service:
         except StyleError as e:
             raise AMError(str(e)) from e
         try:
-            mode = parse_build_mode(mode, default=CFG.build_mode)
+            default_mode = CFG.build_mode
+            if (mode is None or str(mode).strip() == "") and style in CFG.fast_styles:
+                default_mode = "fast"
+            mode = parse_build_mode(mode, default=default_mode)
         except ModeError as e:
             raise AMError(str(e)) from e
         if fmt != "html":

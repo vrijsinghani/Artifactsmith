@@ -147,7 +147,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 
 `create` and `edit` take an optional `style` for HTML: `house`, `bold`, `editorial`, `playful`, `terminal`, or `swiss`. The default is `AM_DEFAULT_STYLE` (usually `house`). Other formats accept `style` and ignore it. Omit `style` on `edit` to keep the last style.
 
-`create` also takes `mode`: `full` (default, `AM_BUILD_MODE`) has the model write HTML. `fast` has the model write Markdown and the server render that style. `fast` is a first HTML build only. Edits and other formats stay on the full path.
+`create` also takes `mode`: `full` (default, `AM_BUILD_MODE`) has the model write HTML. `fast` has the model write Markdown and the server render that style. `fast` is a first HTML build only. Edits and other formats stay on the full path. `AM_FAST_STYLES` (empty by default) lists styles whose omitted `mode` is `fast`; an explicit `mode` still wins.
 
 - `house`: today's quiet page — white, one accent, boldness in one place.
 - `bold`: dark navy-to-violet hero, huge white headline, saturated cards and chips.
@@ -313,6 +313,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_DEFAULT_MODEL` | `gpt-4o-mini` | Model name sent to the LLM. |
 | `AM_DEFAULT_STYLE` | `house` | HTML visual style when `create` omits `style`. |
 | `AM_BUILD_MODE` | `full` | `full` or `fast` when `create` omits `mode`. `fast` is first-build HTML only. |
+| `AM_FAST_STYLES` | empty | Comma-separated styles (`house`, `bold`, …) that default to `fast` when `create` omits `mode`. Empty keeps `AM_BUILD_MODE` for every style. An explicit `mode` still wins. Other formats and edits stay `full`. An unknown name fails at startup. |
 | `AM_SHARE_TTL_DAYS` | `30` | `0` means until revoked. |
 | `AM_SHARE_TTL_MAX_DAYS` | `365` | Cap on positive TTLs. |
 | `AM_STORE_ENDPOINT` | (required) | S3-compatible object store. |

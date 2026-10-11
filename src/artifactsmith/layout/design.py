@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 
 from .inline import esc
 from .model import Block
@@ -148,9 +149,19 @@ def _apply_drop(lead: list[Block], sections: list[list[Block]]) -> None:
 
 def _opening_prose(block: Block) -> bool:
     text = block.plain.strip()
-    if len(text) < _DROP_MIN or not text[0].isalpha():
+    if len(text) < _DROP_MIN or not text[0].isalpha() or _mostly_code(block):
         return False
     return _LABEL_LINE.match(text) is None
+
+
+def _mostly_code(block: Block) -> bool:
+    """True when inline code is more than half of the paragraph."""
+    parts = re.findall(r"<code>(.*?)</code>", block.html, flags=re.I | re.S)
+    if not parts:
+        return False
+    code_chars = sum(len(unescape(part)) for part in parts)
+    total = len(block.plain.strip())
+    return total > 0 and code_chars * 2 > total
 
 
 def _body_paragraphs(pools: list[list[Block]]) -> list[Block]:

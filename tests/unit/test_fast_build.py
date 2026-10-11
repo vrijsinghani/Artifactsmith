@@ -183,6 +183,17 @@ def test_invalid_build_mode_fails_closed(monkeypatch):
     assert CFG.build_mode == "full"
 
 
+def test_fast_styles_default_empty_and_fail_closed(monkeypatch):
+    monkeypatch.delenv("AM_FAST_STYLES", raising=False)
+    assert Config().fast_styles == frozenset()
+    monkeypatch.setenv("AM_FAST_STYLES", "house, bold")
+    assert Config().fast_styles == frozenset({"house", "bold"})
+    monkeypatch.setenv("AM_FAST_STYLES", "turbo")
+    with pytest.raises(ConfigError, match="AM_FAST_STYLES"):
+        Config()
+    assert CFG.fast_styles == frozenset()
+
+
 def test_layout_worker_bounds_bytes_and_errors():
     from artifactsmith.layout.build import _layout_worker
 

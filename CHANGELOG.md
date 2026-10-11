@@ -12,6 +12,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Fast pages stay within a phone width; `AM_FAST_STYLES` can default named styles to fast; drop caps and charts skip code-heavy paragraphs, partial measure names, and non-currency columns.
 - Fast pages take on each style's own design. A table draws a bar chart for its one main amount when the page has none; mixed facts, years, IDs, and ranks stay tables.
 - Fast layout rendering runs in the killable child with the render timeout and output cap. Bracket runs stay linear, colspan stops at 12, and a table wider than 24 columns or 5,000 cells is clipped. Plain Markdown gains a hero or verdict band, a stat strip, status badges, and a single-line total row on a phone. `callout`, `tip`, and `info` are note aliases. A ` ```html ` fence stays code.
 - Share, preview, and download responses set CSP `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation` (with `script-src 'none'`) so a left click on an external link opens a new tab.

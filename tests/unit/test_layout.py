@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 import re
+import socket
+import subprocess
+import tempfile
+import time
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -464,6 +473,29 @@ Source: transcript dated 2026-10-09 and the rest of this note is long enough tha
     assert notes == []
     assert '<p class="drop">' not in html.split("<body>", 1)[1]
 
+    coded = "`" + ("render_layout " * 12).strip() + "`"
+    assert len(coded) > 120
+    html, notes = render_layout(
+        f"# Rebate\n\n::: note\nHold the payout.\n:::\n\n{coded}\n",
+        style="editorial",
+        title="Rebate",
+    )
+    assert notes == []
+    assert '<p class="drop">' not in html
+
+    mixed = (
+        "The body opens with a long line and a `code` word that stays inside the same paragraph "
+        "so the letter floats beside the words and the sentence keeps going past the length floor."
+    )
+    html, notes = render_layout(
+        f"# Rebate\n\n::: note\nHold the payout.\n:::\n\n{mixed}\n",
+        style="editorial",
+        title="Rebate",
+    )
+    assert notes == []
+    assert '<p class="drop">' in html
+    assert "<code>code</code>" in html.split('<p class="drop">', 1)[1].split("</p>", 1)[0]
+
 
 def test_pull_quote_is_a_sentence():
     dated = """# Brief
@@ -646,6 +678,29 @@ def test_auto_bar_chart_follows_a_short_number_table():
     assert revenue.count('class="asl-chart"') == 1
     assert "$1,705" in revenue
 
+    names = _page(
+        ["Channel", "Revenue"],
+        [["Corporate", "$1,200"], ["Paid search", "$800"], ["Email", "$400"]],
+    )
+    assert names.count('class="asl-chart"') == 1
+    assert "Corporate" in names and "$1,200" in names
+
+    price = _page(
+        ["Product", "Count", "Price"],
+        [["A", "12", "$4"], ["B", "3", "$9"], ["C", "8", "$2"]],
+    )
+    assert price.count('class="asl-chart"') == 1
+    price_label = price.split('aria-label="', 1)[1].split('"', 1)[0]
+    assert "$4" in price_label and "12" not in price_label
+
+    fee = _page(
+        ["Month", "Growth", "Fee"],
+        [["July", "12%", "$40"], ["August", "8%", "$30"], ["September", "9%", "$50"]],
+    )
+    assert fee.count('class="asl-chart"') == 1
+    fee_label = fee.split('aria-label="', 1)[1].split('"', 1)[0]
+    assert "$40" in fee_label and "12%" not in fee_label
+
     monthly = _page(
         ["Month", "Shop", "Billed"],
         [["July", "North", "$38,185"], ["August", "South", "$28,935"], ["September", "East", "$35,941"]],
@@ -674,3 +729,217 @@ def test_samples_render_without_notes():
             assert needle in html
         doc = sanitize_html_document(html)
         assert "Hold both" in doc or "$15,459.15" in doc or "Decision" in doc
+
+
+_PHONE_PAGE = """# Phone width
+
+A sentence with Supercalifragilisticexpialidocious in the middle of ordinary prose so a long token cannot widen the page.
+
+| Month | Invoices | Billed | Rebate |
+|---|---|---|---|
+| July | 45 | $38,185 | $5,727.75 |
+| August | 43 | $28,935 | $4,340.25 |
+| September | 48 | $35,941 | $5,391.15 |
+| Total | 136 | $103,061 | $15,459.15 |
+
+{phone=scroll}
+| Channel | Plan | Seats | Owner | Note |
+|---|---|---|---|---|
+| Paid search | Annual | 12 | Ada Lovelace | International campaign budget |
+| Email | Monthly | 4 | Grace Hopper | Retention sequence |
+| Events | Quarterly | 8 | Alan Turing | Conference booth |
+
+```
+print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+```
+"""
+
+
+def test_four_column_tables_stack_and_scroll_tables_do_not():
+    html, notes = render_layout(_PHONE_PAGE, style="house", title="Phone")
+    assert notes == []
+    assert 'class="asl-table-wrap stack"' in html
+    assert 'class="asl-table stack"' in html
+    scroll = html.split("<table", 2)[2]
+    assert "scroll" in scroll.split(">", 1)[0]
+    assert "stack" not in scroll.split(">", 1)[0]
+    narrow, _notes = render_layout(
+        "# T\n\n| Shop | Billed |\n|---|---|\n| North | $1 |\n| South | $2 |\n| East | $3 |\n",
+        style="bold",
+        title="T",
+    )
+    assert "stack" not in narrow.split("<table", 1)[1].split(">", 1)[0]
+
+
+def _chrome_bin() -> str | None:
+    env = os.environ.get("CHROME_BIN") or os.environ.get("CHROMIUM_BIN")
+    if env and Path(env).is_file():
+        return env
+    for candidate in ("/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"):
+        if Path(candidate).is_file():
+            return candidate
+    for name in ("chromium", "chromium-browser", "google-chrome", "chrome"):
+        found = subprocess.run(["which", name], capture_output=True, text=True, check=False)
+        if found.returncode == 0 and found.stdout.strip() and Path(found.stdout.strip()).is_file():
+            return found.stdout.strip()
+    return None
+
+
+def _ws_connect(host: str, port: int, path: str) -> socket.socket:
+    sock = socket.create_connection((host, port), timeout=10)
+    sock.settimeout(8)
+    key = base64.b64encode(os.urandom(16)).decode()
+    sock.sendall(
+        (
+            f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
+            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        ).encode()
+    )
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return sock
+
+
+def _ws_send(sock: socket.socket, text: str) -> None:
+    payload = text.encode()
+    mask = os.urandom(4)
+    header = bytearray([0x81])
+    size = len(payload)
+    if size < 126:
+        header.append(0x80 | size)
+    else:
+        header.append(0x80 | 126)
+        header += size.to_bytes(2, "big")
+    sock.sendall(header + mask + bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload)))
+
+
+def _ws_recv(sock: socket.socket) -> str:
+    def readn(count: int) -> bytes:
+        buf = b""
+        while len(buf) < count:
+            chunk = sock.recv(count - len(buf))
+            if not chunk:
+                raise EOFError
+            buf += chunk
+        return buf
+
+    first, second = readn(2)
+    length = second & 0x7F
+    if length == 126:
+        length = int.from_bytes(readn(2), "big")
+    elif length == 127:
+        length = int.from_bytes(readn(8), "big")
+    payload = readn(length)
+    if (first & 0x0F) == 1:
+        return payload.decode()
+    return ""
+
+
+def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
+    seq = {"n": 0}
+
+    def call(method: str, params: dict[str, object] | None = None) -> dict[str, object]:
+        seq["n"] += 1
+        msg: dict[str, object] = {"id": seq["n"], "method": method}
+        if params:
+            msg["params"] = params
+        _ws_send(sock, json.dumps(msg))
+        while True:
+            raw = _ws_recv(sock)
+            if not raw:
+                continue
+            data = json.loads(raw)
+            if data.get("id") == seq["n"]:
+                return data
+
+    call(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": width, "height": 1400, "deviceScaleFactor": 1, "mobile": True},
+    )
+    expr = """new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        const root = document.documentElement;
+        const wider = (el) => el.scrollWidth > el.clientWidth + 1;
+        resolve(JSON.stringify({
+          sw: root.scrollWidth,
+          cw: root.clientWidth,
+          code: [...document.querySelectorAll('pre')].some(wider)
+        }));
+      });
+    })"""
+    result = call("Runtime.evaluate", {"expression": expr, "awaitPromise": True, "returnByValue": True})
+    payload = result["result"]
+    assert isinstance(payload, dict)
+    inner = payload["result"]
+    assert isinstance(inner, dict)
+    value = inner.get("value")
+    if not isinstance(value, str):
+        details = payload.get("exceptionDetails") if isinstance(payload, dict) else None
+        exc = details.get("exception") if isinstance(details, dict) else None
+        desc = exc.get("description") if isinstance(exc, dict) else details
+        raise AssertionError(str(desc)[:400])
+    return json.loads(value)
+
+
+@pytest.mark.skipif(_chrome_bin() is None, reason="no headless Chrome available")
+def test_fast_pages_fit_a_phone_width():
+    """No fast page scrolls sideways at 360 or 390. Wide bits scroll inside their own box."""
+    chrome = _chrome_bin()
+    assert chrome is not None
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    with tempfile.TemporaryDirectory() as td:
+        profile = Path(td) / "profile"
+        profile.mkdir()
+        proc = subprocess.Popen(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                f"--user-data-dir={profile}",
+                f"--remote-debugging-port={port}",
+                "about:blank",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(80):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=0.2)
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            else:
+                raise AssertionError("chrome debug port did not open")
+            for style in STYLES:
+                html, notes = render_layout(_PHONE_PAGE, style=style, title="Phone")
+                assert notes == []
+                path = Path(td) / f"{style}.html"
+                path.write_text(sanitize_html_document(html), encoding="utf-8")
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{path.as_uri()}", method="PUT")
+                target = json.load(urllib.request.urlopen(req, timeout=5))
+                parsed = urlparse(target["webSocketDebuggerUrl"])
+                sock = _ws_connect(parsed.hostname or "127.0.0.1", parsed.port or port, parsed.path)
+                try:
+                    for width in (360, 390):
+                        metrics = _phone_metrics(sock, width)
+                        assert metrics["sw"] <= metrics["cw"], (style, width, metrics)
+                        assert metrics["code"] is True
+                finally:
+                    sock.close()
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()

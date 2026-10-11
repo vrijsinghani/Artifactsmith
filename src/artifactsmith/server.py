@@ -117,7 +117,8 @@ def create(
             description=(
                 "Build mode for a first HTML page: fast or full. "
                 "fast writes Markdown and the server renders the style. "
-                "full is the HTML build. Default is AM_BUILD_MODE (full). "
+                "full is the HTML build. Default is AM_BUILD_MODE (full), "
+                "or fast when the style is listed in AM_FAST_STYLES. "
                 "Other formats ignore fast."
             )
         ),
@@ -143,9 +144,10 @@ def create(
     default AM_DEFAULT_STYLE, usually house).     style is accepted on markdown, pdf, docx, and xlsx
     but ignored: those formats still use the writing-only prompt.
 
-    mode is fast or full (default AM_BUILD_MODE, usually full). fast applies to a first HTML
+    mode is fast or full (default AM_BUILD_MODE, usually full). When mode is omitted and the
+    style is listed in AM_FAST_STYLES, the default is fast instead. fast applies to a first HTML
     build: the model writes Markdown and the server renders it. full is the HTML build.
-    Other formats ignore fast.
+    Other formats ignore fast. An explicit mode still wins.
 
     source_content (optional, up to 200 KB total with source_files) is researched material the page
     is built from. The builder uses only the request plus this material for facts.

@@ -21,7 +21,7 @@ SQLite holds artifacts, versions, jobs, tokens, and shares. The S3-compatible ob
 
 Safety checks look for secrets, private hosts, allow-list misses, scripts, and size. Public http(s) citations may remain. The renderer for `format` then writes bytes. Files go to the object store and the version becomes `done`.
 
-HTML uses the house-style system prompt and stores `index.html`. `mode=fast` (or `AM_BUILD_MODE=fast`) is a first HTML build: one model call writes Markdown, the server renders the style in the same killable child as PDF (render timeout and output cap), and the job stores `index.html` plus `page.md`. If that reply is unusable, the job makes one full HTML call. A secret or private link retries the fast prompt once. Edits stay on the full path. Markdown, PDF, DOCX, and XLSX use a content prompt. The model writes Markdown and the renderer converts it. PDF, DOCX, and XLSX also keep `content.md` so `edit` has a text base.
+HTML uses the house-style system prompt and stores `index.html`. `mode=fast` (or `AM_BUILD_MODE=fast`) is a first HTML build: one model call writes Markdown, the server renders the style in the same killable child as PDF (render timeout and output cap), and the job stores `index.html` plus `page.md`. If that reply is unusable, the job makes one full HTML call. A secret or private link retries the fast prompt once. `AM_FAST_STYLES` (empty by default) names styles whose omitted `mode` is `fast`; an explicit mode still wins. Edits stay on the full path. Markdown, PDF, DOCX, and XLSX use a content prompt. The model writes Markdown and the renderer converts it. PDF, DOCX, and XLSX also keep `content.md` so `edit` has a text base.
 
 ## Packages
 
