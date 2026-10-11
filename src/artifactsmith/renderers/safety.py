@@ -32,7 +32,9 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("github_fine_grained", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("openai_sk", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
-    ("generic_bearer", re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]+=*\b")),
+    # 20+ token68 chars. Shorter words ("Bearer token", "YOUR_API_KEY") are prose.
+    # Trailing "=" is base64 padding; no \b after it ("=" / "+" / "/" are non-word).
+    ("generic_bearer", re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]{20,}={0,2}")),
 ]
 
 PRIVATE_HOST_NAMES = frozenset(
