@@ -52,8 +52,16 @@ class RenderCrashed(Exception):
 
 
 def _apply_memory_limit(as_limit: int) -> None:
+    """Lower RLIMIT_AS in the render child only.
+
+    The worker functions also run in-process in tests. Capping the test
+    runner (or the server) makes the next ``Thread.start`` wait forever
+    once the process is already near the cap.
+    """
+    if mp.parent_process() is None:
+        return
     try:
-        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         limit = as_limit
         if hard != resource.RLIM_INFINITY:
             limit = min(limit, hard)

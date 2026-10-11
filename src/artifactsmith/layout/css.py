@@ -139,15 +139,20 @@ _PALETTES: dict[str, dict[str, str]] = {
 
 _BASE = """
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5}
-main{max-width:72rem;margin:0 auto;padding:1.25rem 1.25rem 3rem}
+.asl-title,main{max-width:72rem;margin:0 auto;padding-left:1.25rem;padding-right:1.25rem;box-sizing:border-box}
+.asl-title{padding-top:1.25rem;margin-bottom:1.2rem}
+main{padding-top:0;padding-bottom:3rem}
 p{max-width:68ch}
 h1,h2,h3,h4{line-height:1.15;margin:0 0 .5rem}
 h1{font-size:2.1rem}
 h2{font-size:1.4rem;margin-top:1.4rem}
 h3{font-size:1.15rem}
 a{color:var(--accent)}
-.asl-title{margin:0 0 1.2rem}
 .asl-title .dek{margin:.35rem 0 0;color:var(--muted);max-width:62ch}
+.asl-hero{margin:0 0 1.25rem;padding:1rem 1.15rem;background:var(--surface);border-left:4px solid var(--accent);border-radius:10px}
+.asl-hero p{margin:0;font-size:1.15rem;line-height:1.45;max-width:62ch}
+.asl-callout.verdict{font-size:1.08rem}
+.asl-callout.verdict p{max-width:62ch}
 .asl-section{margin:1.4rem 0}
 .asl-grid{display:grid;gap:1rem;margin:1rem 0}
 .asl-stat{padding:1rem 1.05rem}
@@ -161,8 +166,9 @@ a{color:var(--accent)}
 .asl-callout{margin:1rem 0;padding:.8rem 1rem}
 .asl-callout-label{margin:0 0 .3rem;font-size:.78rem;font-weight:700}
 .asl-callout p{margin:.35rem 0}
-table{border-collapse:collapse;width:100%;margin:1rem 0}
-th,td{padding:.45rem .6rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.asl-table-wrap{overflow-x:auto;max-width:100%;margin:1rem 0}
+table{border-collapse:collapse;width:100%;margin:0;font-size:1rem;line-height:1.45}
+th,td{padding:.65rem .8rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
 th{font-weight:600}
 caption{caption-side:top;text-align:left;font-weight:600;padding:0 0 .35rem}
 .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -224,10 +230,15 @@ _TAIL = """
   [class*="sp-"]{grid-column:auto}
   .cols-2{columns:1}
   .asl-title.variant-split{display:block}
+  .asl-table-wrap{overflow:visible}
   table.stack thead{display:none}
   table.stack tr{display:block;margin:0 0 .75rem;border:1px solid var(--line);padding:.45rem .65rem}
   table.stack td,table.stack th{display:block;border:0;text-align:left;padding:.2rem 0}
-  table.stack td::before{content:attr(data-label);display:block;font-size:.75rem;color:var(--muted);font-weight:600}
+  table.stack td::before,table.stack th::before{content:attr(data-label);display:block;font-size:.75rem;color:var(--muted);font-weight:600}
+  table.stack tfoot{display:block}
+  table.stack tr.total-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .55rem;border:0;margin:0;padding:.35rem 0}
+  table.stack tr.total-line td,table.stack tr.total-line th{display:inline;width:auto;border:0;padding:0;font-weight:700}
+  table.stack tr.total-line td::before,table.stack tr.total-line th::before{content:none;display:inline}
   table.scroll{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   pre,.asl-code{overflow-x:auto}
 }
@@ -243,7 +254,7 @@ _TAIL = """
 _EXTRAS: dict[str, str] = {
     "house": """
 .asl-title h1{border-bottom:4px solid var(--accent);padding-bottom:.25rem}
-.asl-title.variant-band{background:var(--surface);margin:-1.25rem -1.25rem 1.25rem;padding:1.5rem 1.25rem}
+.asl-title.variant-band{background:var(--surface);margin:0 auto 1.25rem;padding:1.5rem 1.25rem}
 .asl-section.variant-card{border:1px solid var(--line);border-radius:10px;padding:.9rem 1rem}
 .asl-section h2{border-bottom:2px solid var(--accent);padding-bottom:.15rem}
 .asl-stat{background:var(--surface);border:1px solid var(--line);border-radius:10px}
@@ -260,7 +271,9 @@ _EXTRAS: dict[str, str] = {
 .asl-quote{border-left:4px solid var(--accent);padding:.2rem 0 .2rem 1rem}
 """,
     "bold": """
-.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:-1.25rem -1.25rem 1.25rem;padding:2rem 1.4rem;border-radius:0 0 16px 16px}
+.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem;border-radius:0 0 16px 16px}
+.asl-hero{background:#1d4ed8;color:#fff;border-left:0;border-radius:12px}
+.asl-hero p,.asl-hero a{color:#fff}
 .asl-title h1{font-size:2.7rem;color:#fff}
 .asl-title .dek,.asl-title a{color:#e0e7ff}
 .asl-badge{border-radius:999px;background:#fff;color:#1a1230}
@@ -285,6 +298,7 @@ _EXTRAS: dict[str, str] = {
 """,
     "editorial": """
 .asl-title h1{font-size:3rem;font-weight:500;letter-spacing:-0.02em}
+.asl-hero{background:transparent;border:0;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent);border-radius:0;padding:.8rem 0;font-style:italic}
 .asl-title.variant-split{display:grid;grid-template-columns:1.5fr .8fr;gap:1.5rem;align-items:end}
 .asl-section h2{font-variant:small-caps;letter-spacing:.06em;font-size:1rem;border-top:1px solid var(--ink);padding-top:.45rem}
 .asl-stat{padding:0}
@@ -298,6 +312,7 @@ _EXTRAS: dict[str, str] = {
 a{color:#7f1d1d}
 .asl-code a{color:#ffe08a}
 .asl-title h1{font-size:2.5rem;background:#ffe08a;display:inline-block;padding:.15rem .6rem;border:3px solid #1f1300;border-radius:14px;box-shadow:4px 4px 0 #1f1300}
+.asl-hero{background:#fff;border:3px solid #1f1300;border-left:3px solid #1f1300;border-radius:14px;box-shadow:4px 4px 0 #1f1300}
 .asl-stat{background:#ffd0c8;border:3px solid #1f1300;border-radius:16px;box-shadow:4px 4px 0 #1f1300}
 .asl-stat.tone-green{background:#c9f3df}
 .asl-stat.tone-blue{background:#cfe4ff}
@@ -315,6 +330,7 @@ a{color:#7f1d1d}
 """,
     "terminal": """
 .asl-title h1{font-size:1.8rem}
+.asl-hero{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px}
 .asl-title h1::before{content:"$ "}
 .asl-section{border:1px solid var(--line);border-radius:8px;margin:1rem 0;overflow:hidden}
 .asl-section h2{background:#12211a;margin:0;padding:.45rem .75rem;font-size:1rem}
@@ -336,6 +352,7 @@ a{color:#7f1d1d}
 """,
     "swiss": """
 .asl-title h1{font-size:3.3rem;font-weight:800;letter-spacing:-0.035em;line-height:.95}
+.asl-hero{background:transparent;border:0;border-top:3px solid var(--accent);border-radius:0;padding:.6rem 0}
 .asl-stat{padding:.2rem 0}
 .asl-stat .value{color:var(--accent);font-size:2.8rem;font-weight:800}
 .asl-section{border-top:1px solid #111;padding-top:.55rem}

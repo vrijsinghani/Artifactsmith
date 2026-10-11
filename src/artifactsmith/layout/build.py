@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Callable
 from typing import Any
@@ -22,11 +23,80 @@ from ..builder import (
 )
 from ..config import CFG
 from ..renderers.safety import check_content, check_fields
+from ..renderers.subprocess_render import (
+    DEFAULT_AS_LIMIT,
+    RenderCrashed,
+    RenderTimeout,
+    RenderTooLarge,
+    render_killable,
+)
 from .model import LayoutError
 from .prompt import fast_system_prompt
 from .render import render_layout
 
+_NOTES_NAME = "_layout_notes.txt"
+
 _HTML_START = re.compile(r"^(?:<!doctype\s+html\b|<html\b)", re.I)
+
+
+def _layout_worker(
+    style: str,
+    title: str,
+    body: str,
+    max_bytes: int,
+    conn: Any,
+    as_limit: int = DEFAULT_AS_LIMIT,
+) -> None:
+    """Render one layout page in the killable child. ``style`` arrives as the format argument."""
+    from artifactsmith.renderers.subprocess_render import _apply_memory_limit
+
+    _apply_memory_limit(as_limit)
+    try:
+        html, notes = render_layout(body, style=style or "house", title=title)
+        data = html.encode("utf-8")
+        if len(data) > max_bytes:
+            conn.send(("too_large", len(data), max_bytes))
+            return
+        blob = "\n".join(notes).encode("utf-8")
+        conn.send(("ok", {"index.html": data, _NOTES_NAME: blob}, "index.html"))
+    except LayoutError as exc:
+        conn.send(("error", f"LayoutError: {exc}"))
+    except Exception as exc:  # noqa: BLE001 — boundary: serialize the error to the parent
+        conn.send(("error", f"{type(exc).__name__}: {exc}"))
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _render_layout_bounded(
+    body: str,
+    style: str,
+    title: str,
+    timeout_s: float,
+    max_bytes: int,
+) -> tuple[str, list[str]]:
+    """Render in the killable child. Timeout, crash, and oversize raise."""
+    try:
+        out = render_killable(
+            fmt=style,
+            title=title,
+            body=body,
+            timeout_s=timeout_s,
+            max_bytes=max_bytes,
+            worker=_layout_worker,
+        )
+    except RuntimeError as exc:
+        text = str(exc)
+        if text.startswith("LayoutError"):
+            raise LayoutError(text) from exc
+        raise
+    html = out.files["index.html"].decode("utf-8")
+    raw_notes = out.files.get(_NOTES_NAME, b"").decode("utf-8")
+    return html, [line for line in raw_notes.splitlines() if line]
+
+
 _FIX = (
     "\n\nYour previous reply failed server checks: {problems}. "
     "Return the full reply again in the required format, fixing these problems."
@@ -62,6 +132,9 @@ async def run_fast_html(
     user = build_user_prompt(verbatim, display_name, None, base_version, history, source)
     notes: list[str] = []
     progress("calling model (fast)")
+    # effort=low is attached only when the model name is o1/o3/o4/gpt-5.
+    # The fast prompt stays no longer than the full HTML prompt, so a large
+    # source does not pay extra prefill. Do not probe a second effort value.
     text = await llm.call(model, system, user, effort="low")
     outcome = await _accept(
         text,
@@ -169,8 +242,15 @@ async def _accept(
     if problems:
         return _Outcome(problems=problems)
     try:
-        html, layout_notes = render_layout(body, style=style, title=display_name)
-    except LayoutError:
+        html, layout_notes = await asyncio.to_thread(
+            _render_layout_bounded,
+            body,
+            style,
+            display_name,
+            float(render_timeout),
+            CFG.max_output_bytes,
+        )
+    except (LayoutError, RenderTimeout, RenderTooLarge, RenderCrashed):
         return _Outcome(unusable=True)
     except Exception as exc:  # noqa: BLE001
         notes.append(f"fast: {type(exc).__name__}")

@@ -11,8 +11,8 @@ from ..renderers.links import public_href_or_none
 from .model import ALLOWED_CLASSES, TONES, classify
 
 _BR = re.compile(r"<br\s*/?>", re.I)
-_BAD_BADGE = re.compile(r"\[([^\]\n]+)\]\{([^{}\n]*)\}")
 _COLSPAN = re.compile(r"\{(\d{1,2})\}\s*$")
+MAX_COLSPAN = 12
 
 
 def esc(text: str) -> str:
@@ -30,22 +30,51 @@ def text_html(raw: str) -> str:
 
 
 def scrub_bad_badges(raw: str) -> str:
-    """Keep the label of a badge whose attributes are not on the allow-list."""
+    """Keep the label of a badge whose attributes are not on the allow-list.
+
+    One forward pass. A run of ``[`` does not rescan the tail.
+    """
+    if "[" not in raw or "]" not in raw or "{" not in raw:
+        return raw
     from mdit_py_plugins.attrs.parse import ParseError, parse
 
-    def repl(match: re.Match[str]) -> str:
-        label = match.group(1)
+    out: list[str] = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        if raw[i] != "[":
+            out.append(raw[i])
+            i += 1
+            continue
+        j = i + 1
+        while j < n and raw[j] not in "]\n[":
+            j += 1
+        if j >= n or raw[j] != "]" or j == i + 1 or j + 1 >= n or raw[j + 1] != "{":
+            out.append(raw[i])
+            i += 1
+            continue
+        k = j + 2
+        while k < n and raw[k] not in "}\n{":
+            k += 1
+        if k >= n or raw[k] != "}":
+            out.append(raw[i])
+            i += 1
+            continue
+        label = raw[i + 1 : j]
         try:
-            _n, attrs = parse("{" + match.group(2) + "}")
+            _name, attrs = parse("{" + raw[j + 2 : k] + "}")
         except ParseError:
-            return label
+            out.append(label)
+            i = k + 1
+            continue
         keys = {str(key) for key in attrs}
         classes = {tok for tok in str(attrs.get("class", "")).split() if tok}
         if keys <= {"class"} and classes and classes <= ALLOWED_CLASSES:
-            return match.group(0)
-        return label
-
-    return _BAD_BADGE.sub(repl, raw)
+            out.append(raw[i : k + 1])
+        else:
+            out.append(label)
+        i = k + 1
+    return "".join(out)
 
 
 def _collect(tokens: list[Token], start: int, close: str) -> tuple[list[Token], int]:
@@ -138,7 +167,7 @@ def cell_html(tokens: list[Token], content: str) -> tuple[str, str, int]:
     span = 1
     match = _COLSPAN.search(content or "")
     if match and int(match.group(1)) >= 1:
-        span = int(match.group(1))
+        span = min(int(match.group(1)), MAX_COLSPAN)
     html = render_inlines(tokens)
     plain = _BR.sub(" ", plain_text(tokens))
     if span > 1:

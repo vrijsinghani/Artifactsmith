@@ -183,6 +183,80 @@ def test_invalid_build_mode_fails_closed(monkeypatch):
     assert CFG.build_mode == "full"
 
 
+def test_layout_worker_bounds_bytes_and_errors():
+    from artifactsmith.layout.build import _layout_worker
+
+    class Conn:
+        def __init__(self) -> None:
+            self.msg: tuple[object, ...] | None = None
+            self.closed = False
+
+        def send(self, msg: tuple[object, ...]) -> None:
+            self.msg = msg
+
+        def close(self) -> None:
+            self.closed = True
+
+    ok = Conn()
+    _layout_worker("house", "T", "# T\n\nHello\n", 10**6, ok)
+    assert ok.closed
+    assert ok.msg is not None and ok.msg[0] == "ok"
+    files = ok.msg[1]
+    assert isinstance(files, dict)
+    assert b"Hello" in files["index.html"]
+
+    small = Conn()
+    _layout_worker("house", "T", "# T\n\nHello\n", 10, small)
+    assert small.msg is not None and small.msg[0] == "too_large"
+
+    empty = Conn()
+    _layout_worker("house", "T", "", 10**6, empty)
+    assert empty.msg is not None and empty.msg[0] == "error"
+    assert str(empty.msg[1]).startswith("LayoutError")
+
+
+@pytest.mark.asyncio
+async def test_fast_render_keeps_the_event_loop_responsive(monkeypatch):
+    import time
+
+    from artifactsmith.renderers.subprocess_render import render_killable
+
+    seen: dict[str, object] = {}
+
+    def wrapped(**kwargs: object) -> object:
+        seen["worker"] = kwargs.get("worker")
+        seen["timeout"] = kwargs.get("timeout_s")
+        seen["max_bytes"] = kwargs.get("max_bytes")
+        time.sleep(0.45)
+        return render_killable(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("artifactsmith.layout.build.render_killable", wrapped)
+    gaps: list[float] = []
+    stop = asyncio.Event()
+
+    async def fake(model, system, user, timeout=300, *, effort=None):
+        assert effort == "low"
+        return _md(_PAGE)
+
+    async def heart() -> None:
+        last = time.perf_counter()
+        while not stop.is_set():
+            await asyncio.sleep(0.05)
+            now = time.perf_counter()
+            gaps.append(now - last)
+            last = now
+
+    task = asyncio.create_task(heart())
+    await _build(monkeypatch, fake)
+    stop.set()
+    await task
+    assert seen["worker"] is not None
+    assert isinstance(seen["timeout"], (int, float)) and seen["timeout"] > 0
+    assert isinstance(seen["max_bytes"], int) and seen["max_bytes"] > 0
+    assert gaps
+    assert max(gaps) < 0.2
+
+
 def test_exports_still_render_sample_markdown():
     from weasyprint import HTML
 

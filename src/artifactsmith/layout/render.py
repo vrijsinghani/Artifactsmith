@@ -16,6 +16,7 @@ from .tables import render_table
 
 _HTML_DOC = re.compile(r"<!doctype\s+html|<html\b", re.I)
 _DEK_LIMIT = 100
+_LABEL_VALUE = re.compile(r"^([^:]{1,32}):\s+(\S.{0,47})$")
 
 
 class _Ctx:
@@ -37,6 +38,7 @@ def render_layout(source: str, *, style: str, title: str) -> tuple[str, list[str
     ctx = _Ctx()
     title_block, dek, rest = _split_title(blocks)
     lead, sections = _sections(rest)
+    lead = _design_lead(lead)
     main = "".join(_render(block, ctx) for block in lead)
     main += "".join(_section(section, ctx) for section in sections)
     page_title = (title_block.plain if title_block else "") or title or "Page"
@@ -76,6 +78,59 @@ def _split_title(blocks: list[Block]) -> tuple[Block | None, Block | None, list[
         dek = rest[0] if rest and _is_dek(rest[0]) else None
         return blocks[0], dek, rest[1:] if dek else rest
     return None, None, blocks
+
+
+def _design_lead(lead: list[Block]) -> list[Block]:
+    """Turn an opening summary, status-free fact list, or callout into designed blocks.
+
+    Samples that already use ::: blocks keep their notes empty: this only adds
+    classes and wrappers, never a note.
+    """
+    if not lead:
+        return lead
+    out: list[Block] = []
+    promoted = False
+    lifted = False
+    for block in lead:
+        if not promoted and block.kind == "callout":
+            if "verdict" not in block.classes:
+                block.classes = (*block.classes, "verdict")
+            promoted = True
+            out.append(block)
+            continue
+        if not promoted and block.kind == "paragraph" and ("<strong>" in block.html or len(block.plain) > _DEK_LIMIT):
+            out.append(Block(kind="hero", html=block.html, plain=block.plain))
+            promoted = True
+            continue
+        if not lifted and block.kind in {"list", "olist"}:
+            strip = _stat_strip(block)
+            if strip is not None:
+                out.append(strip)
+                lifted = True
+                continue
+        out.append(block)
+    return out
+
+
+def _stat_strip(block: Block) -> Block | None:
+    if not block.children or block.children[0].kind != "item":
+        return None
+    stats: list[Block] = []
+    for item in block.children:
+        if "<strong>" not in item.html:
+            return None
+        match = _LABEL_VALUE.match(item.plain.strip())
+        if match is None:
+            return None
+        label = match.group(1).strip()
+        value = match.group(2).strip()
+        if not label or not value:
+            return None
+        stats.append(Block(kind="stat", plain=f"{label} | {value}"))
+    if len(stats) < 2:
+        return None
+    spec = str(min(len(stats), 4))
+    return Block(kind="grid", plain=spec, children=stats)
 
 
 def _sections(blocks: list[Block]) -> tuple[list[Block], list[list[Block]]]:
@@ -151,6 +206,8 @@ def _render(block: Block, ctx: _Ctx) -> str:
 
 def _render_kind(block: Block, ctx: _Ctx) -> str:
     kind = block.kind
+    if kind == "hero":
+        return f'<div class="asl-hero"><p>{block.html}</p></div>'
     if kind == "paragraph":
         return f"<p>{block.html}</p>"
     if kind == "heading":

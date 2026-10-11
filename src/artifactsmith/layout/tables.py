@@ -4,12 +4,42 @@ from __future__ import annotations
 
 import re
 
-from .inline import esc
+from .inline import MAX_COLSPAN, esc
 from .model import Block, Cell, class_attr
 
 _NUMERIC = re.compile(r"^[+−\-]?\s*[$€£¥]?\s*\d[\d,]*(?:\.\d+)?\s*%?$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _EMPTY = frozenset({"", "n/a", "na", "—", "-"})
+_STATUS_HEADER = re.compile(r"status|result|state|decision", re.I)
+_TOTAL_LABEL = frozenset({"total", "totals"})
+MAX_TABLE_WIDTH = 24
+MAX_TABLE_CELLS = 5000
+# Exact cell text. Ambiguous words (open, yes, no) only count under a status header.
+_STATUS_TONE: dict[str, str] = {
+    "confirmed": "green",
+    "agreed": "green",
+    "approved": "green",
+    "holding": "green",
+    "top pick": "green",
+    "rejected": "red",
+    "declined": "red",
+    "no entry": "red",
+    "scan error": "red",
+    "candidate": "amber",
+    "estimated": "amber",
+}
+_STATUS_IF_HEADER: dict[str, str] = {
+    "open": "amber",
+    "pending": "amber",
+    "warning": "amber",
+    "done": "green",
+    "yes": "green",
+    "pass": "green",
+    "active": "green",
+    "closed": "gray",
+    "no": "red",
+    "fail": "red",
+}
 
 
 def _is_numeric(plain: str) -> bool:
@@ -54,18 +84,54 @@ def _group_at(groups: tuple[tuple[str, int], ...], index: int) -> str:
 def _place(cells: list[Cell], width: int) -> list[tuple[Cell, int, int]]:
     placed: list[tuple[Cell, int, int]] = []
     col = 0
+    width = max(1, min(width, MAX_TABLE_WIDTH))
     for cell in cells:
         if col >= width:
-            placed.append((cell, col, max(cell.colspan, 1)))
-            col += max(cell.colspan, 1)
-            continue
-        span = max(1, min(cell.colspan, width - col))
+            break
+        span = max(1, min(cell.colspan, MAX_COLSPAN, width - col))
         placed.append((cell, col, span))
         col += span
     while col < width:
         placed.append((Cell("", ""), col, 1))
         col += 1
     return placed
+
+
+def limit_table(headers: list[Cell], rows: list[list[Cell]]) -> tuple[list[Cell], list[list[Cell]], bool]:
+    """Clamp colspan, width, and cell count. The third value is true when anything was cut."""
+    clipped = False
+
+    def clip_row(row: list[Cell]) -> list[Cell]:
+        nonlocal clipped
+        out: list[Cell] = []
+        used = 0
+        for cell in row:
+            span = max(1, min(cell.colspan, MAX_COLSPAN))
+            if span != cell.colspan:
+                clipped = True
+                cell = Cell(cell.html, cell.plain, span)
+            if used + span > MAX_TABLE_WIDTH:
+                clipped = True
+                break
+            out.append(cell)
+            used += span
+        return out
+
+    headers = clip_row(headers)
+    clipped_rows = [clip_row(row) for row in rows]
+    width = _width(headers, clipped_rows)
+    width = max(1, min(width, MAX_TABLE_WIDTH))
+    kept: list[list[Cell]] = []
+    placed = len(headers)
+    for index, row in enumerate(clipped_rows):
+        if index > 0 and placed + width > MAX_TABLE_CELLS:
+            clipped = True
+            break
+        kept.append(row)
+        placed += width
+    if len(kept) < len(rows):
+        clipped = True
+    return headers, kept, clipped
 
 
 def _numeric_columns(rows: list[list[Cell]], width: int) -> set[int]:
@@ -100,18 +166,38 @@ def _trim_pads(cells: list[Cell], width: int) -> list[Cell]:
     return trimmed
 
 
+def _status_html(cell: Cell, header: str) -> str:
+    if "asl-badge" in cell.html:
+        return cell.html
+    plain = cell.plain.strip()
+    if not plain or len(plain) > 24:
+        return cell.html
+    key = plain.lower()
+    tone = _STATUS_TONE.get(key)
+    if tone is None and _STATUS_HEADER.search(header):
+        tone = _STATUS_IF_HEADER.get(key)
+    if tone is None:
+        return cell.html
+    return f'<span class="asl-badge tone-{tone}">{esc(plain)}</span>'
+
+
+def _is_total_row(row: list[Cell]) -> bool:
+    return bool(row) and row[0].plain.strip().lower() in _TOTAL_LABEL
+
+
 def render_table(block: Block) -> str:
     """One table. Wide tables stack on a phone unless ``phone=scroll``."""
-    headers = list(block.headers)
-    width_guess = _width(headers, block.rows)
-    rows = [_trim_pads(row, width_guess) for row in block.rows]
+    headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
+    width_guess = _width(headers, rows)
+    rows = [_trim_pads(row, width_guess) for row in rows]
     if not rows:
         return ""
     width = _width(headers, rows)
     if len(headers) < width and headers:
         headers.extend(Cell("", "") for _ in range(width - len(headers)))
-    body = rows[:-1] if "total" in block.classes and len(rows) > 1 else rows
-    foot = rows[-1:] if "total" in block.classes and len(rows) > 1 else []
+    marked_total = "total" in block.classes or (len(rows) > 1 and _is_total_row(rows[-1]))
+    body = rows[:-1] if marked_total and len(rows) > 1 else rows
+    foot = rows[-1:] if marked_total and len(rows) > 1 else []
     numeric = _numeric_columns(body or rows, width)
     phone = block.attrs.get("phone") or ""
     stack = phone != "scroll" and width > 4
@@ -146,10 +232,10 @@ def render_table(block: Block) -> str:
     parts.append("</tbody>")
     if foot:
         parts.append("<tfoot>")
-        parts.append(_row(foot[0], width, headers, block.groups, numeric, rowhead, "td"))
+        parts.append(_row(foot[0], width, headers, block.groups, numeric, rowhead, "td", total_line=True))
         parts.append("</tfoot>")
     parts.append("</table>")
-    return "".join(parts)
+    return f'<div class="asl-table-wrap">{"".join(parts)}</div>'
 
 
 def _row(
@@ -160,9 +246,13 @@ def _row(
     numeric: set[int],
     rowhead: bool,
     tag: str,
+    *,
+    total_line: bool = False,
 ) -> str:
-    parts = ["<tr>"]
+    parts = ['<tr class="total-line">' if total_line else "<tr>"]
     for cell, col, span in _place(row, width):
+        if total_line and not cell.plain.strip() and not cell.html.strip():
+            continue
         use = "th" if rowhead and col == 0 else tag
         scope = ' scope="row"' if use == "th" else ""
         span_attr = f' colspan="{span}"' if span > 1 else ""
@@ -172,8 +262,10 @@ def _row(
         sign = _sign_class(cell.plain)
         if sign:
             classes.append(sign)
-        label = _label(headers, col, groups)
+        header = headers[col].plain if col < len(headers) else ""
+        shown = cell.html if total_line else _status_html(cell, header)
+        label = "" if total_line else _label(headers, col, groups)
         data = f' data-label="{esc(label)}"' if label else ""
-        parts.append(f"<{use}{scope}{span_attr}{class_attr(*classes)}{data}>{cell.html}</{use}>")
+        parts.append(f"<{use}{scope}{span_attr}{class_attr(*classes)}{data}>{shown}</{use}>")
     parts.append("</tr>")
     return "".join(parts)

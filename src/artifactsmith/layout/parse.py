@@ -16,23 +16,35 @@ from mdit_py_plugins.tasklists import tasklists_plugin
 from .chart import parse_chart
 from .inline import cell_html, plain_text, render_inlines
 from .model import ALLOWED_ATTRS, CALLOUTS, Block, Cell, classify
+from .tables import limit_table
 
 _TRAIL = re.compile(r"\s*\{([^{}]*)\}\s*$")
 _ONLY_ATTRS = re.compile(r"\s*\{.*\}\s*$", re.S)
 _LANG = re.compile(r"^[A-Za-z0-9_+-]{1,20}$")
+_BLOCK_NAME = re.compile(r"^[a-z0-9-]{1,24}$")
 _HTML_CAP = 6 * 1024
 _HTML_MAX = 2
+_NOTE_ALIAS = {"callout": "note", "tip": "note", "info": "note"}
 
 
-def _parser() -> MarkdownIt:
+def _parser(source: str) -> MarkdownIt:
+    """Enable the extra plugins only when the source uses them.
+
+    A long run of ``[`` with no attributes, fences, or containers stays on the
+    plain CommonMark parser, which does not rescan those brackets.
+    """
     md = MarkdownIt("commonmark", {"html": False})
     md.enable("table")
-    md.use(container_plugin, "block", validate=lambda params, _markup: bool(params.strip()))
-    allowed = sorted(ALLOWED_ATTRS)
-    md.use(attrs_plugin, spans=True, allowed=allowed)
-    md.use(attrs_block_plugin, allowed=allowed)
-    md.use(deflist_plugin)
-    md.use(tasklists_plugin)
+    if ":::" in source:
+        md.use(container_plugin, "block", validate=lambda params, _markup: bool(params.strip()))
+    if "{" in source:
+        allowed = sorted(ALLOWED_ATTRS)
+        md.use(attrs_plugin, spans=True, allowed=allowed)
+        md.use(attrs_block_plugin, allowed=allowed)
+    if source.startswith(":") or "\n:" in source:
+        md.use(deflist_plugin)
+    if "[ ]" in source or "[x]" in source or "[X]" in source:
+        md.use(tasklists_plugin)
     return md
 
 
@@ -212,9 +224,12 @@ class _Walker:
                 self.i += 1
         self._close("table_close")
         groups = parse_groups(attrs.get("groups", ""))
+        headers, rows, clipped = limit_table(headers, rows)
         if not rows:
             self.notes.append("table dropped")
             return Block(kind="skipped")
+        if clipped:
+            self.notes.append("table clipped")
         return Block(kind="table", attrs=attrs, classes=classes, headers=headers, rows=rows, groups=groups)
 
     def _row(self) -> list[Cell]:
@@ -250,7 +265,7 @@ class _Walker:
         info, extra = take_braces(info)
         attrs, classes = classify(extra)
         name, _, rest = info.partition(" ")
-        name = name.lower()
+        name = _NOTE_ALIAS.get(name.lower(), name.lower())
         if name in CALLOUTS:
             return Block(kind="callout", plain=name, attrs=attrs, classes=classes, children=children)
         if name == "grid":
@@ -261,7 +276,8 @@ class _Walker:
             return Block(kind=name, attrs=attrs, classes=classes, children=children)
         if name == "html":
             return self._raw_html("\n".join(child.plain for child in children))
-        self.notes.append(f"unknown block {name or 'block'}")
+        shown = name if _BLOCK_NAME.fullmatch(name or "") else "block"
+        self.notes.append(f"unknown block {shown}")
         return Block(kind="flow", children=children)
 
     def _quote(self) -> Block:
@@ -322,8 +338,6 @@ class _Walker:
                 labels=tuple(labels),
                 numbers=tuple(series[0][1]),
             )
-        if info.lower().startswith("html"):
-            return self._raw_html(tok.content or "")
         lang = info.split()[0] if info else ""
         attrs = {"lang": lang} if _LANG.fullmatch(lang) else {}
         return Block(kind="code", html=tok.content or "", attrs=attrs)
@@ -365,9 +379,68 @@ def _chart_as_table(content: str) -> Block:
     return Block(kind="table", headers=rows[0], rows=rows[1:] or rows)
 
 
+def _tame_brackets(source: str) -> str:
+    """Escape long ``[`` runs so Markdown's link scanner stays linear.
+
+    A run of brackets with no ``]`` nearby is not a link or a badge. The parser
+    otherwise retries the tail at every bracket.
+    """
+    if source.count("[") < 32:
+        return source
+    lines = source.split("\n")
+    fenced = False
+    tamed: list[str] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            fenced = not fenced
+            tamed.append(line)
+            continue
+        if fenced or "[" not in line:
+            tamed.append(line)
+            continue
+        tamed.append(_tame_line(line))
+    return "\n".join(tamed)
+
+
+def _tame_line(line: str) -> str:
+    parts: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        if line[i] == "`":
+            ticks = i
+            while ticks < n and line[ticks] == "`":
+                ticks += 1
+            mark = line[i:ticks]
+            end = line.find(mark, ticks)
+            if end == -1:
+                parts.append(line[i:])
+                break
+            parts.append(line[i : end + len(mark)])
+            i = end + len(mark)
+            continue
+        if line[i] != "[":
+            parts.append(line[i])
+            i += 1
+            continue
+        j = i + 1
+        while j < n and line[j] == "[":
+            j += 1
+        run = j - i
+        closer = line.find("]", j, min(n, j + 80))
+        if run >= 32 or (run >= 8 and closer == -1):
+            parts.append("\\[" * run)
+        else:
+            parts.append(line[i:j])
+        i = j
+    return "".join(parts)
+
+
 def parse_markdown(source: str) -> tuple[list[Block], list[str]]:
     """Parse ``source``. Raises nothing for soft problems; those are notes."""
-    tokens = _parser().parse(source or "")
+    source = _tame_brackets(source or "")
+    tokens = _parser(source).parse(source)
     walker = _Walker(list(tokens))
     blocks = [block for block in walker.blocks() if block.kind != "skipped"]
     return blocks, walker.notes

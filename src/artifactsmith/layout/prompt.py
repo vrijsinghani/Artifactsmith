@@ -29,6 +29,34 @@ one or two sentences
 ===END===
 """
 
+# Outside SYNTAX_RULES so the 400-token cap still holds. Concrete so the model uses the blocks.
+_EXAMPLE = """Example (use the user's facts, not these numbers):
+
+# North rebate, Q3
+
+::: callout
+Hold the payout. The rebate below is owed on paid invoices only.
+:::
+
+:::: grid 3
+::: stat {tone=green .emph}
+Rebate owed | $15,459 | 15% of billed
+:::
+::: stat
+Invoices | 136
+:::
+::: stat
+Billed | $103,061
+:::
+::::
+
+| Member | Status | Rebate |
+|---|---|---|
+| North shop | [Confirmed]{.green} | $1,705 |
+| South shop | [Open]{.amber} | $810 |
+| East shop | [Rejected]{.red} | $0 |
+"""
+
 _HEAD = """You are the builder for an artifact service. You turn a user's request into one Markdown page. The server renders it as styled HTML.
 
 Rules:
@@ -54,7 +82,7 @@ def fast_system_prompt(style: str) -> str:
 
     name = parse_style(style)
     writing = SYSTEM[SYSTEM.index("Writing (every word") : SYSTEM.index("Visual design:")]
-    text = _HEAD + writing + SYNTAX_RULES
+    text = _HEAD + writing + SYNTAX_RULES + "\n" + _EXAMPLE
     if name in EMOJI_STYLES:
         text = text.replace(" No emoji.", "")
     return text

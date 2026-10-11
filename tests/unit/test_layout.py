@@ -40,11 +40,23 @@ def _contrast(fore: str, back: str) -> float:
 
 
 def test_syntax_rules_stay_short():
+    from artifactsmith.builder import SYSTEM
+    from artifactsmith.llm import supports_effort
+
     assert _tokens(SYNTAX_RULES) <= 400
     house = fast_system_prompt("house")
     assert "===FILE: page.md===" in house
     assert "Visual design:" not in house
     assert "No emoji." in house
+    assert "::: stat" in house
+    assert "[Confirmed]{.green}" in house
+    assert "::: callout" in house
+    # The example sits outside SYNTAX_RULES. The whole fast prompt stays no
+    # longer than the full HTML prompt, so a large source does not pay extra
+    # prefill. effort=low is attached only for o1/o3/o4/gpt-5, with no probe.
+    assert _tokens(house) <= _tokens(SYSTEM)
+    assert supports_effort("gpt-4o-mini") is False
+    assert supports_effort("gpt-5-mini") is True
     bold = fast_system_prompt("bold")
     assert "No emoji." not in bold
 
@@ -213,6 +225,112 @@ def test_contrast_pairs_meet_aa():
     assert _contrast("#7f1d1d", "#fff8ee") >= 4.5
     assert _contrast("#ffb020", "#14211b") >= 4.5
     assert _contrast("#ff8d8d", "#14211b") >= 4.5
+
+
+def test_bracket_run_renders_quickly():
+    import time
+
+    started = time.perf_counter()
+    html, notes = render_layout("# T\n\n" + ("[" * 60000), style="house", title="T")
+    assert time.perf_counter() - started < 1
+    assert notes == []
+    assert "[" in html
+    assert len(html.encode()) < 200_000
+
+
+def test_colspan_bomb_is_clamped():
+    header = "| " + " | ".join("h{99}" for _ in range(100)) + " |"
+    sep = "| " + " | ".join("---" for _ in range(100)) + " |"
+    row = "| " + " | ".join("x" for _ in range(100)) + " |"
+    source = "# T\n\n" + header + "\n" + sep + "\n" + "\n".join(row for _ in range(100)) + "\n"
+    html, notes = render_layout(source, style="house", title="T")
+    assert "table clipped" in notes
+    spans = [int(item) for item in re.findall(r'colspan="(\d+)"', html)]
+    assert spans
+    assert max(spans) <= 12
+    assert html.count("<td") < 5000
+    assert len(html.encode()) < 500_000
+
+
+def test_plain_markdown_gets_hero_stats_and_badges():
+    source = """# Rebate watch
+
+**Hold the plan.** The quarter is closed and the rebate below is owed.
+
+- **Rebate owed:** $15,459
+- **Invoices:** 136
+- **Billed:** $103,061
+
+| Member | Status | Rebate |
+|---|---|---|
+| North | Confirmed | $1,705 |
+| South | Open | $810 |
+
+| Item | Amount |
+|---|---|
+| North | $10 |
+| Total | $10 |
+"""
+    html, notes = render_layout(source, style="house", title="Rebate")
+    assert notes == []
+    assert "asl-hero" in html
+    assert "Hold the plan." in html
+    assert "asl-stat" in html
+    assert "Rebate owed" in html
+    assert 'class="asl-badge tone-green"' in html
+    assert 'class="asl-badge tone-amber"' in html
+    assert "total-line" in html
+    assert "max-width:72rem" in html
+    assert "margin:-1.25rem" not in html
+    doc = sanitize_html_document(html)
+    assert "asl-hero" in doc
+    assert "asl-stat" in doc
+    assert "asl-badge" in doc
+
+
+def test_callout_aliases_html_fence_and_block_name():
+    source = """# T
+
+::: callout
+Keep this
+:::
+
+::: tip
+A tip
+:::
+
+::: info
+An info
+:::
+
+```html
+<button>Press</button>
+```
+
+::: html
+<p>kept</p>
+:::
+
+::: this-name-is-longer-than-twenty-four
+nope
+:::
+"""
+    html, notes = render_layout(source, style="editorial", title="T")
+    assert html.count("asl-callout") >= 3
+    assert "Keep this" in html and "A tip" in html and "An info" in html
+    assert "<button" not in html
+    assert "&lt;button&gt;Press&lt;/button&gt;" in html
+    assert "kept" in html
+    assert notes == ["unknown block block"]
+    assert "twenty-four" not in " ".join(notes)
+
+
+def test_header_shares_the_content_column():
+    for style in STYLES:
+        css = stylesheet(style)
+        assert "margin:-1.25rem" not in css
+        assert ".asl-title,main{max-width:72rem" in css
+        assert len(css.encode()) < 8192
 
 
 def test_samples_render_without_notes():
