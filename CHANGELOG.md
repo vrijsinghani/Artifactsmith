@@ -21,7 +21,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Changed
 
 - HTML and Markdown render in-process; PDF, DOCX, and XLSX stay in a fresh killable child, and XLSX builds its Markdown parser once per file.
-- Edits return a find/replace patch (`===PATCH===` with `<<<FIND>>>` / `<<<REPLACE>>>` / `<<<END>>>`) applied to the base file, and fall back to the existing full-file prompt in the same job when the patch does not apply or fails checks. A move must change markup, not CSS order; the patch call times out after 90 seconds.
+- Edits return a find/replace patch (`===PATCH===` with `<<<FIND>>>` / `<<<REPLACE>>>` / `<<<END>>>`) applied to the base file, and fall back to the existing full-file prompt in the same job when the patch does not apply or fails checks. A move must change markup, not CSS order; the patch call times out after 90 seconds. A missing end marker before the next block is closed in place, and a hunk or result that still contains patch markers is rejected.
 - HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
 - CSS sanitizer keeps SVG paint properties so class-colored charts render; `url()` paint is still dropped.
 - HTML exports start with a no-fetch CSP meta tag; pages over 2 MB are rejected; SVG roots/elements/text/nesting are capped.

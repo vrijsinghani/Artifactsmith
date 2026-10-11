@@ -128,6 +128,13 @@ def test_search_replace_blocks_and_outer_fence():
             "malformed patch",
         ),
         (_reply("", "x"), "empty find"),
+        ("===PATCH===\n<<<REPLACE>>>\nx\n<<<END>>>\n===END===\n", "malformed patch"),
+        ("===PATCH===\n<<<FIND>>>\n# Store report\n<<<END>>>\n===END===\n", "malformed patch"),
+        (
+            "===PATCH===\n<<<FIND>>>\n# Store report\n<<<REPLACE>>>\n# x\n<<<REPLACE>>>\n# y\n<<<END>>>\n===END===\n",
+            "malformed patch",
+        ),
+        ("===PATCH===\n<<<FIND>>>\n# Store report\n<<<REPLACE>>>\n# x\n===END===\n", "malformed patch"),
     ],
 )
 def test_malformed_replies_raise(text: str, message: str):
@@ -184,14 +191,80 @@ def test_addendum_tells_the_model_to_move_markup() -> None:
     rules = PATCH_SYSTEM_ADDENDUM
     assert (
         "To move content, delete it at its old place and insert it at its new place in the markup "
-        "(two blocks, or one block that spans both places). Never use CSS (order, flex, grid, position, float) "
+        "(two blocks). Never use CSS (order, flex, grid, position, float) "
         "to change the reading order."
     ) in rules
+    assert "one block that spans both places" not in rules
     assert (
         "For a move, use two blocks: one whose FIND is the moved block and whose REPLACE is empty, "
         "and one whose FIND is only the first line of the destination (e.g. the heading) and whose REPLACE "
         "is the moved block followed by that line."
     ) in rules
+
+
+EVENTS = "\n".join(
+    [
+        "<h2>Events</h2>",
+        "<p>Open house Friday.</p>",
+        "<ul>",
+        "<li>Dock walk</li>",
+        "<li>Night watch</li>",
+        "</ul>",
+    ]
+)
+FACTS_PAGE = f"<h2>Facts</h2>\n<p>North leads.</p>\n{EVENTS}\n<h2>Scanner board</h2>\n<p>Live board.</p>\n"
+
+
+def test_missing_end_before_next_find_is_two_hunks() -> None:
+    """The move reply that omitted <<<END>>> after an empty REPLACE."""
+    reply = (
+        "===SUMMARY===\nMoved Events above Facts.\n"
+        "===PATCH===\n"
+        "<<<FIND>>>\n"
+        f"{EVENTS}\n"
+        "<<<REPLACE>>>\n"
+        "\n"
+        "<<<FIND>>>\n"
+        "<h2>Facts</h2>\n"
+        "<<<REPLACE>>>\n"
+        f"{EVENTS}\n"
+        "<h2>Facts</h2>\n"
+        "<<<END>>>\n"
+        "===END===\n"
+    )
+    parsed = parse_patch_reply(reply)
+    assert len(parsed.hunks) == 2
+    assert parsed.hunks[0] == Hunk(EVENTS, "")
+    assert parsed.hunks[1] == Hunk("<h2>Facts</h2>", f"{EVENTS}\n<h2>Facts</h2>")
+    updated = apply_patch(FACTS_PAGE, parsed.hunks)
+    assert updated.count("<h2>Facts</h2>") == 1
+    assert updated.count("<h2>Events</h2>") == 1
+    assert updated.index("<h2>Events</h2>") < updated.index("<h2>Facts</h2>")
+    assert updated.index("<h2>Facts</h2>") < updated.index("<h2>Scanner board</h2>")
+    assert "<<<" not in updated
+
+
+@pytest.mark.parametrize("marker", ["<<<<<<< SEARCH", "=======", "===NOTE==="])
+def test_marker_line_inside_replace_raises(marker: str) -> None:
+    reply = f"===PATCH===\n<<<FIND>>>\n<h2>Facts</h2>\n<<<REPLACE>>>\n<h2>Facts</h2>\n{marker}\n<<<END>>>\n===END===\n"
+    with pytest.raises(PatchError, match="marker in hunk"):
+        parse_patch_reply(reply)
+
+
+def test_inserted_marker_text_is_rejected() -> None:
+    with pytest.raises(PatchError, match="marker in hunk"):
+        apply_patch("hello\n", [Hunk("hello", "hello <<<END>>>")])
+    kept = apply_patch("see <<<FIND>>> once\n", [Hunk("once", "once")])
+    assert kept == "see <<<FIND>>> once\n"
+
+
+def test_empty_replace_followed_by_end_deletes() -> None:
+    reply = "===PATCH===\n<<<FIND>>>\n## Notes\n\nSouth is the backup.\n<<<REPLACE>>>\n<<<END>>>\n===END===\n"
+    parsed = parse_patch_reply(reply)
+    assert parsed.hunks == [Hunk("## Notes\n\nSouth is the backup.", "")]
+    updated = apply_patch(BASE, parsed.hunks)
+    assert "South is the backup." not in updated
+    assert "## Hours" in updated
 
 
 def test_css_only_move_is_style_text_on_a_move_request() -> None:

@@ -40,7 +40,7 @@ Patch rules:
 - REPLACE is the entire new text of that span, not a list of changed words. Do not escape HTML or Markdown.
 - Prefer one block when the change sits in one region (a cell or a heading).
   Use two blocks only when the regions are apart: one deletes, one inserts, both copied from the original.
-- To move content, delete it at its old place and insert it at its new place in the markup (two blocks, or one block that spans both places). Never use CSS (order, flex, grid, position, float) to change the reading order.
+- To move content, delete it at its old place and insert it at its new place in the markup (two blocks). Never use CSS (order, flex, grid, position, float) to change the reading order.
 - For a move, use two blocks: one whose FIND is the moved block and whose REPLACE is empty, and one whose FIND is only the first line of the destination (e.g. the heading) and whose REPLACE is the moved block followed by that line.
 - The line break before each marker is not part of the text. Do not add a blank line before a marker.
 - Leave every unchanged part of the file out of the reply.
@@ -72,27 +72,18 @@ _SECTION_RE = re.compile(
     r"^===(ASSUMPTIONS|SUMMARY|PATCH|END|NEEDS_INPUT|FILE:.*?)===\s*$",
     re.M,
 )
-_FIND_RE = re.compile(
-    r"^[ \t]*<<<FIND>>>[ \t]*\n(?P<find>.*?)\n[ \t]*<<<REPLACE>>>[ \t]*\n(?P<replace>.*?)[ \t]*<<<END>>>[ \t]*$",
-    re.M | re.S,
-)
-# Models trained on code edits sometimes emit this even when asked for FIND/REPLACE.
-_SEARCH_RE = re.compile(
-    r"^[ \t]*<<<<<<< SEARCH\n(?P<find>.*?)\n=======\n(?P<replace>.*?)>>>>>>> REPLACE[ \t]*$",
-    re.M | re.S,
-)
+# Own-line markers. SEARCH is accepted when a model emits it; the prompt does not ask for it.
+_FIND_START = frozenset({"<<<FIND>>>", "<<<<<<< SEARCH"})
+_REPLACE_SWITCH = frozenset({"<<<REPLACE>>>", "======="})
+_HUNK_END = frozenset({"<<<END>>>", ">>>>>>> REPLACE"})
+_HUNK_MARKER_LINES = _FIND_START | _REPLACE_SWITCH | _HUNK_END
+_DOC_MARKERS = ("<<<FIND>>>", "<<<REPLACE>>>", "<<<END>>>")
 
 
 def _normalize(text: str) -> str:
     stripped = text.strip().replace("\r\n", "\n").replace("\r", "\n")
     fenced = _FENCE_RE.match(stripped)
     return fenced.group(1).strip() if fenced else stripped
-
-
-def _strip_one_trailing_newline(text: str) -> str:
-    if text.endswith("\n"):
-        return text[:-1]
-    return text
 
 
 def _section(text: str, name: str) -> str | None:
@@ -112,23 +103,118 @@ def _assumptions(raw: str | None) -> list[str]:
     return [item for item in items if item.lower() not in ("none", "(none)")]
 
 
-def _hunks_in(body: str, pattern: re.Pattern[str]) -> list[Hunk] | None:
-    matches = list(pattern.finditer(body))
-    if not matches:
-        return None
+def _marker_kind(line: str, dialect: str) -> str | None:
+    """Marker role for this line. The other dialect's markers stay text and fail later."""
+    stripped = line.strip()
+    if dialect != "search":
+        if stripped == "<<<FIND>>>":
+            return "find"
+        if stripped == "<<<REPLACE>>>":
+            return "replace"
+        if stripped == "<<<END>>>":
+            return "end"
+    if dialect != "find":
+        if stripped == "<<<<<<< SEARCH":
+            return "find"
+        if stripped == "=======":
+            return "replace"
+        if stripped == ">>>>>>> REPLACE":
+            return "end"
+    return None
+
+
+def _dialect_of(line: str) -> str:
+    if line.strip() == "<<<<<<< SEARCH":
+        return "search"
+    return "find"
+
+
+def _join_hunk_lines(lines: list[str]) -> str:
+    """Join hunk lines. The blank line before a marker is the separator, not text."""
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    return "\n".join(lines)
+
+
+def _has_marker_line(text: str) -> bool:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in _HUNK_MARKER_LINES:
+            return True
+        if stripped.startswith("===") and stripped.endswith("==="):
+            return True
+    return False
+
+
+def _parse_hunks(body: str) -> list[Hunk]:
+    """Read FIND/REPLACE/END blocks one line at a time.
+
+    A new FIND while a replacement is open closes that hunk. Models often omit
+    ``<<<END>>>`` between a delete block and the insert block of a move.
+    """
     hunks: list[Hunk] = []
-    pos = 0
-    for match in matches:
-        if body[pos : match.start()].strip():
-            raise PatchError("malformed patch")
-        find = _strip_one_trailing_newline(match.group("find"))
-        replace = _strip_one_trailing_newline(match.group("replace"))
+    state = "idle"
+    dialect = ""
+    find_lines: list[str] = []
+    replace_lines: list[str] = []
+    junk_before = False
+
+    def close() -> None:
+        find = _join_hunk_lines(find_lines)
+        replace = _join_hunk_lines(replace_lines)
         if find == "":
             raise PatchError("empty find")
+        if _has_marker_line(find) or _has_marker_line(replace):
+            raise PatchError("marker in hunk")
         hunks.append(Hunk(find, replace))
-        pos = match.end()
-    if body[pos:].strip():
+        if len(hunks) > MAX_HUNKS:
+            raise PatchError("too many hunks")
+
+    for line in body.splitlines():
+        kind = _marker_kind(line, dialect)
+        if state == "idle":
+            if kind == "find":
+                if junk_before:
+                    raise PatchError("malformed patch")
+                state = "find"
+                dialect = _dialect_of(line)
+                find_lines = []
+                replace_lines = []
+            elif kind is None:
+                if line.strip() and hunks:
+                    raise PatchError("malformed patch")
+                if line.strip():
+                    junk_before = True
+            else:
+                raise PatchError("malformed patch")
+        elif state == "find":
+            if kind == "replace":
+                state = "replace"
+                replace_lines = []
+            elif kind is None:
+                find_lines.append(line)
+            else:
+                raise PatchError("malformed patch")
+        elif kind == "find":
+            close()
+            state = "find"
+            dialect = _dialect_of(line)
+            find_lines = []
+            replace_lines = []
+        elif kind == "end":
+            close()
+            state = "idle"
+            dialect = ""
+            find_lines = []
+            replace_lines = []
+        elif kind == "replace":
+            raise PatchError("malformed patch")
+        else:
+            replace_lines.append(line)
+    if state != "idle":
         raise PatchError("malformed patch")
+    if not hunks:
+        raise PatchError("empty patch")
     return hunks
 
 
@@ -138,15 +224,8 @@ def parse_patch_reply(text: str) -> PatchReply:
     body = _section(cleaned, "PATCH")
     if body is None:
         raise PatchError("no patch section")
-    hunks = _hunks_in(body, _FIND_RE)
-    if hunks is None:
-        hunks = _hunks_in(body, _SEARCH_RE)
-    if not hunks:
-        raise PatchError("empty patch")
-    if len(hunks) > MAX_HUNKS:
-        raise PatchError("too many hunks")
     summary = (_section(cleaned, "SUMMARY") or "").strip()
-    return PatchReply(_assumptions(_section(cleaned, "ASSUMPTIONS")), summary, hunks)
+    return PatchReply(_assumptions(_section(cleaned, "ASSUMPTIONS")), summary, _parse_hunks(body))
 
 
 def _line_spans(text: str) -> list[tuple[int, int, str]]:
@@ -258,6 +337,9 @@ def apply_patch(base: str, hunks: list[Hunk]) -> str:
     updated = base
     for start, end, replace in reversed(spans):
         updated = updated[:start] + replace + updated[end:]
+    for token in _DOC_MARKERS:
+        if token in updated and token not in base:
+            raise PatchError("marker in hunk")
     return updated
 
 

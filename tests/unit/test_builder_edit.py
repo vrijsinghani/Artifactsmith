@@ -374,3 +374,28 @@ async def test_patch_timeout_falls_back(monkeypatch: pytest.MonkeyPatch, caplog:
     assert b"18" in result.files["index.html"]
     assert "edit patch fell back: timeout" in result.notes
     assert "edit patch fell back: timeout" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_marker_in_hunk_falls_back_to_a_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
+        calls.append(user)
+        if len(calls) == 1:
+            return _patch("<h2>Facts</h2>", "<h2>Facts</h2>\n<<<<<<< SEARCH")
+        return _full(_events_first(), "Moved the Events section above Facts.")
+
+    monkeypatch.setattr(b.llm, "call", fake_call)
+    result = await b.run_build(
+        **_kw(
+            verbatim="Move the Events section above the Facts section",
+            base_source=FACTS_PAGE,
+        )
+    )
+    page = result.files["index.html"].decode()
+    assert len(calls) == 2
+    assert "edit patch fell back: marker in hunk" in result.notes
+    assert "<<<<<<< SEARCH" not in page
+    assert "<<<" not in page
+    assert page.index("Events") < page.index("Facts")
