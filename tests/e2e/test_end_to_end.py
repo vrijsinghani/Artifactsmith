@@ -32,6 +32,23 @@ from tests.e2e.stack import (
 )
 
 
+def check_page_csp(headers: httpx.Headers, where: str) -> None:
+    csp = headers.get("content-security-policy", "")
+    parts = [part.strip() for part in csp.split(";") if part.strip()]
+    check("script-src 'none'" in csp, f"{where} CSP blocks scripts (script-src 'none')")
+    sandbox = parts[-1].split() if parts else []
+    check(
+        sandbox
+        == [
+            "sandbox",
+            "allow-popups",
+            "allow-popups-to-escape-sandbox",
+            "allow-top-navigation-by-user-activation",
+        ],
+        f"{where} CSP sandbox allows user-activated popups",
+    )
+
+
 async def main() -> int:
     await wait_health(API)
     print("server healthy")
@@ -90,10 +107,7 @@ async def main() -> int:
         check(st.get("style") == "bold", "status records the bold style")
         page = httpx.get(st["preview_url"], timeout=10)
         check(page.status_code == 200 and fact1 in page.text, f"private preview contains {fact1}")
-        check(
-            "script-src 'none'" in page.headers.get("content-security-policy", ""),
-            "CSP blocks scripts (script-src 'none')",
-        )
+        check_page_csp(page.headers, "preview")
         check(st.get("share", {}).get("state") == "not_shared", "create did NOT publish a share link")
         probe = httpx.get(f"{PREVIEW}/s/deadbeefcafe1234/", timeout=10)
         check(probe.status_code == 404, "no public /s/ link yet (guess is 404)")
@@ -138,6 +152,7 @@ async def main() -> int:
         check(sh.get("state") == "shared" and sh.get("url"), "share returns a public URL")
         r = httpx.get(sh["url"], timeout=10)
         check(r.status_code == 200 and fact2 in r.text, "public share URL serves the page (200)")
+        check_page_csp(r.headers, "share")
         state["share_url"] = sh["url"]
 
         print("\n[5] unshare -> URL is 404")

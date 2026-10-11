@@ -1,7 +1,8 @@
 """Parser-based HTML allowlist for standalone exports (nh3 / Ammonia + tinycss2).
 
-Hosted preview adds CSP and sandbox headers; downloaded files do not, so the
-stored bytes must be safe without those defenses.
+Hosted preview and share responses set CSP `script-src 'none'` and a sandbox
+that allows user-activated popups. Downloaded files do not, so the stored
+bytes must be safe without those defenses.
 """
 
 from __future__ import annotations

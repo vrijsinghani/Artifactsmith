@@ -422,7 +422,8 @@ mcp.custom_route("/healthz", methods=["GET"])(healthz)
 # ---------------- preview origin (separate port = separate origin; no cookies, strict CSP) ----------------
 CSP = (
     "default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; script-src 'none'; "
-    "font-src data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; sandbox"
+    "font-src data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; "
+    "sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
 )
 
 

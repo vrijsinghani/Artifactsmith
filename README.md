@@ -340,9 +340,9 @@ Permissions are `create`, `read`, `edit`, `publish`, `export`, `share`, and `del
 
 Builds stay private until you call `share`. That creates a public `/s/…` URL. `unshare` makes it return 404.
 
-Preview runs on its own port, sends no cookies, and sets CSP `script-src 'none'`.
+Preview and share pages run on their own port, send no cookies, and set CSP `script-src 'none'` with `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`.
 
-Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). Host checks use urllib plus a WHATWG-style approximation; they guarantee accepted links do not reach private hosts, not that every accepted link is browser-valid. Protocol-relative `//host` citations are upgraded to `https://` only when the host is public; private or dangerous `//` destinations are neutralized, not upgraded. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
+Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). In-page `#` anchors stay on the page. Host checks use urllib plus a WHATWG-style approximation; they guarantee accepted links do not reach private hosts, not that every accepted link is browser-valid. Protocol-relative `//host` citations are upgraded to `https://` only when the host is public; private or dangerous `//` destinations are neutralized, not upgraded. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
 
 The process does not send usage data anywhere.
 
