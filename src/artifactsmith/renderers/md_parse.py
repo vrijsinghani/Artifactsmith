@@ -173,10 +173,11 @@ def _emit_text_urls(
         parts.append(InlineSpan(raw[pos:], bold=bold, italic=italic))
 
 
-def iter_styled_spans(text: str) -> list[InlineSpan]:
-    """Flatten inline markdown to styled spans for PDF/DOCX.
+def iter_styled_spans(text: str, *, inline: bool = False) -> list[InlineSpan]:
+    """Flatten markdown to styled spans for PDF/DOCX (and XLSX cells when inline).
 
     Emphasis markers are not emitted. URLs inside inline code stay plain text.
+    ``inline=True`` parses as inline only, so list/quote/heading markers stay.
     """
     if not text:
         return []
@@ -185,7 +186,7 @@ def iter_styled_spans(text: str) -> list[InlineSpan]:
     md = MarkdownIt("commonmark", {"linkify": True})
     md.enable("linkify")
     md.validateLink = lambda _url: True  # type: ignore[assignment]
-    tokens = md.parse(text)
+    tokens = md.parseInline(text) if inline else md.parse(text)
     parts: list[InlineSpan] = []
 
     def walk(children: list[Token] | None, bold: bool, italic: bool, href: str | None) -> None:
@@ -234,9 +235,12 @@ def iter_styled_spans(text: str) -> list[InlineSpan]:
     return parts
 
 
-def visible_text(text: str) -> str:
-    """Plain text of inline markdown (no emphasis markers)."""
-    return "".join(span.text for span in iter_styled_spans(text)) or text
+def visible_text(text: str, *, inline: bool = False) -> str:
+    """Plain text of markdown (no emphasis markers).
+
+    ``inline=True`` keeps leading list, quote, and heading marks.
+    """
+    return "".join(span.text for span in iter_styled_spans(text, inline=inline)) or text
 
 
 def _style_html(inner: str, span: InlineSpan) -> str:

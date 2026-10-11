@@ -276,6 +276,74 @@ def test_xlsx_identifier_headers_keep_column_text():
     assert row2[3].value == 50 and row2[3].data_type == "n"
 
 
+def test_xlsx_cells_parse_inline_markdown_only():
+    from openpyxl import load_workbook
+
+    body = """## Values
+
+| label | value |
+| --- | --- |
+| spaced_money | - $5 |
+| spaced_int | - 5 |
+| ask | 1. Ask |
+| quote | > kept |
+| heading | # Title |
+| bold_neg | - **$5** |
+"""
+    out = get_renderer("xlsx").render(title="Inline", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    ws = next(s for s in wb.worksheets if s.title != "Notes")
+    by_label = {str(row[0].value): row[1] for row in ws.iter_rows(min_row=2) if row[0].value is not None}
+
+    money = by_label["spaced_money"]
+    assert money.value == -5
+    assert money.data_type == "n"
+    assert "$" in money.number_format
+
+    spaced = by_label["spaced_int"]
+    assert spaced.value == -5
+    assert spaced.data_type == "n"
+
+    ask = by_label["ask"]
+    assert ask.value == "1. Ask"
+    assert ask.data_type == "s"
+
+    quote = by_label["quote"]
+    assert quote.value == "> kept"
+    assert quote.data_type == "s"
+
+    heading = by_label["heading"]
+    assert heading.value == "# Title"
+    assert heading.data_type == "s"
+
+    bold_neg = by_label["bold_neg"]
+    assert bold_neg.value == -5
+    assert bold_neg.data_type == "n"
+
+
+def test_xlsx_count_headers_stay_numeric():
+    from openpyxl import load_workbook
+
+    body = """## Counts
+
+| Number of invoices | No. of units | # of orders | Amount | Number | Account number | Card no. | Order # |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 12 | 3 | 7 | 1,234 | 99 | 1234567890123456789 | 4111111111111111 | 42 |
+"""
+    out = get_renderer("xlsx").render(title="Counts", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    ws = next(s for s in wb.worksheets if s.title != "Notes")
+    row = next(ws.iter_rows(min_row=2, max_row=2))
+    assert row[0].value == 12 and row[0].data_type == "n"
+    assert row[1].value == 3 and row[1].data_type == "n"
+    assert row[2].value == 7 and row[2].data_type == "n"
+    assert row[3].value == 1234 and row[3].data_type == "n"
+    assert row[4].value == "99" and row[4].data_type == "s"
+    assert row[5].value == "1234567890123456789" and row[5].data_type == "s"
+    assert row[6].value == "4111111111111111" and row[6].data_type == "s"
+    assert row[7].value == "42" and row[7].data_type == "s"
+
+
 def test_xlsx_uses_model_sheet_names():
     from openpyxl import load_workbook
 

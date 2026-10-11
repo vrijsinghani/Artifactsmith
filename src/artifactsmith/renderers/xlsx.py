@@ -37,8 +37,6 @@ _ID_WORDS = frozenset(
         "id",
         "account",
         "acct",
-        "number",
-        "no",
         "sku",
         "upc",
         "ean",
@@ -50,6 +48,8 @@ _ID_WORDS = frozenset(
         "card",
     }
 )
+_COUNT_WORDS = frozenset({"number", "no", "#"})
+_ID_BEFORE_COUNT = _ID_WORDS | frozenset({"invoice", "order", "po"})
 
 
 def _clip_sheet_name(raw: str) -> str:
@@ -69,10 +69,20 @@ def _sheet_name(title: str, used: set[str], index: int) -> str:
     return name
 
 
-def _header_is_identifier(header: str) -> bool:
+def _header_tokens(header: str) -> list[str]:
     text = visible_text(header).lower().replace(".", " ")
-    tokens = set(re.findall(r"[a-z0-9]+|#", text))
-    return bool(tokens & _ID_WORDS) or "#" in text
+    return re.findall(r"[a-z0-9]+|#", text)
+
+
+def _header_is_identifier(header: str) -> bool:
+    tokens = _header_tokens(header)
+    if not tokens:
+        return False
+    if any(tok in _ID_WORDS for tok in tokens):
+        return True
+    if tokens in (["number"], ["no"], ["#"]):
+        return True
+    return any(tok in _COUNT_WORDS and i > 0 and tokens[i - 1] in _ID_BEFORE_COUNT for i, tok in enumerate(tokens))
 
 
 def _identifier_columns(headers: Sequence[str]) -> frozenset[int]:
@@ -161,7 +171,7 @@ def _literal_cell(ws: Any, row: int, col: int, value: object, *, force_text: boo
 
     raw = strip_ooxml_controls("" if value is None else str(value))
     href = _first_public_href(raw) if raw else None
-    text = visible_text(raw) if raw else ""
+    text = visible_text(raw, inline=True) if raw else ""
     cell = ws.cell(row=row, column=col)
     parsed = None if force_text or href else _parse_numeric(text)
     if parsed is not None:
