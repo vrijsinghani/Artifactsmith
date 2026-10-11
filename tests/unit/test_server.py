@@ -163,6 +163,30 @@ def test_preview_forged_or_expired_is_404(svc):
     assert client.get(f"/p/{sid}").status_code == 404
 
 
+def _assert_page_csp(header: str) -> None:
+    """Served pages keep script-src none and exactly these sandbox flags."""
+    parts = [part.strip() for part in header.split(";") if part.strip()]
+    assert "script-src 'none'" in header
+    assert parts[-1].split() == [
+        "sandbox",
+        "allow-popups",
+        "allow-popups-to-escape-sandbox",
+        "allow-top-navigation-by-user-activation",
+    ]
+    assert parts[:-1] == [
+        "default-src 'none'",
+        "img-src data:",
+        "media-src data:",
+        "style-src 'unsafe-inline'",
+        "script-src 'none'",
+        "font-src data:",
+        "connect-src 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+    ]
+
+
 def test_preview_ok_has_csp_and_no_cookies(svc):
     aid, ver, body = _seed_done_artifact(svc)
     sid = "previewtok1"
@@ -178,7 +202,7 @@ def test_preview_ok_has_csp_and_no_cookies(svc):
     r = client.get(f"/p/{sid}")
     assert r.status_code == 200
     assert body in r.text
-    assert "script-src 'none'" in r.headers.get("content-security-policy", "")
+    _assert_page_csp(r.headers.get("content-security-policy", ""))
     assert "set-cookie" not in {k.lower() for k in r.headers.keys()}
     assert not r.cookies
 
@@ -226,7 +250,7 @@ def test_download_signed_ok(svc):
     assert r.status_code == 200
     assert body.encode() in r.content
     assert "attachment" in r.headers.get("content-disposition", "")
-    assert "script-src 'none'" in r.headers.get("content-security-policy", "")
+    _assert_page_csp(r.headers.get("content-security-policy", ""))
     assert not r.cookies
 
 
@@ -248,6 +272,7 @@ def test_shared_link_ok_and_revoked(svc):
     r = client.get(f"/s/{sid}/")
     assert r.status_code == 200
     assert body in r.text
+    _assert_page_csp(r.headers.get("content-security-policy", ""))
     assert not r.cookies
     svc.db.exec("UPDATE shares SET revoked_at=? WHERE id=?", time.time(), sid)
     assert client.get(f"/s/{sid}/").status_code == 404

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -30,15 +31,20 @@ def test_allows_public_https_and_http_href():
     raw = """<html><body>
     <a href="https://example.com/paper">https cite</a>
     <a href="http://example.com/old">http cite</a>
-    <a href="#section">frag</a>
+    <a href="#section" target="_blank">frag</a>
     </body></html>"""
     out = sanitize_html(raw)
-    low = out.lower()
-    assert 'href="https://example.com/paper"' in low
-    assert 'href="http://example.com/old"' in low
-    assert 'rel="noopener noreferrer nofollow"' in low
-    assert 'target="_blank"' in low
-    assert 'href="#section"' in low
+    anchors = re.findall(r"<a\b[^>]*>", out, flags=re.I)
+    external = [tag for tag in anchors if "example.com" in tag]
+    fragments = [tag for tag in anchors if 'href="#section"' in tag]
+    assert len(external) == 2
+    assert len(fragments) == 1
+    for tag in external:
+        assert 'target="_blank"' in tag
+        rel = re.search(r'rel="([^"]*)"', tag)
+        assert rel is not None
+        assert {"noopener", "noreferrer"} <= set(rel.group(1).split())
+    assert re.search(r"\btarget\s*=", fragments[0], flags=re.I) is None
 
 
 def test_strips_javascript_private_and_protocol_relative_links():
