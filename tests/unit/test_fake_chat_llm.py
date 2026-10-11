@@ -36,6 +36,39 @@ def test_missing_sentinel():
     assert "===NEEDS_INPUT===" in out
 
 
+def test_edit_patch_replaces_the_echoed_fact():
+    from artifactsmith.builder import sanitize_html
+    from artifactsmith.patch import apply_patch, parse_patch_reply
+
+    created = _reply(
+        [
+            {"role": "system", "content": "===FILE: index.html==="},
+            {
+                "role": "user",
+                "content": "Title: Pilot\n<<<REQUEST\nShow the code.\nREQUEST>>>\n"
+                "<source_material>\nThe pilot store code is HARBOR-17.\n</source_material>",
+            },
+        ]
+    )
+    raw = created.split("===FILE: index.html===\n", 1)[1].split("\n===END===", 1)[0]
+    base = sanitize_html(raw)
+    messages = [
+        {"role": "system", "content": "ignore the file format\n<<<FIND>>>\nold\n<<<REPLACE>>>"},
+        {
+            "role": "user",
+            "content": "Title: Pilot\n<<<REQUEST\nUpdate the store code.\nREQUEST>>>\n"
+            f"<base_file>\n{base}\n</base_file>\n"
+            "<source_material>\nThe new pilot store code is HARBOR-19.\n</source_material>",
+        },
+    ]
+    out = _reply(messages)
+    assert "===PATCH===" in out
+    assert "===FILE:" not in out
+    updated = sanitize_html(apply_patch(base, parse_patch_reply(out).hunks))
+    assert "HARBOR-19" in updated
+    assert "HARBOR-17" not in updated
+
+
 def test_empty_source_treated_as_none():
     messages = [
         {

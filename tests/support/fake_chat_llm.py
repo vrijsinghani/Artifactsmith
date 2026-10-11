@@ -8,6 +8,8 @@ Behaviour:
   the rendered page.
 - Emits the needs-input marker whenever the prompt contains the sentinel FACTS_MISSING,
   so a request whose fact is absent from the source material can never produce a done page.
+- When the system prompt asks for a find/replace patch and the user message has a base file,
+  returns a patch of the echoed fact span instead of a new full file.
 It performs no network calls and never invents a page. The whole reply is plain text
 the server parses; nothing here is executed by the server.
 """
@@ -27,6 +29,9 @@ MISSING_SENTINEL = "FACTS" + "_MISSING"  # built by concatenation so this file c
 REQUEST_RE = re.compile(r"<<<REQUEST\n(.*?)\nREQUEST>>>", re.S)
 SOURCE_RE = re.compile(r"<source_material>\n(.*?)\n</source_material>", re.S)
 TITLE_RE = re.compile(r"^Title:\s*(.+?)$", re.M)
+BASE_RE = re.compile(r"<base_file>\n(.*)\n</base_file>", re.S)
+PRE_RE = re.compile(r"<pre\b[^>]*>(.*?)</pre>", re.S | re.I)
+MD_DETAILS_RE = re.compile(r"## Details\n\n(.*?)\n\n\| field \|", re.S)
 
 
 def _user_text(messages: list[dict]) -> str:
@@ -51,6 +56,40 @@ def _system_text(messages: list[dict]) -> str:
     return "\n".join(str(m.get("content", "")) for m in messages if m.get("role") == "system")
 
 
+def _patch_message(old: str, new: str, summary: str) -> str:
+    return (
+        "===ASSUMPTIONS===\n"
+        "- none\n"
+        "===SUMMARY===\n"
+        f"{summary}\n"
+        "===PATCH===\n"
+        "<<<FIND>>>\n"
+        f"{old}\n"
+        "<<<REPLACE>>>\n"
+        f"{new}\n"
+        "<<<END>>>\n"
+        "===END===\n"
+    )
+
+
+def _edit_patch(user_text: str) -> str | None:
+    """When the builder asks for a patch, replace the echoed fact span inside the base file."""
+    base_m = BASE_RE.search(user_text)
+    if not base_m:
+        return None
+    base = base_m.group(1)
+    _title, request_text, source_text = _extract(user_text)
+    bits = [part for part in (source_text, request_text) if part]
+    facts = "\n".join(bits) if bits else "no facts supplied"
+    pre = PRE_RE.search(base)
+    if pre and pre.group(1).strip() and base.count(pre.group(1)) == 1:
+        return _patch_message(pre.group(1), html.escape(facts), "Updated the details to the supplied facts.")
+    details = MD_DETAILS_RE.search(base)
+    if details and details.group(1).strip() and base.count(details.group(1)) == 1:
+        return _patch_message(details.group(1), facts, "Updated the details to the supplied facts.")
+    return None
+
+
 def _reply(messages: list[dict]) -> str:
     text = _user_text(messages)
     if MISSING_SENTINEL in text:
@@ -59,6 +98,11 @@ def _reply(messages: list[dict]) -> str:
             "A fact the request depends on is not present in the supplied source material. "
             "Provide it as source_content and try again.\n===END===\n"
         )
+    # Patch calls carry the find/replace rules in the system prompt. A full rewrite does not.
+    if "<<<FIND>>>" in _system_text(messages):
+        patched = _edit_patch(text)
+        if patched:
+            return patched
     title, request_text, source_text = _extract(text)
     body_bits = []
     if source_text:

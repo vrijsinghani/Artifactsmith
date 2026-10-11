@@ -215,7 +215,7 @@ support every fact the request asks for (including “why it matters”):
 }
 ```
 
-If a needed fact is missing from the request and the source, the job ends as `needs_input` and stores no file. When server checks fail, the model is called a second time, so a failed build takes about twice as long to report as a clean one.
+If a needed fact is missing from the request and the source, the job ends as `needs_input` and stores no file. When server checks fail, the model is called a second time, so a failed build takes about twice as long to report as a clean one. An edit asks for a patch of the changed parts first. A patch that does not apply, or that fails those same checks, is rebuilt as a full file in the same job.
 
 ### `publish` arguments
 
