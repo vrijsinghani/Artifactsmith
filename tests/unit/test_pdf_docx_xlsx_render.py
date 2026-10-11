@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 
 from artifactsmith.renderers import get_renderer
@@ -184,6 +185,97 @@ def test_xlsx_numeric_cell_types_and_formats():
     assert formula.data_type == "s"
 
 
+def test_xlsx_keeps_identifier_cells_as_text():
+    from openpyxl import load_workbook
+
+    body = """## Values
+
+| label | value |
+| --- | --- |
+| zip | 32202 |
+| phone | 9045551234 |
+| e164 | +19045551234 |
+| card | 4111111111111111 |
+| account19 | 1234567890123456789 |
+| isbn | 9780306406157 |
+| mixed | $12% |
+| grouped | 1,234 |
+| money | $1,234.56 |
+| pct | 12.5% |
+| neg | -$5 |
+| euro | €12.5 |
+| pounds | £1,000 |
+| lead0 | 007 |
+| sci | 1e2 |
+"""
+    out = get_renderer("xlsx").render(title="Ids", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    ws = next(s for s in wb.worksheets if s.title != "Notes")
+    by_label = {str(row[0].value): row[1] for row in ws.iter_rows(min_row=2) if row[0].value is not None}
+
+    assert by_label["zip"].value == 32202
+    assert by_label["zip"].data_type == "n"
+    phone = by_label["phone"]
+    assert phone.value == "9045551234"
+    assert phone.data_type == "s"
+    e164 = by_label["e164"]
+    assert e164.value == "+19045551234"
+    assert e164.data_type == "s"
+    card = by_label["card"]
+    assert card.value == "4111111111111111"
+    assert card.data_type == "s"
+    account19 = by_label["account19"]
+    assert account19.value == "1234567890123456789"
+    assert account19.data_type == "s"
+    isbn = by_label["isbn"]
+    assert isbn.value == "9780306406157"
+    assert isbn.data_type == "s"
+    mixed = by_label["mixed"]
+    assert mixed.value == "$12%"
+    assert mixed.data_type == "s"
+    assert by_label["grouped"].value == 1234
+    assert by_label["grouped"].data_type == "n"
+    assert float(by_label["money"].value) == 1234.56
+    assert abs(float(by_label["pct"].value) - 0.125) < 1e-9
+    assert by_label["neg"].value == -5
+    assert by_label["neg"].data_type == "n"
+    assert "$" in by_label["neg"].number_format
+    assert float(by_label["euro"].value) == 12.5
+    assert "€" in by_label["euro"].number_format
+    assert by_label["pounds"].value == 1000
+    assert "£" in by_label["pounds"].number_format
+    assert by_label["lead0"].value == "007"
+    assert by_label["sci"].value == "1e2"
+
+
+def test_xlsx_identifier_headers_keep_column_text():
+    from openpyxl import load_workbook
+
+    body = """## Contacts
+
+| ZIP | Phone | Account | Amount | ISBN | Card |
+| --- | --- | --- | --- | --- | --- |
+| 32202 | 9045551234 | 1234567890123456789 | 1,234 | 9780306406157 | 4111111111111111 |
+| 02134 | +19045551234 | 007 | $50.00 | 9780306406157 | 4111111111111111 |
+"""
+    out = get_renderer("xlsx").render(title="Contacts", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    ws = next(s for s in wb.worksheets if s.title != "Notes")
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert headers[:6] == ["ZIP", "Phone", "Account", "Amount", "ISBN", "Card"]
+    row = next(ws.iter_rows(min_row=2, max_row=2))
+    assert row[0].value == "32202" and row[0].data_type == "s"
+    assert row[1].value == "9045551234" and row[1].data_type == "s"
+    assert row[2].value == "1234567890123456789" and row[2].data_type == "s"
+    assert row[3].value == 1234 and row[3].data_type == "n"
+    assert row[4].value == "9780306406157" and row[4].data_type == "s"
+    assert row[5].value == "4111111111111111" and row[5].data_type == "s"
+    row2 = next(ws.iter_rows(min_row=3, max_row=3))
+    assert row2[0].value == "02134" and row2[0].data_type == "s"
+    assert row2[1].value == "+19045551234" and row2[1].data_type == "s"
+    assert row2[3].value == 50 and row2[3].data_type == "n"
+
+
 def test_xlsx_uses_model_sheet_names():
     from openpyxl import load_workbook
 
@@ -222,3 +314,65 @@ def test_xlsx_uses_model_sheet_names():
     assert all(len(n) <= 31 for n in wb.sheetnames)
     assert "month" not in wb.sheetnames
     assert "Foo/Bar:*Baz?" not in wb.sheetnames
+
+
+def test_xlsx_sheet_names_follow_excel_rules():
+    from openpyxl import load_workbook
+
+    apostrophe_heading = ("A" * 30) + "'b"
+    body = f"""## History
+
+| a | b |
+| --- | --- |
+| 1 | 2 |
+
+## history
+
+| a | b |
+| --- | --- |
+| 3 | 4 |
+
+## Notes
+
+| a | b |
+| --- | --- |
+| 5 | 6 |
+
+## {apostrophe_heading}
+
+| a | b |
+| --- | --- |
+| 7 | 8 |
+
+## Sales
+
+| a | b |
+| --- | --- |
+| 9 | 10 |
+
+## sales
+
+| a | b |
+| --- | --- |
+| 11 | 12 |
+"""
+    out = get_renderer("xlsx").render(title="Book", body=body)
+    wb = load_workbook(io.BytesIO(out.files["document.xlsx"]))
+    names = wb.sheetnames
+    assert "Notes" in names
+    data_names = [n for n in names if n != "Notes"]
+    assert "History" not in names
+    assert data_names[0].lower() != "history"
+    assert data_names[0].startswith("History")
+    assert all(n.lower() != "history" for n in names)
+    assert "Notes_2" in names
+    assert names.count("Notes") == 1
+    clipped = next(n for n in data_names if n.startswith("A"))
+    assert len(clipped) <= 31
+    assert not clipped.startswith("'")
+    assert not clipped.endswith("'")
+    assert all(len(n) <= 31 for n in names)
+    assert all(not re.search(r"[\[\]*:/\\?]", n) for n in names)
+    lowered = [n.lower() for n in names]
+    assert len(lowered) == len(set(lowered))
+    assert all(n.strip() for n in names)
