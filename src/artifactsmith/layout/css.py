@@ -271,7 +271,7 @@ _EXTRAS: dict[str, str] = {
 .asl-quote{border-left:4px solid var(--accent);padding:.2rem 0 .2rem 1rem}
 """,
     "bold": """
-.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem;border-radius:0 0 16px 16px}
+.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem}
 .asl-hero{background:#1d4ed8;color:#fff;border-left:0;border-radius:12px}
 .asl-hero p,.asl-hero a{color:#fff}
 .asl-title h1{font-size:2.7rem;color:#fff}
@@ -292,9 +292,16 @@ _EXTRAS: dict[str, str] = {
 .asl-callout-label{color:#fff}
 .asl-table th{background:#1e1b4b;color:#fff}
 .asl-code{background:#1e1b4b;color:#e0e7ff;border-radius:12px}
-.asl-code .lang{color:#c4b5fd}
+.asl-hero-band{background:#1b1464;color:#fff;border-radius:16px;padding:1rem;margin:0 0 1.2rem}
+.asl-hero-band .asl-hero,.asl-hero-band .asl-callout{background:none;color:#fff;border:0;margin:0 0 .75rem;padding:0}
+.asl-hero-band p,.asl-hero-band a{color:#fff}
+.asl-risks{list-style:none;padding:0;display:grid;gap:.65rem}
+.asl-risks li{margin:0;padding:.7rem .85rem;border-radius:12px;color:#fff}
+.asl-risks .tone-red{background:#b42318}.asl-risks .tone-amber{background:#b45309}.asl-risks .tone-green{background:#047857}.asl-risks .tone-blue{background:#1d4ed8}
+.panel .dots{display:flex;gap:.3rem;margin:0 0 .5rem}
+.panel .dots span{width:.5rem;height:.5rem;border-radius:9px;background:#c4b5fd;display:inline-block}
 .asl-quote{background:#5b2dbe;color:#fff;padding:1rem 1.2rem;border-radius:12px}
-.asl-section.variant-card{background:#fff;border-radius:14px;padding:1rem;box-shadow:0 8px 24px rgb(27 20 100 / 8%)}
+.asl-section.variant-card{background:#fff;border-radius:14px;padding:1rem}
 """,
     "editorial": """
 .asl-title h1{font-size:3rem;font-weight:500;letter-spacing:-0.02em}
@@ -307,12 +314,18 @@ _EXTRAS: dict[str, str] = {
 .asl-quote{font-size:1.6rem;font-style:italic;margin-left:0}
 .asl-table th{background:transparent;border-bottom:1px solid var(--ink)}
 .asl-code{background:transparent;border:1px solid var(--line)}
+p.drop{display:grid;grid-template-columns:auto 1fr;column-gap:.5rem;align-items:start}
+p.drop .cap{font-size:3.1rem;line-height:.78;color:var(--accent);font-weight:500;font-style:normal}
+.sec{color:var(--accent);margin-right:.45rem;letter-spacing:.08em;font-variant:small-caps}
+.asl-quote.pull{font-size:1.65rem;margin:1.1rem 0 1.3rem}
 """,
     "playful": """
 a{color:#7f1d1d}
 .asl-code a{color:#ffe08a}
 .asl-title h1{font-size:2.5rem;background:#ffe08a;display:inline-block;padding:.15rem .6rem;border:3px solid #1f1300;border-radius:14px;box-shadow:4px 4px 0 #1f1300}
 .asl-hero{background:#fff;border:3px solid #1f1300;border-left:3px solid #1f1300;border-radius:14px;box-shadow:4px 4px 0 #1f1300}
+.asl-hero.sticker{transform:rotate(-0.5deg)}
+.asl-section.sticker h2{display:inline-block;background:#ffe08a;border:3px solid #1f1300;border-radius:12px;padding:.1rem .5rem;box-shadow:3px 3px 0 #1f1300}
 .asl-stat{background:#ffd0c8;border:3px solid #1f1300;border-radius:16px;box-shadow:4px 4px 0 #1f1300}
 .asl-stat.tone-green{background:#c9f3df}
 .asl-stat.tone-blue{background:#cfe4ff}
@@ -331,6 +344,12 @@ a{color:#7f1d1d}
     "terminal": """
 .asl-title h1{font-size:1.8rem}
 .asl-hero{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px}
+.prompt{color:var(--accent);font-weight:700;margin-right:.35rem}
+.asl-callout.term{border-left:4px solid var(--accent)}
+.asl-callout.term .asl-callout-label::before{content:"$ "}
+.asl-callout.term .asl-callout-label::after{content:none}
+ul.asl-list.log{list-style:none;padding-left:0}
+ul.asl-list.log>li::before{content:"$ ";color:var(--accent)}
 .asl-title h1::before{content:"$ "}
 .asl-section{border:1px solid var(--line);border-radius:8px;margin:1rem 0;overflow:hidden}
 .asl-section h2{background:#12211a;margin:0;padding:.45rem .75rem;font-size:1rem}
@@ -353,6 +372,10 @@ a{color:#7f1d1d}
     "swiss": """
 .asl-title h1{font-size:3.3rem;font-weight:800;letter-spacing:-0.035em;line-height:.95}
 .asl-hero{background:transparent;border:0;border-top:3px solid var(--accent);border-radius:0;padding:.6rem 0}
+.asl-hero.swiss{border-top:8px solid var(--accent)}
+.asl-hero.swiss p{font-size:1.55rem;font-weight:800;letter-spacing:-0.03em;max-width:28ch}
+.idx{color:var(--accent);font-size:1.8rem;font-weight:800;margin-right:.7rem}
+.asl-callout.swiss{border-top:8px solid var(--accent);font-weight:700}
 .asl-stat{padding:.2rem 0}
 .asl-stat .value{color:var(--accent);font-size:2.8rem;font-weight:800}
 .asl-section{border-top:1px solid #111;padding-top:.55rem}

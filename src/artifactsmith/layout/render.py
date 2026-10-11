@@ -9,10 +9,11 @@ from ..renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
 from ..styles import parse_style
 from .chart import aria_label, chart_svg
 from .css import grid_class, grid_rule, stylesheet
+from .design import design_page
 from .inline import esc
 from .model import Block, LayoutError, class_attr
 from .parse import parse_markdown
-from .tables import render_table
+from .tables import auto_bar_chart, render_table
 
 _HTML_DOC = re.compile(r"<!doctype\s+html|<html\b", re.I)
 _DEK_LIMIT = 100
@@ -20,10 +21,12 @@ _LABEL_VALUE = re.compile(r"^([^:]{1,32}):\s+(\S.{0,47})$")
 
 
 class _Ctx:
-    def __init__(self) -> None:
+    def __init__(self, style: str) -> None:
+        self.style = style
         self.notes: list[str] = []
         self.grids: list[str] = []
         self.heading = ""
+        self.section_index = 0
 
 
 def render_layout(source: str, *, style: str, title: str) -> tuple[str, list[str]]:
@@ -35,16 +38,40 @@ def render_layout(source: str, *, style: str, title: str) -> tuple[str, list[str
         notes = [*notes, extra]
     if not blocks:
         raise LayoutError("empty layout")
-    ctx = _Ctx()
     title_block, dek, rest = _split_title(blocks)
     lead, sections = _sections(rest)
     lead = _design_lead(lead)
+    lead, sections = design_page(chosen, lead, sections)
+    if not _contains_chart(lead) and not any(_contains_chart(section) for section in sections):
+        _offer_charts(lead)
+        for section in sections:
+            _offer_charts(section)
+    ctx = _Ctx(chosen)
     main = "".join(_render(block, ctx) for block in lead)
     main += "".join(_section(section, ctx) for section in sections)
     page_title = (title_block.plain if title_block else "") or title or "Page"
     css = stylesheet(chosen, extra="".join(dict.fromkeys(ctx.grids)))
     doc = _document(page_title, css, _title_html(title_block, dek, title), main)
     return doc, [*notes, *ctx.notes]
+
+
+def _contains_chart(blocks: list[Block]) -> bool:
+    return any(block.kind == "chart" or _contains_chart(block.children) for block in blocks)
+
+
+def _offer_charts(blocks: list[Block]) -> None:
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        if block.kind == "table":
+            chart = auto_bar_chart(block)
+            if chart is not None:
+                blocks.insert(index + 1, chart)
+                index += 2
+                continue
+        elif block.children:
+            _offer_charts(block.children)
+        index += 1
 
 
 def _one_emph(blocks: list[Block]) -> str:
@@ -191,9 +218,35 @@ def _title_html(title: Block | None, dek: Block | None, fallback: str) -> str:
 def _section(blocks: list[Block], ctx: _Ctx) -> str:
     head, *rest = blocks
     ctx.heading = head.plain
+    ctx.section_index += 1
     body = "".join(_render(block, ctx) for block in rest)
+    if ctx.style == "editorial" and _long_section(rest):
+        body = f'<div class="cols-2">{body}</div>'
     level = min(max(head.level, 2), 6)
-    return f"<section{_classes(head, 'asl-section')}><h{level}>{head.html}</h{level}>{body}</section>"
+    heading = _numbered(head.html, ctx)
+    return f"<section{_classes(head, 'asl-section')}><h{level}>{heading}</h{level}>{body}</section>"
+
+
+def _numbered(html: str, ctx: _Ctx) -> str:
+    number = f"{ctx.section_index:02d}"
+    if ctx.style == "editorial":
+        return f'<span class="sec">{number}</span>{html}'
+    if ctx.style == "swiss":
+        return f'<span class="idx">{number}</span>{html}'
+    return html
+
+
+def _long_section(blocks: list[Block]) -> bool:
+    """A text section, not a table, that is long enough for two desktop columns."""
+    if any(block.kind in {"table", "chart", "grid"} for block in blocks):
+        return False
+    paragraphs = sum(1 for block in blocks if block.kind == "paragraph")
+    items = 0
+    for block in blocks:
+        if block.kind in {"list", "olist"} and block.children and block.children[0].kind == "item":
+            items += len(block.children)
+    text = " ".join(block.plain for block in blocks)
+    return paragraphs >= 2 or items >= 6 or len(text) >= 500
 
 
 def _render(block: Block, ctx: _Ctx) -> str:
@@ -207,9 +260,13 @@ def _render(block: Block, ctx: _Ctx) -> str:
 def _render_kind(block: Block, ctx: _Ctx) -> str:
     kind = block.kind
     if kind == "hero":
-        return f'<div class="asl-hero"><p>{block.html}</p></div>'
+        return _hero(block, ctx)
+    if kind == "band":
+        inner = "".join(_render(child, ctx) for child in block.children)
+        return f'<div class="asl-hero-band">{inner}</div>'
     if kind == "paragraph":
-        return f"<p>{block.html}</p>"
+        cls = ' class="drop"' if "drop" in block.classes else ""
+        return f"<p{cls}>{block.html}</p>"
     if kind == "heading":
         ctx.heading = block.plain
         level = min(max(block.level, 2), 6)
@@ -241,7 +298,7 @@ def _render_kind(block: Block, ctx: _Ctx) -> str:
     if kind == "chart":
         return _chart(block, ctx)
     if kind == "code":
-        return _code(block)
+        return _code(block, ctx)
     if kind == "html":
         return _raw_html(block.html, ctx)
     if kind == "hr":
@@ -251,6 +308,21 @@ def _render_kind(block: Block, ctx: _Ctx) -> str:
     return ""
 
 
+def _hero(block: Block, ctx: _Ctx) -> str:
+    names = ["asl-hero"]
+    if ctx.style == "playful":
+        names.append("sticker")
+    if ctx.style == "swiss":
+        names.append("swiss")
+    if ctx.style == "terminal":
+        names.append("term")
+    inner = block.html
+    if ctx.style == "terminal":
+        inner = f'<span class="prompt">$</span> {inner}'
+    drop = ' class="drop"' if "drop" in block.classes else ""
+    return f'<div class="{" ".join(names)}"><p{drop}>{inner}</p></div>'
+
+
 def _is_item_list(block: Block) -> bool:
     return bool(block.children) and block.children[0].kind == "item"
 
@@ -258,8 +330,9 @@ def _is_item_list(block: Block) -> bool:
 def _item_list(block: Block, ctx: _Ctx, *, ordered: bool, skin: Block | None = None) -> str:
     tag = "ol" if ordered else "ul"
     shown = block if skin is None else _skinned(block, skin)
-    items = "".join(f"<li>{_item_body(item, ctx)}</li>" for item in block.children)
-    return f"<{tag}{_classes(shown, 'asl-list')}>{items}</{tag}>"
+    base = "asl-risks" if "risks" in shown.classes else "asl-list"
+    items = "".join(f"<li{class_attr(*item.classes)}>{_item_body(item, ctx)}</li>" for item in block.children)
+    return f"<{tag}{_classes(shown, base)}>{items}</{tag}>"
 
 
 def _skinned(block: Block, skin: Block) -> Block:
@@ -353,9 +426,12 @@ def _chart(block: Block, ctx: _Ctx) -> str:
     return f'<figure class="asl-chart">{svg}</figure>'
 
 
-def _code(block: Block) -> str:
+def _code(block: Block, ctx: _Ctx) -> str:
     lang = block.attrs.get("lang") or ""
     lang_html = f'<span class="lang">{esc(lang)}</span>' if lang else ""
+    if ctx.style == "bold":
+        dots = '<span class="dots"><span></span><span></span><span></span></span>'
+        return f'<pre class="asl-code panel">{dots}{lang_html}<code>{esc(block.html)}</code></pre>'
     return f'<pre class="asl-code">{lang_html}<code>{esc(block.html)}</code></pre>'
 
 

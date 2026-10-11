@@ -30,7 +30,7 @@ one or two sentences
 """
 
 # Outside SYNTAX_RULES so the 400-token cap still holds. Concrete so the model uses the blocks.
-_EXAMPLE = """Example (use the user's facts, not these numbers):
+_EXAMPLE = """Example (use the user's facts, not these numbers). Add a chart when 3 or more numbers compare:
 
 # North rebate, Q3
 
@@ -55,6 +55,12 @@ Billed | $103,061
 | North shop | [Confirmed]{.green} | $1,705 |
 | South shop | [Open]{.amber} | $810 |
 | East shop | [Rejected]{.red} | $0 |
+
+```chart bar unit=$
+North: 1705
+South: 810
+East: 0
+```
 """
 
 _HEAD = """You are the builder for an artifact service. You turn a user's request into one Markdown page. The server renders it as styled HTML.

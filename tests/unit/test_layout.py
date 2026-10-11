@@ -51,6 +51,8 @@ def test_syntax_rules_stay_short():
     assert "::: stat" in house
     assert "[Confirmed]{.green}" in house
     assert "::: callout" in house
+    assert "```chart bar" in house
+    assert "3 or more numbers" in house
     # The example sits outside SYNTAX_RULES. The whole fast prompt stays no
     # longer than the full HTML prompt, so a large source does not pay extra
     # prefill. effort=low is attached only for o1/o3/o4/gpt-5, with no probe.
@@ -331,6 +333,119 @@ def test_header_shares_the_content_column():
         assert "margin:-1.25rem" not in css
         assert ".asl-title,main{max-width:72rem" in css
         assert len(css.encode()) < 8192
+
+
+def test_styles_design_plain_markdown_themselves():
+    source = """# Rebate watch
+
+**Hold the payout.** The rebate below is owed on paid invoices only.
+
+- **Rebate owed:** $15,459
+- **Invoices:** 136
+
+## Risks
+- High: the payout calendar slips a week
+- Watch: one invoice is still open
+- Low: the tax line is estimated
+
+```py
+print(1)
+```
+
+## The record
+The first paragraph of this section is long enough to sit beside another one on a desktop page.
+
+The second paragraph keeps the line length comfortable and gives the section two columns.
+"""
+    bold, notes = render_layout(source, style="bold", title="Rebate")
+    assert notes == []
+    body = bold.split("<body>", 1)[1]
+    start = body.index('class="asl-hero-band"')
+    risks = body.index("asl-risks")
+    assert start < body.index("Hold the payout.") < risks
+    assert start < body.index("Rebate owed") < risks
+    assert "asl-risks" in bold
+    assert "tone-red" in bold and "tone-amber" in bold and "tone-green" in bold
+    assert 'class="asl-code panel"' in bold
+    assert 'class="dots"' in bold
+    doc = sanitize_html_document(bold)
+    assert "asl-hero-band" in doc and "asl-risks" in doc and "<script" not in doc.lower()
+
+    editorial, notes = render_layout(source, style="editorial", title="Rebate")
+    assert notes == []
+    assert 'class="cap"' in editorial
+    assert "asl-quote pull" in editorial or 'class="asl-quote pull"' in editorial
+    assert "Hold the payout." in editorial
+    assert 'class="sec"' in editorial
+    assert "01" in editorial and "02" in editorial
+    assert 'class="cols-2"' in editorial
+    assert sanitize_html_document(editorial).count('class="cap"') == 1
+
+    house, _notes = render_layout(source, style="house", title="Rebate")
+    assert "asl-hero-band" not in house
+    assert "asl-risks" not in house
+    assert 'class="sec"' not in house
+
+    playful, _notes = render_layout(source, style="playful", title="Rebate")
+    assert "asl-hero sticker" in playful
+    assert "sticker" in playful.split("<section", 1)[1]
+
+    terminal, _notes = render_layout(source, style="terminal", title="Rebate")
+    assert 'class="prompt"' in terminal
+    assert "asl-list log" in terminal
+
+    swiss, _notes = render_layout(source, style="swiss", title="Rebate")
+    assert "asl-hero swiss" in swiss
+    assert 'class="idx"' in swiss
+    for style in STYLES:
+        assert len(stylesheet(style).encode()) < 8192
+
+
+def test_auto_bar_chart_follows_a_short_number_table():
+    rows = "\n".join(f"| Shop {index} | ${index * 100} |" for index in range(1, 5))
+    source = f"""# Bills
+
+| Service | Billed |
+|---|---|
+{rows}
+"""
+    html, notes = render_layout(source, style="house", title="Bills")
+    assert notes == []
+    assert html.count('class="asl-chart"') == 1
+    assert html.index("</table>") < html.index('class="asl-chart"')
+    assert 'class="bar"' in html
+    doc = sanitize_html_document(html)
+    assert "<svg" in doc and "<script" not in doc.lower()
+
+    written = source + "\n```chart bar\nA: 1\nB: 2\nC: 3\n```\n"
+    html, notes = render_layout(written, style="bold", title="Bills")
+    assert notes == []
+    assert html.count("<svg") == 1
+
+    short = """# Bills
+
+| Service | Billed |
+|---|---|
+| One | $1 |
+| Two | $2 |
+"""
+    html, _notes = render_layout(short, style="editorial", title="Bills")
+    assert 'class="asl-chart"' not in html
+
+    wide = """# Bills
+
+| Service | Billed | Tax |
+|---|---|---|
+| One | $1 | $1 |
+| Two | $2 | $1 |
+| Three | $3 | $1 |
+"""
+    html, _notes = render_layout(wide, style="swiss", title="Bills")
+    assert 'class="asl-chart"' not in html
+
+    many = "\n".join(f"| Shop {index} | {index} |" for index in range(1, 14))
+    html, _notes = render_layout(f"# Bills\n\n| Service | Billed |\n|---|---|\n{many}\n", style="house", title="Bills")
+    assert 'class="asl-chart"' not in html
 
 
 def test_samples_render_without_notes():

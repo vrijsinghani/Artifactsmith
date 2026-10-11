@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .chart import _number
 from .inline import MAX_COLSPAN, esc
 from .model import Block, Cell, class_attr
 
@@ -269,3 +270,44 @@ def _row(
         parts.append(f"<{use}{scope}{span_attr}{class_attr(*classes)}{data}>{shown}</{use}>")
     parts.append("</tr>")
     return "".join(parts)
+
+
+def auto_bar_chart(block: Block) -> Block | None:
+    """A bar chart for a 2-column label + number table of 3 to 12 data rows.
+
+    Returns None unless every data value is a non-negative number. A total row
+    is left off the series. The caller skips this when the page already has a chart.
+    """
+    headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
+    data = rows[:-1] if rows and _is_total_row(rows[-1]) else list(rows)
+    if not 3 <= len(data) <= 12:
+        return None
+    width = _width(headers, data)
+    if width != 2:
+        return None
+    labels: list[str] = []
+    values: list[float] = []
+    symbols: list[str] = []
+    for row in data:
+        placed = _place(row, width)
+        if len(placed) < 2 or any(span != 1 for _cell, _col, span in placed):
+            return None
+        label = placed[0][0].plain.strip()
+        raw = placed[1][0].plain.strip()
+        value = _number(raw)
+        if not label or value is None or value < 0:
+            return None
+        stripped = raw.lstrip()
+        if stripped[:1] in "$€£¥":
+            symbols.append(stripped[:1])
+        elif stripped.endswith("%"):
+            symbols.append("%")
+        else:
+            symbols.append("")
+        labels.append(label[:80])
+        values.append(value)
+    if any(symbols) and len(set(symbols)) != 1:
+        return None
+    unit = symbols[0] if symbols and symbols[0] else ""
+    kind = "hbar" if len(labels) > 6 else "bar"
+    return Block(kind="chart", plain=kind, html=unit, labels=tuple(labels), numbers=tuple(values))
