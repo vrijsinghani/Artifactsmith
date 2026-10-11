@@ -735,8 +735,22 @@ _PHONE_PAGE = """# Phone width
 
 A sentence with Supercalifragilisticexpialidocious in the middle of ordinary prose so a long token cannot widen the page.
 
-| Month | Invoices | Billed | Rebate |
+:::: grid 3
+::: stat {.emph}
+Rebate owed | $15,459.15 | 15% of billed
+:::
+::: stat
+Total billed | $103,061
+:::
+::: stat
+Paid invoices | 136
+:::
+::::
+
+| Month | Status | Billed | Rebate |
 |---|---|---|---|
+| Stock | [Confirmed]{.green} | $508.68 | $5,727.75 |
+| Bond | [Estimated]{.amber} | $228.77 | $4,340.25 |
 | July | 45 | $38,185 | $5,727.75 |
 | August | 43 | $28,935 | $4,340.25 |
 | September | 48 | $35,941 | $5,391.15 |
@@ -786,8 +800,8 @@ def _chrome_bin() -> str | None:
 
 
 def _ws_connect(host: str, port: int, path: str) -> socket.socket:
-    sock = socket.create_connection((host, port), timeout=10)
-    sock.settimeout(8)
+    sock = socket.create_connection((host, port), timeout=15)
+    sock.settimeout(20)
     key = base64.b64encode(os.urandom(16)).decode()
     sock.sendall(
         (
@@ -839,6 +853,62 @@ def _ws_recv(sock: socket.socket) -> str:
     return ""
 
 
+# Mid-word splits already accepted in table cells and badges. Empty: a new one fails.
+# `overflow-wrap:anywhere` put "Stock", "$508.68" and "Confirmed" in this set.
+# A break right after a hyphen or slash is an ordinary line break and is not counted.
+_WORD_SPLIT_BASELINE: dict[str, frozenset[str]] = {style: frozenset() for style in STYLES}
+
+_CELL_SPLITS = r"""new Promise((resolve) => {
+  requestAnimationFrame(() => {
+    const splits = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const el = node.parentElement;
+        if (!el) return NodeFilter.FILTER_REJECT;
+        if (el.closest("code, pre, .asl-code")) return NodeFilter.FILTER_REJECT;
+        if (!el.closest("td, th, .asl-badge")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const words = /\S+/g;
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent || "";
+      words.lastIndex = 0;
+      let match;
+      while ((match = words.exec(text))) {
+        const word = match[0];
+        if (word.length >= 18) continue;
+        if (/^https?:/i.test(word) || /^www\./i.test(word)) continue;
+        const range = document.createRange();
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + word.length);
+        const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0.5 && r.height > 0);
+        if (rects.length < 2) continue;
+        const second = rects[1].top;
+        let lo = match.index;
+        let hi = match.index + word.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          const probe = document.createRange();
+          probe.setStart(node, mid);
+          probe.setEnd(node, Math.min(mid + 1, match.index + word.length));
+          const box = probe.getClientRects()[0];
+          if (box && box.top >= second - 1) hi = mid;
+          else lo = mid + 1;
+        }
+        const prev = text[lo - 1] || "";
+        const here = text[lo] || "";
+        if (prev === "-" || prev === "/" || here === "-" || here === "/") continue;
+        splits.push(word);
+      }
+    }
+    const root = document.documentElement;
+    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits}));
+  });
+})"""
+
+
 def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
     seq = {"n": 0}
 
@@ -854,22 +924,18 @@ def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
                 continue
             data = json.loads(raw)
             if data.get("id") == seq["n"]:
+                if "error" in data:
+                    raise AssertionError(str(data["error"])[:400])
                 return data
 
     call(
         "Emulation.setDeviceMetricsOverride",
-        {"width": width, "height": 1400, "deviceScaleFactor": 1, "mobile": True},
+        {"width": width, "height": 1400, "deviceScaleFactor": 1, "mobile": width < 500},
     )
-    expr = """new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        const root = document.documentElement;
-        resolve(JSON.stringify({
-          sw: root.scrollWidth,
-          cw: root.clientWidth
-        }));
-      });
-    })"""
-    result = call("Runtime.evaluate", {"expression": expr, "awaitPromise": True, "returnByValue": True})
+    result = call(
+        "Runtime.evaluate",
+        {"expression": _CELL_SPLITS, "awaitPromise": True, "returnByValue": True},
+    )
     payload = result["result"]
     assert isinstance(payload, dict)
     inner = payload["result"]
@@ -883,9 +949,28 @@ def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
     return json.loads(value)
 
 
+def test_body_breaks_only_on_word_boundaries():
+    """anywhere shrinks min-content and splits Stock, $508.68 and Confirmed."""
+    css = stylesheet("bold")
+    assert "overflow-wrap:break-word" in css
+    assert "overflow-wrap:anywhere" not in css
+    assert "minmax(0,1fr)" in css
+    assert "clamp(1.15rem,5.2vw,1.8rem)" in css
+    assert "clamp(1.15rem,5.2vw,2.3rem)" in css
+    assert len(css.encode()) < 8192
+    assert "clamp(1.15rem,5.2vw,2.5rem)" in stylesheet("editorial")
+    assert "clamp(1.15rem,5.2vw,2.8rem)" in stylesheet("swiss")
+    html, notes = render_layout(_PHONE_PAGE, style="terminal", title="Phone")
+    assert notes == []
+    doc = sanitize_html_document(html)
+    assert "overflow-wrap:break-word" in doc
+    assert "overflow-wrap:anywhere" not in doc
+    assert "repeat(2,minmax(0,1fr))" in doc
+
+
 @pytest.mark.skipif(_chrome_bin() is None, reason="no headless Chrome available")
 def test_fast_pages_fit_a_phone_width():
-    """No fast page scrolls sideways at 360 or 390. Wide bits scroll inside their own box."""
+    """No sideways scroll, and no new mid-word splits in cells or badges."""
     chrome = _chrome_bin()
     assert chrome is not None
     probe = socket.socket()
@@ -919,21 +1004,35 @@ def test_fast_pages_fit_a_phone_width():
                     time.sleep(0.05)
             else:
                 raise AssertionError("chrome debug port did not open")
+            pages = [(path.stem, path.read_text(encoding="utf-8")) for path in sorted(SAMPLES.glob("*.md"))]
+            pages.append(("phone", _PHONE_PAGE))
             for style in STYLES:
-                html, notes = render_layout(_PHONE_PAGE, style=style, title="Phone")
-                assert notes == []
-                path = Path(td) / f"{style}.html"
-                path.write_text(sanitize_html_document(html), encoding="utf-8")
-                req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{path.as_uri()}", method="PUT")
-                target = json.load(urllib.request.urlopen(req, timeout=5))
-                parsed = urlparse(target["webSocketDebuggerUrl"])
-                sock = _ws_connect(parsed.hostname or "127.0.0.1", parsed.port or port, parsed.path)
-                try:
-                    for width in (360, 390):
-                        metrics = _phone_metrics(sock, width)
-                        assert metrics["sw"] <= metrics["cw"], (style, width, metrics)
-                finally:
-                    sock.close()
+                allowed = _WORD_SPLIT_BASELINE[style]
+                for name, source in pages:
+                    html, notes = render_layout(source, style=style, title=name)
+                    assert notes == []
+                    path = Path(td) / f"{style}-{name}.html"
+                    path.write_text(sanitize_html_document(html), encoding="utf-8")
+                    req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{path.as_uri()}", method="PUT")
+                    target = json.load(urllib.request.urlopen(req, timeout=5))
+                    parsed = urlparse(target["webSocketDebuggerUrl"])
+                    sock = _ws_connect(parsed.hostname or "127.0.0.1", parsed.port or port, parsed.path)
+                    try:
+                        for width in (360, 390, 1280):
+                            metrics = _phone_metrics(sock, width)
+                            assert metrics["sw"] <= metrics["cw"], (style, name, width, metrics)
+                            splits = metrics["splits"]
+                            assert isinstance(splits, list)
+                            fresh = {word for word in splits if isinstance(word, str)} - allowed
+                            assert not fresh, (style, name, width, sorted(fresh))
+                    finally:
+                        sock.close()
+                        try:
+                            urllib.request.urlopen(
+                                f"http://127.0.0.1:{port}/json/close/{target['id']}", timeout=2
+                            ).read()
+                        except Exception:
+                            pass
         finally:
             proc.terminate()
             try:
