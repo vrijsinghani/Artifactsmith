@@ -118,7 +118,7 @@ async def test_truncated_reply_fails_clearly(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_file_under_20_percent_of_the_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_page_content_after_end_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     small = "<!DOCTYPE html>\n<html><body><p>Hi</p></body></html>"
     tail = "\n".join("<p>This sentence was cut off the page and should not vanish.</p>" for _ in range(40))
     reply = _reply(small) + tail
@@ -127,7 +127,7 @@ async def test_file_under_20_percent_of_the_reply_fails(monkeypatch: pytest.Monk
         return reply
 
     monkeypatch.setattr(b.llm, "call", fake_call)
-    with pytest.raises(b.BuildError, match="under 20% of the reply"):
+    with pytest.raises(b.BuildError, match="page content after ===END==="):
         await b.run_build(
             kind="web_static",
             slug="s",
@@ -144,11 +144,8 @@ async def test_file_under_20_percent_of_the_reply_fails(monkeypatch: pytest.Monk
 
 @pytest.mark.asyncio
 async def test_file_with_no_visible_text_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Pad with a comment so the file is not also under the size floor.
     empty = "<!DOCTYPE html>\n<html><body>\n<ASL></ASL>\n<!-- " + ("pad " * 80) + " -->\n</body></html>"
     reply = _reply(empty)
-    _, _, body = b.parse_output(reply, fmt="html")
-    assert len(body.strip()) * 5 >= b._non_marker_length(reply)
 
     async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
         return reply
@@ -167,3 +164,74 @@ async def test_file_with_no_visible_text_fails(monkeypatch: pytest.MonkeyPatch) 
             progress=lambda _m: None,
             format="html",
         )
+
+
+_SPEC_BLOCK = """Reply exactly:
+===ASSUMPTIONS===
+- one per line, or - none
+===SUMMARY===
+one or two sentences
+===FILE: page.asl===
+<ASL>
+===END==="""
+
+
+def test_spec_page_documenting_the_reply_format_parses_whole() -> None:
+    # Real case: the ASL spec page (art_hjrzx4tl2gvq3h v1) published as only "<ASL>".
+    page = (
+        "<!DOCTYPE html>\n<html><head><title>ASL</title></head><body><h1>ASL</h1>\n<pre><code>"
+        + _SPEC_BLOCK
+        + "\n</code></pre>\n<p>Size: 429 tokens.</p>\n</body></html>"
+    )
+    assumptions, summary, body = b.parse_output(_reply(page), fmt="html")
+    assert body == page
+    assert summary == "Documents the reply format."
+    b._guard_primary_file(_reply(page), body, "html")
+
+
+def test_complete_html_without_end_is_kept() -> None:
+    page = "<!DOCTYPE html>\n<html><body><p>Done.</p></body></html>"
+    text = "===ASSUMPTIONS===\n- none\n===SUMMARY===\nA page.\n===FILE: index.html===\n" + page + "\n"
+    assert b.parse_output(text, fmt="html") == ([], "A page.", page)
+
+
+def test_complete_html_with_inner_end_and_no_final_end_is_kept() -> None:
+    page = "<!DOCTYPE html>\n<html><body><pre>\n===END===\n</pre><p>More.</p></body></html>"
+    text = "===ASSUMPTIONS===\n- none\n===SUMMARY===\nA page.\n===FILE: index.html===\n" + page
+    assert b.parse_output(text, fmt="html")[2] == page
+
+
+@pytest.mark.parametrize("fmt", ["html", "markdown"])
+def test_summary_after_the_file_is_not_page_content(fmt: str) -> None:
+    page = "<!DOCTYPE html>\n<html><body><p>Hi there.</p></body></html>" if fmt == "html" else "# Hi\n\nThere."
+    for tail in ("===SUMMARY===\nA page.\n===END===\n", "===SUMMARY===\nA page.\n"):
+        text = "===ASSUMPTIONS===\n- none\n===FILE: f===\n" + page + "\n===END===\n" + tail
+        assert b.parse_output(text, fmt=fmt) == ([], "A page.", page)
+
+
+def test_markdown_code_fence_with_marker_lines_stays_in_the_file() -> None:
+    md = "# Reply format\n\n```\n===FILE: content.md===\n# Doc\n===END===\n===SUMMARY===\nx\n```\n\nThe rest stays."
+    text = "===ASSUMPTIONS===\n- none\n===SUMMARY===\nA doc.\n===FILE: content.md===\n" + md + "\n===END===\n"
+    assert b.parse_output(text, fmt="markdown") == ([], "A doc.", md)
+
+
+@pytest.mark.parametrize("fmt", ["xlsx", "markdown", "docx"])
+def test_small_file_with_long_metadata_is_kept(fmt: str) -> None:
+    table = "| Item | Amount |\n|---|---|\n| Setup | 1000 |"
+    longa = "\n".join(
+        f"- Assumption {i}: the request did not say which quarter, so I used the source one." for i in range(8)
+    )
+    text = f"===ASSUMPTIONS===\n{longa}\n===SUMMARY===\n{'A one-row workbook. ' * 10}\n===FILE: content.md===\n{table}\n===END===\n"
+    _, _, body = b.parse_output(text, fmt=fmt)
+    assert body == table
+    b._guard_primary_file(text, body, fmt)
+
+
+def test_chart_only_page_counts_its_label_as_visible() -> None:
+    page = '<!DOCTYPE html><html><body><svg role="img" aria-label="Sales by month" viewBox="0 0 9 9"><rect width="5" height="5"/></svg></body></html>'
+    b._guard_primary_file(_reply(page), b.parse_output(_reply(page), fmt="html")[2], "html")
+
+
+def test_short_trailing_note_after_end_is_ignored() -> None:
+    page = "<!DOCTYPE html>\n<html><body><p>Hi.</p></body></html>"
+    assert b.parse_output(_reply(page) + "Let me know if you want changes.\n", fmt="html")[2] == page
