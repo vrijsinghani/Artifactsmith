@@ -5,6 +5,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+
+- Single-file HTML (and clearly Markdown) builds recover when the model omits `===FILE: …===` but still emits a complete document. The recovered body still runs through the same sanitizer, checkers, and secret scan.
+
 ### Changed
 
 - HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
