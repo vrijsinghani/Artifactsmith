@@ -190,10 +190,10 @@ Required:
 
 - `verbatim_request`: the user's exact words. That is the whole scope.
 
-Provide at least one of:
+Provide at least one of `display_name` or `slug` (the other is filled in):
 
-- `display_name`: human title shown on cards (e.g. `"Pilot store brief"`).
-- `slug`: URL key, `a-z` / `0-9` / `-`, 2–63 chars. If omitted, derived from `display_name`. If `display_name` is omitted, it defaults to `slug`.
+- `display_name`: human title shown on cards and in the catalog. Not required when `slug` is set; if omitted, it defaults to the slug. Limit: 200 characters. Example: `"Pilot store brief"`.
+- `slug`: URL key, unique in the workspace. Not required when `display_name` is set; if omitted, it is derived from the title (lowercase, accents folded, other characters become hyphens). Limit: 2–63 characters of `a-z`, `0-9`, and `-`, and it must start with a letter or digit. Example: `"pilot-store-brief"`. A duplicate slug in the same workspace is rejected; use `edit`.
 
 Optional:
 
@@ -233,6 +233,70 @@ New version: pass `artifact_id` and `base_version` (the latest done version) plu
 
 Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
 
+### `export`
+
+Permission: `export`.
+
+Arguments:
+
+- `artifact_id` (required): which artifact to download.
+- `version` (optional): a done version. Omit it to use the latest done version.
+
+Returns `download_url` (valid 15 minutes), `file`, `version`, `sha256`, `self_contained`, and `expires_in` (`"15m"`).
+
+```json
+{ "artifact_id": "art_example", "version": 1 }
+```
+
+### `share`
+
+Permission: `share`.
+
+Arguments:
+
+- `artifact_id` (required): which artifact to publish.
+- `version` (optional): the exact done version. Omit it to use the latest done version.
+- `ttl_days` (optional): lifetime in days. Defaults to `AM_SHARE_TTL_DAYS`. When `AM_SHARE_TTL_DAYS` is `0`, `ttl_days` is ignored and the link lasts until revoked. Otherwise the lifetime is capped by `AM_SHARE_TTL_MAX_DAYS`.
+
+Returns `state` (`"shared"`), `url`, `version`, `expires_at`, `lifetime`, and `reused`. Anyone with the URL can open that version.
+
+```json
+{ "artifact_id": "art_example" }
+```
+
+### `unshare`
+
+Permission: `share`.
+
+Arguments:
+
+- `artifact_id` (required): which artifact to revoke.
+- `version` (optional): revoke one version. Omit it, or pass `0`, to revoke every version.
+
+Returns `artifact_id`, `revoked_links` (how many links were revoked), and `state` (`"not_shared"`). The old URL returns 404 immediately.
+
+```json
+{ "artifact_id": "art_example" }
+```
+
+### `delete`
+
+Permission: `delete`.
+
+Arguments:
+
+- `artifact_id` (required): which artifact to purge.
+- `confirm_token` (omit on the first call): token from the first response. It expires in 10 minutes.
+
+The first call does not delete anything. It returns `step` (`"confirm"`), `confirm_token`, `title`, `versions`, `expires_in` (`"10m"`), and a warning. The second call purges every stored version, share link, and database row. It returns `deleted` (`true`), `artifact_id`, and `purged_object_versions`.
+
+```json
+{ "artifact_id": "art_example" }
+```
+
+```json
+{ "artifact_id": "art_example", "confirm_token": "paste-the-token" }
+```
 ## Configuration
 
 Every setting also has a `NAME_FILE` variant that reads the value from a file.

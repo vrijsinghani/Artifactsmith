@@ -21,3 +21,25 @@ async def test_readme_mcp_tools_match_server():
     assert documented == registered, (documented, registered)
     for phantom in ("list_prompts", "get_prompt", "list_resources", "read_resource"):
         assert phantom not in documented
+    for name in ("export", "share", "unshare", "delete"):
+        assert f"### `{name}`" in section
+    assert "200 characters" in section
+    assert "2–63" in section
+    assert "pilot-store-brief" in section
+
+
+@pytest.mark.asyncio
+async def test_create_schema_describes_slug_and_display_name():
+    tools = {t.name: t for t in await server.mcp.list_tools()}
+    props = tools["create"].inputSchema["properties"]
+    for key in ("slug", "display_name"):
+        desc = props[key].get("description") or ""
+        assert "Optional" in desc or "at least one" in desc
+        assert "Example" in desc
+    assert "200" in props["display_name"]["description"]
+    assert "2-63" in props["slug"]["description"]
+    for name in ("export", "share", "unshare", "delete"):
+        tool = tools[name]
+        assert "Permission:" in (tool.description or "")
+        assert "Returns:" in (tool.description or "")
+        assert tool.inputSchema["properties"]["artifact_id"].get("description")

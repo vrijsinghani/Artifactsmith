@@ -2,6 +2,11 @@
 """Example MCP client for ArtifactSmith. Set ARTIFACTS_MCP_TOKEN to a token from `artifactsmith token add`.
 
 ARTIFACTS_MCP_TOKEN=asmb_... python examples/python_client.py
+
+create needs verbatim_request plus at least one of display_name (human title, at most 200
+characters, example "Pilot Store") or slug (URL key, 2-63 chars of a-z, 0-9, and hyphen,
+example "pilot-store"). export, share, unshare, and delete take artifact_id. See README
+"MCP tools" for arguments, return values, and the permission each call needs.
 """
 
 from __future__ import annotations

@@ -36,9 +36,10 @@ def _attr_str(tok: Token, name: str) -> str:
 
 
 def _label_text(tokens: list[Token]) -> str:
+    """Visible link label, including odd characters markdown-it stored as raw HTML."""
     parts: list[str] = []
     for t in tokens:
-        if t.type in ("text", "code_inline"):
+        if t.type in ("text", "code_inline", "html_inline"):
             parts.append(t.content or "")
         elif t.children:
             parts.append(_label_text(t.children))

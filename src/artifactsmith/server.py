@@ -7,12 +7,13 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlparse
 
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import Field
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
@@ -84,8 +85,27 @@ def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]
 def create(
     ctx: Context[Any, Any, Any],
     verbatim_request: str,
-    display_name: str | None = None,
-    slug: str | None = None,
+    display_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Human title shown on cards and in the catalog. Optional if slug is set "
+                "(then it defaults to the slug). At most 200 characters. "
+                'Example: "Pilot store brief". Provide display_name or slug (at least one).'
+            )
+        ),
+    ] = None,
+    slug: Annotated[
+        str | None,
+        Field(
+            description=(
+                "URL key unique in the workspace. Optional if display_name is set "
+                "(then derived from the title: lowercase, accents folded, other characters become hyphens). "
+                "2-63 characters of a-z, 0-9, and hyphen; must start with a letter or digit. "
+                'Example: "pilot-store-brief". Provide display_name or slug (at least one).'
+            )
+        ),
+    ] = None,
     kind: str = "web_static",
     source_content: str | None = None,
     source_files: list[dict[str, str]] | None = None,
@@ -101,8 +121,10 @@ def create(
 
     Required: verbatim_request (the user's exact words; the whole scope).
 
-    display_name is the human title. slug is the URL key (a-z, 0-9, hyphens). Provide at least one:
-    if slug is omitted it is derived from display_name; if display_name is omitted it defaults to slug.
+    display_name is the human title on cards (optional if slug is set; defaults to the slug;
+    at most 200 characters; example "Pilot store brief"). slug is the workspace URL key
+    (optional if display_name is set; otherwise derived from the title; 2-63 chars of a-z, 0-9,
+    and hyphen, starting with a letter or digit; example "pilot-store-brief"). Provide at least one.
     kind defaults to web_static (the only kind in this release).
 
     format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
@@ -260,24 +282,65 @@ def inspect(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None =
 
 
 @mcp.tool()
-def export(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
-    """Download link for the rendered file (html, md, pdf, docx, or xlsx). Valid for 15 minutes."""
+def export(
+    ctx: Context[Any, Any, Any],
+    artifact_id: Annotated[str, Field(description="Artifact to download. Required.")],
+    version: Annotated[
+        int | None, Field(description="Done version to download. Optional; defaults to the latest done version.")
+    ] = None,
+) -> dict[str, Any]:
+    """Download link for one rendered file (html, md, pdf, docx, or xlsx).
+
+    Permission: export.
+    Arguments: artifact_id (required), version (optional; latest done version).
+    Returns: download_url (valid 15 minutes), file, version, sha256, self_contained, expires_in.
+    Example: export(artifact_id="art_example", version=1)"""
     return _run(_svc().export, _principal(ctx), artifact_id, version)
 
 
 @mcp.tool()
 def share(
-    ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None, ttl_days: int | None = None
+    ctx: Context[Any, Any, Any],
+    artifact_id: Annotated[str, Field(description="Artifact to publish. Required.")],
+    version: Annotated[
+        int | None,
+        Field(description="Exact done version to publish. Optional; defaults to the latest done version."),
+    ] = None,
+    ttl_days: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Share lifetime in days. Optional. Defaults to AM_SHARE_TTL_DAYS "
+                "(0 means until revoked; otherwise capped by AM_SHARE_TTL_MAX_DAYS)."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
-    """Publish a public link for one exact version (default: the latest done version). Anyone with the link
-    can open it. Lifetime follows AM_SHARE_TTL_DAYS (0 means until revoked; otherwise capped by
-    AM_SHARE_TTL_MAX_DAYS). The link stays on that version. unshare revokes it immediately."""
+    """Publish a public link for one exact version. Anyone with the link can open it.
+
+    Permission: share.
+    Arguments: artifact_id (required), version (optional; latest done version), ttl_days (optional).
+    Returns: state, url, version, expires_at, lifetime, reused. The link stays on that version.
+    Example: share(artifact_id="art_example")
+    unshare revokes it immediately."""
     return _run(_svc().share, _principal(ctx), artifact_id, version, ttl_days)
 
 
 @mcp.tool()
-def unshare(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
-    """Revoke share links for an artifact, or for one version. Takes effect immediately."""
+def unshare(
+    ctx: Context[Any, Any, Any],
+    artifact_id: Annotated[str, Field(description="Artifact whose public links should be revoked. Required.")],
+    version: Annotated[
+        int | None,
+        Field(description="Revoke only this version. Optional; omit to revoke every version of the artifact."),
+    ] = None,
+) -> dict[str, Any]:
+    """Revoke public share links. Takes effect immediately; the old URL returns 404.
+
+    Permission: share.
+    Arguments: artifact_id (required), version (optional; omit to revoke every version).
+    Returns: artifact_id, revoked_links (count), state "not_shared".
+    Example: unshare(artifact_id="art_example")"""
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)
 
 
@@ -289,9 +352,26 @@ def revoke_previews(ctx: Context[Any, Any, Any], artifact_id: str, version: int 
 
 
 @mcp.tool()
-def delete(ctx: Context[Any, Any, Any], artifact_id: str, confirm_token: str | None = None) -> dict[str, Any]:
-    """Two-step delete. The first call returns a confirm_token. The second call with that token purges every
-    stored version and all links. Warn the user before the second call."""
+def delete(
+    ctx: Context[Any, Any, Any],
+    artifact_id: Annotated[str, Field(description="Artifact to purge. Required.")],
+    confirm_token: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Confirmation from the first delete call. Optional on the first call (returns a token "
+                'valid for 10 minutes). Required on the second call to purge. Example: "AbCdEf...".'
+            )
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Two-step purge of an artifact. Warn the user before the second call.
+
+    Permission: delete.
+    Arguments: artifact_id (required), confirm_token (optional until the second call).
+    Returns: first call is step "confirm" with confirm_token, title, versions, expires_in "10m", and a warning.
+    Second call returns deleted true, artifact_id, and purged_object_versions.
+    Example: delete(artifact_id="art_example") then delete(artifact_id="art_example", confirm_token="...")"""
     return _run(_svc().delete, _principal(ctx), artifact_id, confirm_token)
 
 
