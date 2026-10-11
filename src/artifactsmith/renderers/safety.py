@@ -293,23 +293,28 @@ def find_disallowed_links(text: str, allowed_domains: list[str]) -> list[str]:
     return problems
 
 
+# Card fields (summary, each assumption). Same cap at call time and in the job.
+METADATA_MAX_CHARS = 8_000
+
+
 def check_fields(
     *parts: str,
     block_private_links: bool = True,
     allowed_link_domains: list[str] | None = None,
-    max_chars: int = 8_000,
+    max_chars: int | None = None,
     label: str = "field",
 ) -> list[str]:
     """Heuristic secret/private-link checks for titles, summaries, and other card fields.
 
     Secret detection is a best-effort pattern match, not a guarantee.
     """
+    limit = METADATA_MAX_CHARS if max_chars is None else max_chars
     problems: list[str] = []
     for part in parts:
         if not part:
             continue
-        if len(part) > max_chars:
-            problems.append(f"{label} exceeds {max_chars} characters")
+        if len(part) > limit:
+            problems.append(f"{label} exceeds {limit} characters")
         for hit in find_secrets(part):
             problems.append(f"{label}: {hit}")
         if block_private_links:

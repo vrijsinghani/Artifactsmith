@@ -60,6 +60,17 @@ class AMError(Exception):
     """User-facing error (the message is safe to return to callers)."""
 
 
+def write_audit(who: str, action: str, **fields: Any) -> None:
+    """Append one JSON line to the audit log."""
+    rec = {"ts": iso(now()), "actor": who, "action": action, **fields}
+    try:
+        CFG.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(CFG.audit_path, "a") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+    except OSError:
+        pass
+
+
 def now() -> float:
     return time.time()
 
@@ -663,6 +674,10 @@ class Service:
                     "UPDATE jobs SET status='failed', error=?, finished_at=? WHERE id=?",
                     ("artifact is being deleted", now(), jid),
                 )
+                c.execute(
+                    "UPDATE versions SET publish_json=NULL WHERE artifact_id=? AND version=?",
+                    (a["id"], v["version"]),
+                )
                 return
             claimed = c.execute(
                 "UPDATE jobs SET status='building', started_at=? WHERE id=? AND status='queued'",
@@ -1260,10 +1275,4 @@ class Service:
         self._audit(tok["name"] if tok else client_id, action, **fields)
 
     def _audit(self, who: str, action: str, **fields: Any) -> None:
-        rec = {"ts": iso(now()), "actor": who, "action": action, **fields}
-        try:
-            CFG.audit_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(CFG.audit_path, "a") as f:
-                f.write(json.dumps(rec, default=str) + "\n")
-        except OSError:
-            pass
+        write_audit(who, action, **fields)

@@ -208,8 +208,9 @@ def publish(
     page ends as failed, and error names the check that failed. publish does not create a share link.
     It counts toward the per-token build quota and requires the publish permission.
 
-    summary and assumptions are optional card fields and are scanned like model output. style is recorded
-    and does not restyle the page you submitted."""
+    summary and assumptions are optional card fields. Each is rejected when the call arrives if it is
+    longer than the metadata cap (the same 'metadata exceeds N characters' error the job would report).
+    They are also scanned like model output. style is recorded and does not restyle the page you submitted."""
     return _run(
         _svc().publish,
         _principal(ctx),

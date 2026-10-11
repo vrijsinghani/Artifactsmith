@@ -137,6 +137,13 @@ def test_size_cap():
     assert any("exceeds" in p for p in problems)
 
 
+def test_check_fields_metadata_length_message():
+    from artifactsmith.renderers.safety import METADATA_MAX_CHARS, check_fields
+
+    problems = check_fields("x" * (METADATA_MAX_CHARS + 1), label="metadata")
+    assert f"metadata exceeds {METADATA_MAX_CHARS} characters" in problems
+
+
 def test_check_fields_catches_secret_in_title():
     from artifactsmith.renderers.safety import check_fields
 

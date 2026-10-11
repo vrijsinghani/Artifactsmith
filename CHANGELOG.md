@@ -20,6 +20,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- `token perms` adds, removes, or lists permissions on an existing token (one audit line per change; the token value stays the same); over-long `summary` and `assumptions` are rejected when the call arrives; a job that fails because the artifact is being deleted clears its stored page.
 - HTML and Markdown render in-process; PDF, DOCX, and XLSX stay in a fresh killable child, and XLSX builds its Markdown parser once per file.
 - HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
 - CSS sanitizer keeps SVG paint properties so class-colored charts render; `url()` paint is still dropped.

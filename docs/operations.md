@@ -102,6 +102,16 @@ artifactsmith token add --name agent-next --workspace alpha --perms create,read,
 artifactsmith token revoke --name agent
 ```
 
+To grant or remove one permission without reissuing the token:
+
+```bash
+artifactsmith token perms --name agent
+artifactsmith token perms --name agent --add publish
+artifactsmith token perms --name agent --remove publish
+```
+
+The token value does not change. Each add or remove appends one audit line (`token_perm_add` or `token_perm_remove`) with the token id, name, workspace, permission, and the resulting set. Listing permissions does not. If `--name` matches more than one token, pass `--id`.
+
 A revoked hash fails the next request. There is no grace window. Revoking a token does not expire already-issued `/p/` preview links; call `revoke_previews` for that.
 
 Private `/p/` preview URLs are database-backed capabilities (short ids in SQLite), not HMAC-signed. Replacing `AM_SECRETS_DIR/signing.key` invalidates `/dl/` download links only. `/p/` links stay usable until their expiry unless you call `revoke_previews(artifact_id)` (or delete the artifact). Public `/s/` links are also not HMAC-signed; they stay valid until `unshare` or TTL.

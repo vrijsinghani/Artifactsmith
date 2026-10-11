@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 
 from artifactsmith.builder import BuildError, publish_page, sanitize_html
@@ -268,6 +273,38 @@ def test_publish_requires_version_pair(svc: Service) -> None:
         svc.publish(_principal(), display_name="Half", html="<html><body><p>x</p></body></html>", base_version=1)
 
 
+def test_publish_rejects_overlong_metadata_before_store(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifactsmith.renderers.safety.METADATA_MAX_CHARS", 20)
+    principal = _principal()
+    html = "<html><body><p>ok</p></body></html>"
+    with pytest.raises(AMError, match="metadata exceeds 20 characters"):
+        svc.publish(principal, display_name="Meta", slug="meta-s", html=html, summary="s" * 21)
+    with pytest.raises(AMError, match="metadata exceeds 20 characters"):
+        svc.publish(
+            principal,
+            display_name="Meta",
+            slug="meta-a",
+            html=html,
+            assumptions=["ok", "a" * 21],
+        )
+    assert svc.db.one("SELECT id FROM artifacts") is None
+    assert svc.db.one("SELECT id FROM jobs") is None
+    padded = svc.publish(principal, display_name="Meta", slug="meta-pad", html=html, summary=" " * 30)
+    assert padded["status"] == "queued"
+    created = svc.publish(
+        principal,
+        display_name="Meta",
+        slug="meta-ok",
+        html=html,
+        summary="s" * 20,
+        assumptions=["a" * 20],
+    )
+    row = svc.db.one("SELECT publish_json FROM versions WHERE artifact_id=?", created["artifact_id"])
+    assert row is not None
+    assert "s" * 20 in str(row["publish_json"])
+    assert "a" * 20 in str(row["publish_json"])
+
+
 def test_publish_rejects_oversize_content(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("artifactsmith.renderers.safety.CONTENT_MAX_CHARS", 20)
     monkeypatch.setattr("artifactsmith.publish_common.CONTENT_MAX_CHARS", 20)
@@ -309,6 +346,52 @@ async def test_publish_companion_markdown_secret(svc: Service, no_model: dict[st
         markdown=f"leak {_secret()}",
     )
     assert "possible secret" in await _job_error(svc, created)
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_deleted_artifact_clears_stored_page(
+    svc: Service, no_model: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = "PAGE-BODY-SHOULD-NOT-REMAIN"
+    created = svc.publish(
+        _principal(),
+        display_name="Gone",
+        slug="gone-page",
+        html=f"<html><body><p>{marker}</p></body></html>",
+    )
+    stored = svc.db.one(
+        "SELECT publish_json FROM versions WHERE artifact_id=? AND version=?",
+        created["artifact_id"],
+        created["version"],
+    )
+    assert stored is not None
+    assert marker in str(stored["publish_json"])
+    original = svc.db.tx
+
+    @contextmanager
+    def tx_marks_deleting() -> Iterator[sqlite3.Connection]:
+        with original() as conn:
+            conn.execute(
+                "UPDATE artifacts SET deleting_at=? WHERE id=?",
+                (time.time(), created["artifact_id"]),
+            )
+            yield conn
+
+    monkeypatch.setattr(svc.db, "tx", tx_marks_deleting)
+    await svc._run_job(str(created["job_id"]))
+    job = svc.db.one("SELECT status, error FROM jobs WHERE id=?", created["job_id"])
+    assert job is not None
+    assert job["status"] == "failed"
+    assert job["error"] == "artifact is being deleted"
+    assert marker not in str(job["error"])
+    version = svc.db.one(
+        "SELECT publish_json, status FROM versions WHERE artifact_id=? AND version=?",
+        created["artifact_id"],
+        created["version"],
+    )
+    assert version is not None
+    assert version["publish_json"] is None
     assert no_model["n"] == 0
 
 

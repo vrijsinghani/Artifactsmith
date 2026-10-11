@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .builder import PUBLISHED_MODEL
+from .renderers import safety
 from .renderers.safety import CONTENT_MAX_CHARS
 from .service import AMError, Service
 from .styles import StyleError, parse_style
@@ -47,12 +48,26 @@ def optional_text(value: str | None, label: str) -> str | None:
     return value
 
 
+def _reject_long_metadata(text: str) -> None:
+    """Reject one card field before it is stored.
+
+    Every tool that accepts ``summary`` or ``assumptions`` must run the value
+    through :func:`summary_text` or :func:`assumption_list`, which call this.
+    The message matches :func:`artifactsmith.renderers.safety.check_fields`.
+    """
+    limit = safety.METADATA_MAX_CHARS
+    if len(text) > limit:
+        raise AMError(f"metadata exceeds {limit} characters")
+
+
 def summary_text(value: str | None) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
         raise AMError("summary must be a string")
-    return value.strip()
+    text = value.strip()
+    _reject_long_metadata(text)
+    return text
 
 
 def assumption_list(value: list[str] | None) -> list[str]:
@@ -65,8 +80,10 @@ def assumption_list(value: list[str] | None) -> list[str]:
         if not isinstance(item, str):
             raise AMError(f"assumptions[{i}] must be a string")
         text = item.strip()
-        if text:
-            out.append(text)
+        if not text:
+            continue
+        _reject_long_metadata(text)
+        out.append(text)
     if len(out) > 20:
         raise AMError("assumptions: at most 20 entries")
     return out

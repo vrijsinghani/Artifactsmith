@@ -1,6 +1,7 @@
-"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke
+"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke|perms
 
 Tokens are stored only as sha256 hashes in SQLite. `token add` prints the raw token once.
+`token perms` changes permissions on an existing token and does not print or replace the secret.
 """
 
 from __future__ import annotations
@@ -13,9 +14,10 @@ import secrets
 import sys
 import time
 from collections.abc import Callable
+from typing import Any
 
 from .db import DB
-from .service import ALL_PERMS, WS_RE
+from .service import ALL_PERMS, WS_RE, write_audit
 
 _TOKEN_MIN = 24
 
@@ -74,31 +76,92 @@ def cmd_token_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_token_revoke(args: argparse.Namespace) -> int:
-    db = _make_db()
+def _resolve_token(db: DB, args: argparse.Namespace, *, multi: str) -> tuple[int, dict[str, Any] | None]:
     if args.id:
-        rows = db.all("SELECT id FROM tokens WHERE id=?", args.id)
+        rows = db.all("SELECT id, name, workspace, perms, revoked_at FROM tokens WHERE id=?", args.id)
     elif args.name:
-        rows = db.all("SELECT id FROM tokens WHERE name=?", args.name)
+        rows = db.all("SELECT id, name, workspace, perms, revoked_at FROM tokens WHERE name=?", args.name)
     else:
         print(json.dumps({"error": "pass --id or --name"}))
-        return 2
+        return 2, None
     if not rows:
         print(json.dumps({"error": "no such token"}))
-        return 1
+        return 1, None
     if len(rows) > 1:
+        print(json.dumps({"error": multi, "ids": [r["id"] for r in rows]}))
+        return 2, None
+    row = rows[0]
+    row["perms"] = json.loads(row["perms"])
+    return 0, row
+
+
+def _known_perm(raw: str) -> str | None:
+    perm = raw.strip()
+    if perm not in ALL_PERMS:
+        print(json.dumps({"error": f"unknown perm: {perm}; allowed: {sorted(ALL_PERMS)}"}))
+        return None
+    return perm
+
+
+def cmd_token_revoke(args: argparse.Namespace) -> int:
+    db = _make_db()
+    code, row = _resolve_token(db, args, multi="name matches multiple tokens; revoke by --id")
+    if code or row is None:
+        return code
+    db.exec("UPDATE tokens SET revoked_at=? WHERE id=?", time.time(), row["id"])
+    print(json.dumps({"revoked": row["id"]}))
+    return 0
+
+
+def cmd_token_perms(args: argparse.Namespace) -> int:
+    """List permissions, or add or remove one, without changing the token secret."""
+    db = _make_db()
+    code, row = _resolve_token(db, args, multi="name matches multiple tokens; pass --id")
+    if code or row is None:
+        return code
+    if args.add and args.remove:
+        print(json.dumps({"error": "pass only one of --add or --remove"}))
+        return 2
+    if not args.add and not args.remove:
         print(
             json.dumps(
                 {
-                    "error": "name matches multiple tokens; revoke by --id",
-                    "ids": [r["id"] for r in rows],
+                    "id": row["id"],
+                    "name": row["name"],
+                    "workspace": row["workspace"],
+                    "perms": row["perms"],
+                    "revoked_at": row["revoked_at"],
                 }
             )
         )
+        return 0
+    perm = _known_perm(args.add or args.remove)
+    if perm is None:
         return 2
-    row = rows[0]
-    db.exec("UPDATE tokens SET revoked_at=? WHERE id=?", time.time(), row["id"])
-    print(json.dumps({"revoked": row["id"]}))
+    current = list(row["perms"])
+    if args.add:
+        if perm in current:
+            print(json.dumps({"error": f"token already has {perm}"}))
+            return 1
+        updated = sorted(set(current) | {perm})
+        action = "token_perm_add"
+    else:
+        if perm not in current:
+            print(json.dumps({"error": f"token does not have {perm}"}))
+            return 1
+        updated = sorted(p for p in current if p != perm)
+        action = "token_perm_remove"
+    db.exec("UPDATE tokens SET perms=? WHERE id=?", json.dumps(updated), row["id"])
+    write_audit(
+        "cli",
+        action,
+        token_id=row["id"],
+        name=row["name"],
+        workspace=row["workspace"],
+        perm=perm,
+        perms=updated,
+    )
+    print(json.dumps({"id": row["id"], "name": row["name"], "perms": updated, "perm": perm, "action": action}))
     return 0
 
 
@@ -154,6 +217,12 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--id", default=None)
     rev.add_argument("--name", default=None)
     rev.set_defaults(fn=cmd_token_revoke)
+    perms = tok.add_parser("perms", help="list, add, or remove one permission on an existing token")
+    perms.add_argument("--id", default=None)
+    perms.add_argument("--name", default=None)
+    perms.add_argument("--add", default=None, help="grant this permission; the token value stays the same")
+    perms.add_argument("--remove", default=None, help="remove this permission; the token value stays the same")
+    perms.set_defaults(fn=cmd_token_perms)
 
     args = parser.parse_args(argv)
     if getattr(args, "cmd", None) == "token":

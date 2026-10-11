@@ -229,7 +229,7 @@ New artifact: pass `display_name` or `slug`, plus the page.
 
 New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` stays the one stored on the artifact.
 
-`summary` and `assumptions` are optional card fields and are scanned like model output. `style` is recorded and does not restyle the page you submitted.
+`summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. `style` is recorded and does not restyle the page you submitted.
 
 Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
 
@@ -291,7 +291,12 @@ A **workspace** is a namespace for artifacts (for example `alpha` or `team-a`). 
 artifactsmith token add --name NAME --workspace WS [--perms create,read,edit,publish,export,share,delete]
 artifactsmith token list
 artifactsmith token revoke --id ID | --name NAME
+artifactsmith token perms --id ID | --name NAME
+artifactsmith token perms --name NAME --add publish
+artifactsmith token perms --name NAME --remove publish
 ```
+
+`token perms` changes one permission on an existing token. The token value stays the same. Each add or remove appends one line to the audit log. Listing permissions does not. If the name matches more than one token, pass `--id`.
 
 ## Uninstall / reset
 
