@@ -11,6 +11,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Reply parsing keeps `===FILE: …===` and `===END===` lines that belong to the page (only the first file marker and the final end marker are delimiters) and refuses a truncated or near-empty file instead of publishing it.
 - OpenAI secret checks flag classic `sk-` keys and hyphenated `sk-proj-`, `sk-svcacct-`, and `sk-admin-` keys that contain a digit, and still ignore hyphenated prose such as `sk-learn` and `sk-your-openai-api-key-goes-here`.
 - Document `create` `slug` and `display_name` (what they are, when they are required, their limits, and an example) plus `export`, `share`, `unshare`, and `delete`; Markdown export keeps sanitizer-allowed links as `[text](url)`.
 - Bearer secret checks skip prose and placeholder shapes (`Bearer token`, `YOUR_API_KEY`, `your-api-key-goes-here`) instead of a character-length floor, and still flag short hex, base62, and padded base64. Secret scans also check a copy with HTML entities decoded and invisible characters removed.
