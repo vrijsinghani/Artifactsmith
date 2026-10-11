@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import io
-import re
 import zipfile
-import zlib
 
 from artifactsmith.renderers import get_renderer
 from artifactsmith.renderers.md_parse import blocks_to_simple_html, parse_blocks
@@ -19,38 +17,27 @@ LONG_CMD = (
 UNBROKEN = "X" * 240
 
 
-def _pdf_text(pdf: bytes) -> str:
-    chunks: list[str] = []
-    for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", pdf, re.S):
-        data = m.group(1)
-        try:
-            data = zlib.decompress(data)
-        except zlib.error:
-            pass
-        for s in re.findall(rb"\((?:\\.|[^\\)])*\)", data):
-            chunks.append(s[1:-1].decode("latin-1", errors="replace"))
-        for hx in re.findall(rb"<([0-9A-Fa-f\s]+)>", data):
-            hex_bytes = re.sub(rb"\s+", b"", hx)
-            if len(hex_bytes) % 2:
-                hex_bytes += b"0"
-            try:
-                raw = bytes.fromhex(hex_bytes.decode("ascii"))
-            except ValueError:
-                continue
-            if raw.startswith(b"\xfe\xff"):
-                chunks.append(raw[2:].decode("utf-16-be", errors="replace"))
-            elif raw.startswith(b"\xff\xfe"):
-                chunks.append(raw[2:].decode("utf-16-le", errors="replace"))
-            else:
-                chunks.append(raw.decode("latin-1", errors="replace"))
-    return "".join(chunks)
-
-
 def _iter_boxes(box: object) -> list[object]:
     out = [box]
     for child in getattr(box, "children", None) or ():
         out.extend(_iter_boxes(child))
     return out
+
+
+def _layout(html: str) -> object:
+    from weasyprint import HTML
+
+    return HTML(string=html, base_url=".", url_fetcher=DenyAllURLFetcher()).render()
+
+
+def _text_boxes(document: object) -> list[object]:
+    boxes: list[object] = []
+    for page in document.pages:  # type: ignore[attr-defined]
+        page_box = getattr(page, "_page_box", None)
+        if page_box is None:
+            continue
+        boxes.extend(b for b in _iter_boxes(page_box) if getattr(b, "text", None))
+    return boxes
 
 
 def test_pdf_and_docx_render_inline_emphasis():
@@ -61,24 +48,32 @@ def test_pdf_and_docx_render_inline_emphasis():
     assert "<code>inline code</code>" in html
     assert "**bold**" not in html
 
+    document = _layout(html)
+    texts = [str(getattr(box, "text", "")) for box in _text_boxes(document)]
+    joined = "".join(texts)
+    assert "bold" in joined
+    assert "italic" in joined
+    assert "inline code" in joined
+    assert "**" not in joined
+    by_text = {str(getattr(box, "text", "")): box for box in _text_boxes(document)}
+    assert int(by_text["bold"].style["font_weight"]) >= 700
+    assert str(by_text["italic"].style["font_style"]) == "italic"
+    assert "monospace" in " ".join(str(f) for f in by_text["inline code"].style["font_family"])
+
     pdf = get_renderer("pdf").render(title="T", body=body).files["document.pdf"]
-    extracted = _pdf_text(pdf)
-    assert "bold" in extracted
-    assert "italic" in extracted
-    assert "inline code" in extracted
-    assert "**bold**" not in extracted
-    assert "*italic*" not in extracted
+    assert pdf.startswith(b"%PDF")
+    assert b"**bold**" not in pdf
 
     from docx import Document
 
     data = get_renderer("docx").render(title="T", body=body).files["document.docx"]
     doc = Document(io.BytesIO(data))
     runs = [run for p in doc.paragraphs for run in p.runs]
-    joined = "".join(run.text for run in runs)
-    assert "bold" in joined
-    assert "italic" in joined
-    assert "inline code" in joined
-    assert "**" not in joined
+    joined_docx = "".join(run.text for run in runs)
+    assert "bold" in joined_docx
+    assert "italic" in joined_docx
+    assert "inline code" in joined_docx
+    assert "**" not in joined_docx
     assert any(run.bold and "bold" in run.text for run in runs)
     assert any(run.italic and "italic" in run.text for run in runs)
     assert any(run.font.name == "Courier New" and "inline code" in run.text for run in runs)
@@ -94,11 +89,19 @@ def test_pdf_wraps_long_code_line():
     html = blocks_to_simple_html("T", parse_blocks(body))
     assert "white-space:pre-wrap" in html
     assert "overflow-wrap:anywhere" in html
+    assert "word-break:break-all" in html
 
-    from weasyprint import HTML
+    document = _layout(html)
+    texts = [str(getattr(box, "text", "")) for box in _text_boxes(document)]
+    joined = "".join(texts)
+    assert "docker compose exec" in joined
+    assert "--workspace alpha" in joined
+    assert UNBROKEN in joined.replace("\n", "")
 
-    document = HTML(string=html, base_url=".", url_fetcher=DenyAllURLFetcher()).render()
-    for page in document.pages:
+    code_lines = [t for t in texts if "docker" in t or "workspace" in t or set(t) == {"X"}]
+    assert len(code_lines) >= 2
+
+    for page in document.pages:  # type: ignore[attr-defined]
         page_box = getattr(page, "_page_box", None)
         if page_box is None:
             continue
@@ -109,10 +112,7 @@ def test_pdf_wraps_long_code_line():
             assert x + w <= page_width + 1.5, (x, w, page_width)
 
     pdf = get_renderer("pdf").render(title="T", body=body).files["document.pdf"]
-    extracted = _pdf_text(pdf)
-    assert "docker compose exec" in extracted
-    assert "--workspace alpha" in extracted
-    assert UNBROKEN in extracted or UNBROKEN[:80] in extracted
+    assert pdf.startswith(b"%PDF")
 
 
 def test_xlsx_numeric_cell_types_and_formats():

@@ -38,6 +38,7 @@ def test_pre_css_wraps_long_code_lines():
     html = blocks_to_simple_html("Doc", parse_blocks("```\n" + "x" * 200 + "\n```"))
     assert "white-space:pre-wrap" in html
     assert "overflow-wrap:anywhere" in html
+    assert "word-break:break-all" in html
     assert "overflow:auto" not in html
 
 

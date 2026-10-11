@@ -274,7 +274,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         "line-height:1.5;color:#111;background:#fff}",
         "h1,h2,h3{color:#0b3d91}",
         "pre{background:#f4f4f4;padding:0.75rem;white-space:pre-wrap;",
-        "overflow-wrap:anywhere;word-break:break-word}",
+        "overflow-wrap:anywhere;word-break:break-all}",
         "pre code{white-space:inherit;overflow-wrap:inherit;word-break:inherit}",
         "table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:0.4rem 0.6rem}",
         "th{background:#e8eef8;text-align:left}",
