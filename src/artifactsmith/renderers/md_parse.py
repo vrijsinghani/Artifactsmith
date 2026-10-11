@@ -9,7 +9,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .links import iter_inline_segments
+from markdown_it.token import Token
+
+from .links import public_href_or_none
+from .safety import URL_RE
 
 
 @dataclass
@@ -113,14 +116,147 @@ def _esc_href(s: str) -> str:
     return escape(s, quote=True)
 
 
-def _inline_html(text: str) -> str:
-    """Escape text and turn public http(s) segments into <a href> (PDF annotations)."""
+@dataclass(frozen=True)
+class InlineSpan:
+    """One inline run after markdown emphasis, code, and public-link parse."""
+
+    text: str
+    href: str | None = None
+    bold: bool = False
+    italic: bool = False
+    code: bool = False
+
+
+def _attr_str(tok: Token, name: str) -> str:
+    val = tok.attrGet(name)
+    return "" if val is None else str(val)
+
+
+def _label_text(tokens: list[Token]) -> str:
     parts: list[str] = []
-    for display, href in iter_inline_segments(text):
-        if href is None:
-            parts.append(_esc_text(display))
+    for t in tokens:
+        if t.type in ("text", "code_inline"):
+            parts.append(t.content or "")
+        elif t.children:
+            parts.append(_label_text(t.children))
+    return "".join(parts)
+
+
+def _emit_text_urls(
+    raw: str,
+    *,
+    bold: bool,
+    italic: bool,
+    href: str | None,
+    parts: list[InlineSpan],
+) -> None:
+    if not raw:
+        return
+    if href:
+        parts.append(InlineSpan(raw, href=href, bold=bold, italic=italic))
+        return
+    pos = 0
+    for m in URL_RE.finditer(raw):
+        if m.start() > pos:
+            parts.append(InlineSpan(raw[pos : m.start()], bold=bold, italic=italic))
+        core = m.group(0).rstrip(".,;:)")
+        trailing = m.group(0)[len(core) :]
+        public = public_href_or_none(core)
+        if public:
+            parts.append(InlineSpan(core, href=public, bold=bold, italic=italic))
+            if trailing:
+                parts.append(InlineSpan(trailing, bold=bold, italic=italic))
         else:
-            parts.append(f'<a href="{_esc_href(href)}">{_esc_text(display)}</a>')
+            parts.append(InlineSpan(m.group(0), bold=bold, italic=italic))
+        pos = m.end()
+    if pos < len(raw):
+        parts.append(InlineSpan(raw[pos:], bold=bold, italic=italic))
+
+
+def iter_styled_spans(text: str) -> list[InlineSpan]:
+    """Flatten inline markdown to styled spans for PDF/DOCX.
+
+    Emphasis markers are not emitted. URLs inside inline code stay plain text.
+    """
+    if not text:
+        return []
+    from markdown_it import MarkdownIt
+
+    md = MarkdownIt("commonmark", {"linkify": True})
+    md.enable("linkify")
+    md.validateLink = lambda _url: True  # type: ignore[assignment]
+    tokens = md.parse(text)
+    parts: list[InlineSpan] = []
+
+    def walk(children: list[Token] | None, bold: bool, italic: bool, href: str | None) -> None:
+        if not children:
+            return
+        i = 0
+        while i < len(children):
+            tok = children[i]
+            kind = tok.type
+            if kind == "strong_open":
+                bold = True
+            elif kind == "strong_close":
+                bold = False
+            elif kind == "em_open":
+                italic = True
+            elif kind == "em_close":
+                italic = False
+            elif kind == "code_inline":
+                if tok.content:
+                    parts.append(InlineSpan(tok.content, bold=bold, italic=italic, code=True))
+            elif kind == "text":
+                _emit_text_urls(tok.content or "", bold=bold, italic=italic, href=href, parts=parts)
+            elif kind in ("softbreak", "hardbreak"):
+                parts.append(InlineSpan("\n", href=href, bold=bold, italic=italic))
+            elif kind == "link_open":
+                dest = public_href_or_none(_attr_str(tok, "href"))
+                inner: list[Token] = []
+                i += 1
+                while i < len(children) and children[i].type != "link_close":
+                    inner.append(children[i])
+                    i += 1
+                walk(inner, bold, italic, dest)
+            elif kind == "image":
+                label = (_label_text(tok.children or []) or "image").strip() or "image"
+                dest = public_href_or_none(_attr_str(tok, "src"))
+                parts.append(InlineSpan(label, href=dest, bold=bold, italic=italic))
+            elif tok.children:
+                walk(tok.children, bold, italic, href)
+            i += 1
+
+    for tok in tokens:
+        if tok.type == "inline":
+            walk(tok.children, False, False, None)
+        elif tok.type in ("fence", "code_block") and tok.content:
+            parts.append(InlineSpan(tok.content, code=True))
+    return parts
+
+
+def visible_text(text: str) -> str:
+    """Plain text of inline markdown (no emphasis markers)."""
+    return "".join(span.text for span in iter_styled_spans(text)) or text
+
+
+def _style_html(inner: str, span: InlineSpan) -> str:
+    if span.code:
+        inner = f"<code>{inner}</code>"
+    if span.italic:
+        inner = f"<em>{inner}</em>"
+    if span.bold:
+        inner = f"<strong>{inner}</strong>"
+    return inner
+
+
+def _inline_html(text: str) -> str:
+    """Escape text; render emphasis/code; turn public http(s) into <a href>."""
+    parts: list[str] = []
+    for span in iter_styled_spans(text):
+        inner = _style_html(_esc_text(span.text), span)
+        if span.href:
+            inner = f'<a href="{_esc_href(span.href)}">{inner}</a>'
+        parts.append(inner)
     return "".join(parts)
 
 
@@ -136,7 +272,10 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         "<style>",
         "body{font-family:Helvetica,Arial,sans-serif;margin:2rem;max-width:48rem;",
         "line-height:1.5;color:#111;background:#fff}",
-        "h1,h2,h3{color:#0b3d91} pre{background:#f4f4f4;padding:0.75rem;overflow:auto}",
+        "h1,h2,h3{color:#0b3d91}",
+        "pre{background:#f4f4f4;padding:0.75rem;white-space:pre-wrap;",
+        "overflow-wrap:anywhere;word-break:break-word}",
+        "pre code{white-space:inherit;overflow-wrap:inherit;word-break:inherit}",
         "table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:0.4rem 0.6rem}",
         "th{background:#e8eef8;text-align:left}",
         "</style></head><body>",

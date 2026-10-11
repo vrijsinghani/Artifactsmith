@@ -6,9 +6,30 @@ import io
 from typing import Any
 
 from .base import RenderOutput
-from .links import iter_inline_segments
-from .md_parse import parse_blocks
+from .md_parse import InlineSpan, iter_styled_spans, parse_blocks
 from .safety import strip_ooxml_controls
+
+
+def _apply_run_props(rpr: Any, span: InlineSpan, *, hyperlink: bool) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    if hyperlink:
+        color = OxmlElement("w:color")
+        color.set(qn("w:val"), "0563C1")
+        rpr.append(color)
+        u = OxmlElement("w:u")
+        u.set(qn("w:val"), "single")
+        rpr.append(u)
+    if span.bold:
+        rpr.append(OxmlElement("w:b"))
+    if span.italic:
+        rpr.append(OxmlElement("w:i"))
+    if span.code:
+        fonts = OxmlElement("w:rFonts")
+        fonts.set(qn("w:ascii"), "Courier New")
+        fonts.set(qn("w:hAnsi"), "Courier New")
+        rpr.append(fonts)
 
 
 def _add_text_with_links(paragraph: Any, text: str) -> None:
@@ -16,32 +37,33 @@ def _add_text_with_links(paragraph: Any, text: str) -> None:
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
+    from docx.shared import Pt
 
-    for display, href in iter_inline_segments(text):
-        display = strip_ooxml_controls(display)
+    for span in iter_styled_spans(text):
+        display = strip_ooxml_controls(span.text)
         if not display:
             continue
-        if href is None:
-            paragraph.add_run(display)
+        if span.href is None:
+            run = paragraph.add_run(display)
+            run.bold = span.bold
+            run.italic = span.italic
+            if span.code:
+                run.font.name = "Courier New"
+                run.font.size = Pt(9)
             continue
         part = paragraph.part
-        r_id = part.relate_to(href, RT.HYPERLINK, is_external=True)
+        r_id = part.relate_to(span.href, RT.HYPERLINK, is_external=True)
         hyperlink = OxmlElement("w:hyperlink")
         hyperlink.set(qn("r:id"), r_id)
-        run = OxmlElement("w:r")
+        run_el = OxmlElement("w:r")
         rpr = OxmlElement("w:rPr")
-        color = OxmlElement("w:color")
-        color.set(qn("w:val"), "0563C1")
-        rpr.append(color)
-        u = OxmlElement("w:u")
-        u.set(qn("w:val"), "single")
-        rpr.append(u)
-        run.append(rpr)
+        _apply_run_props(rpr, span, hyperlink=True)
+        run_el.append(rpr)
         text_el = OxmlElement("w:t")
         text_el.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
         text_el.text = display
-        run.append(text_el)
-        hyperlink.append(run)
+        run_el.append(text_el)
+        hyperlink.append(run_el)
         paragraph._p.append(hyperlink)
 
 

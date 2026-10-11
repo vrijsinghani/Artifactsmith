@@ -48,7 +48,7 @@ Round-trip through `XlsxRenderer.render` and open with openpyxl (data_only=False
 | Numeric-looking text (`"007"`, `"1e2"`) | Stored as a number (loses leading zeros / becomes scientific) |
 | Title, notes, headings, list items | Any of those sheets write unquoted formula text |
 
-Numbers that are actually numbers in a Markdown table may stay numbers only if the product explicitly documents that. Default: treat model text as a string.
+Ints, decimals, currency, and percents in table cells are stored as numbers with Excel formats. IDs with leading zeros and scientific-looking tokens stay text. Formula-like values (`=`, `@`) stay strings.
 
 ## 3. Concurrent jobs
 

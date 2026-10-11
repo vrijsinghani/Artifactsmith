@@ -176,5 +176,6 @@ def test_xlsx_system_prompt_steers_one_url_per_cell():
     prompt = b.system_prompt_for("xlsx")
     assert "own table cell" in prompt
     assert "one link per cell" in prompt
+    assert "heading immediately before its table" in prompt
     assert "own table cell" not in b.system_prompt_for("pdf")
     assert b.system_prompt_for("pdf") == b.CONTENT_SYSTEM

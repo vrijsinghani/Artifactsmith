@@ -24,7 +24,7 @@ The model writes content. A renderer on the server turns that content into bytes
 | Markdown | stdlib | | Stored as UTF-8 text. |
 | PDF | WeasyPrint ≥70 | BSD-3-Clause | HTML and CSS to PDF through Pango and Cairo. ObjectFetcher is the object API. |
 | DOCX | python-docx | MIT | Writes Office Open XML. |
-| XLSX | openpyxl | MIT | Markdown tables become sheets. Remaining prose goes on a Notes sheet. |
+| XLSX | openpyxl | MIT | Markdown tables become sheets named from the heading above each table (Excel-safe, 31 chars, deduplicated). Numeric cells are numbers (currency/percent formats; IDs with leading zeros stay text). Remaining prose goes on a Notes sheet. |
 
 WeasyPrint needs Pango, Cairo, GdkPixbuf, and a font. `docker/Dockerfile` installs those packages.
 

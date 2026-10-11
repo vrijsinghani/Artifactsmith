@@ -8,6 +8,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Fixed
 
 - Single-file HTML (and clearly Markdown) builds recover when the model omits `===FILE: …===` but still emits a complete document. The recovered body still runs through the same sanitizer, checkers, and secret scan.
+- PDF and DOCX render inline Markdown emphasis (bold, italic, inline code) instead of raw `**` markers.
+- PDF wraps long code lines so they are not clipped at the page edge.
+- XLSX stores ints, decimals, currency, and percents as numbers with matching formats; IDs with leading zeros stay text.
+- XLSX uses the heading above each table as the sheet name (Excel-safe, 31 characters, deduplicated).
 
 ### Changed
 

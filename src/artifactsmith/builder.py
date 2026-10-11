@@ -358,7 +358,8 @@ def render_html(body: str) -> tuple[dict[str, bytes], str]:
 
 _XLSX_LINK_HINT = (
     "\nSpreadsheet: put each public URL in its own table cell (one link per cell) "
-    "so every citation stays clickable in XLSX.\n"
+    "so every citation stays clickable in XLSX. Name each sheet with a Markdown "
+    "heading immediately before its table.\n"
 )
 
 

@@ -1,4 +1,4 @@
-from artifactsmith.renderers.md_parse import blocks_to_simple_html, parse_blocks
+from artifactsmith.renderers.md_parse import blocks_to_simple_html, iter_styled_spans, parse_blocks
 
 
 def test_parse_headings_lists_tables_code():
@@ -23,3 +23,26 @@ code
     assert "<table>" in html
     assert "&lt;" not in html
     assert "<script" not in html
+
+
+def test_inline_html_renders_emphasis_not_markers():
+    html = blocks_to_simple_html("Doc", parse_blocks("Use **bold**, *italic*, and `code`."))
+    assert "<strong>bold</strong>" in html
+    assert "<em>italic</em>" in html
+    assert "<code>code</code>" in html
+    assert "**bold**" not in html
+    assert "*italic*" not in html
+
+
+def test_pre_css_wraps_long_code_lines():
+    html = blocks_to_simple_html("Doc", parse_blocks("```\n" + "x" * 200 + "\n```"))
+    assert "white-space:pre-wrap" in html
+    assert "overflow-wrap:anywhere" in html
+    assert "overflow:auto" not in html
+
+
+def test_styled_spans_drop_emphasis_markers():
+    spans = iter_styled_spans("**bold** and *italic* and `cmd`")
+    assert [("bold", True, False, False), ("italic", False, True, False), ("cmd", False, False, True)] == [
+        (s.text, s.bold, s.italic, s.code) for s in spans if s.text.strip() and s.text.strip() != "and"
+    ]
