@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floors &amp; More member-direct rebate</title>
+<style>
+:root{--bg:#ffffff;--ink:#1c1917;--muted:#3f3f46;--accent:#0b5cab;--surface:#f3f6fb;--line:#d5deea;--pos:#0d6b3d;--neg:#b42318;--font:"Segoe UI", system-ui, sans-serif;--c0:#0b5cab;--c1:#0d6b3d;--c2:#b45309;--c3:#6d28d9;--c4:#0f766e;--c5:#9a3412;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5}
+main{max-width:72rem;margin:0 auto;padding:1.25rem 1.25rem 3rem}
+p{max-width:68ch}
+h1,h2,h3,h4{line-height:1.15;margin:0 0 .5rem}
+h1{font-size:2.1rem}
+h2{font-size:1.4rem;margin-top:1.4rem}
+h3{font-size:1.15rem}
+a{color:var(--accent)}
+.asl-title{margin:0 0 1.2rem}
+.asl-title .dek{margin:.35rem 0 0;color:var(--muted);max-width:62ch}
+.asl-section{margin:1.4rem 0}
+.asl-grid{display:grid;gap:1rem;margin:1rem 0}
+.asl-stat{padding:1rem 1.05rem}
+.asl-stat .label{margin:0;font-size:.85rem;color:var(--muted)}
+.asl-stat .value{margin:.15rem 0 0;font-size:1.8rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.asl-stat .note{margin:.3rem 0 0;font-size:.85rem;color:var(--muted)}
+.asl-stat.emph .value{font-size:2.3rem}
+.asl-stat.size-sm .value{font-size:1.3rem}
+.asl-stat.size-lg .value{font-size:2.2rem}
+.asl-stat.size-xl .value{font-size:3rem}
+.asl-callout{margin:1rem 0;padding:.8rem 1rem}
+.asl-callout-label{margin:0 0 .3rem;font-size:.78rem;font-weight:700}
+.asl-callout p{margin:.35rem 0}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{padding:.45rem .6rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{font-weight:600}
+caption{caption-side:top;text-align:left;font-weight:600;padding:0 0 .35rem}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.pos{color:var(--pos)}
+.neg{color:var(--neg)}
+td .sub,th .sub{display:block;font-size:.82em;color:var(--muted);font-weight:400}
+tfoot td,tfoot th{font-weight:700;border-top:2px solid var(--ink)}
+.asl-badge{display:inline-block;padding:.05rem .45rem;border-radius:999px;font-size:.82rem;font-weight:600;background:var(--surface);color:var(--ink)}
+.tone-green{background:#e7f6ee;color:#0d6b3d}
+.tone-amber{background:#fff6e5;color:#7a4e00}
+.tone-red{background:#fdecea;color:#b42318}
+.tone-blue{background:#e8f1fb;color:#0b5cab}
+.tone-violet{background:#f3e8ff;color:#5b21b6}
+.tone-gray{background:#f4f4f5;color:#3f3f46}
+.tone-accent{background:var(--surface);color:var(--accent)}
+.asl-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.75rem 1.25rem;margin:1rem 0}
+.asl-kv .kv dt{margin:0;font-size:.78rem;color:var(--muted)}
+.asl-kv .kv dd{margin:.12rem 0 0;font-weight:600}
+.asl-timeline,.asl-steps{margin:1rem 0;padding:0}
+.asl-timeline{list-style:none;border-left:3px solid var(--accent)}
+.asl-timeline li{position:relative;padding:0 0 .9rem 1rem}
+.asl-timeline .when{margin:0;font-weight:700}
+.asl-timeline .what{margin:.1rem 0 0}
+.asl-steps{padding-left:1.4rem}
+.asl-steps li{margin:.35rem 0}
+.asl-quote{margin:1rem 0;font-size:1.25rem}
+.asl-code{padding:.85rem 1rem;overflow-x:auto;max-width:100%}
+.asl-code .lang{display:block;font-size:.75rem;color:var(--muted);margin-bottom:.3rem}
+.asl-code code{white-space:pre;font-family:ui-monospace,Menlo,Consolas,monospace}
+.asl-chart svg{width:100%;height:auto;display:block}
+.asl-chart .bar{fill:var(--c0)}
+.asl-chart .line{fill:none;stroke:var(--c0);stroke-width:2px}
+.asl-chart .dot{fill:var(--c0)}
+.asl-chart .axis{stroke:var(--line);stroke-width:1px}
+.asl-chart .pie0{fill:var(--c0)}.asl-chart .pie1{fill:var(--c1)}.asl-chart .pie2{fill:var(--c2)}
+.asl-chart .pie3{fill:var(--c3)}.asl-chart .pie4{fill:var(--c4)}.asl-chart .pie5{fill:var(--c5)}
+.asl-chart text{fill:var(--ink);font-family:var(--font)}
+.asl-list{margin:.4rem 0 1rem;padding-left:1.2rem}
+.cols-2{columns:2;column-gap:1.5rem}
+.asl-rule{border:0;border-top:1px solid var(--line);margin:1.4rem 0}
+.g-1{grid-template-columns:1fr}
+.g-2{grid-template-columns:1fr 1fr}
+.g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g-2-1{grid-template-columns:2fr 1fr}
+.g-1-2{grid-template-columns:1fr 2fr}
+.g-3-2{grid-template-columns:3fr 2fr}
+.g-3-1{grid-template-columns:3fr 1fr}
+.sp-2{grid-column:span 2}.sp-3{grid-column:span 3}.sp-4{grid-column:span 4}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+summary{min-height:44px;display:flex;align-items:center;cursor:pointer}
+
+.asl-title h1{border-bottom:4px solid var(--accent);padding-bottom:.25rem}
+.asl-title.variant-band{background:var(--surface);margin:-1.25rem -1.25rem 1.25rem;padding:1.5rem 1.25rem}
+.asl-section.variant-card{border:1px solid var(--line);border-radius:10px;padding:.9rem 1rem}
+.asl-section h2{border-bottom:2px solid var(--accent);padding-bottom:.15rem}
+.asl-stat{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.asl-stat .value{color:var(--accent)}
+.asl-stat.tone-green .value{color:#0d6b3d}
+.asl-stat.tone-red .value{color:#b42318}
+.asl-callout{background:var(--surface);border-left:4px solid var(--accent);border-radius:8px}
+.asl-callout.warn{border-left-color:#b45309}
+.asl-callout.success{border-left-color:#0d6b3d}
+.asl-callout.danger{border-left-color:#b42318}
+.asl-table th{background:var(--surface)}
+.asl-table.variant-striped tbody tr:nth-child(even){background:var(--surface)}
+.asl-code{background:#f4f4f5;border-radius:8px}
+.asl-quote{border-left:4px solid var(--accent);padding:.2rem 0 .2rem 1rem}
+
+@media (max-width:40rem){
+  .asl-grid[class*="g-"]{grid-template-columns:1fr}
+  .asl-grid.stats{grid-template-columns:1fr 1fr}
+  .asl-stat.long{grid-column:1 / -1}
+  [class*="sp-"]{grid-column:auto}
+  .cols-2{columns:1}
+  .asl-title.variant-split{display:block}
+  table.stack thead{display:none}
+  table.stack tr{display:block;margin:0 0 .75rem;border:1px solid var(--line);padding:.45rem .65rem}
+  table.stack td,table.stack th{display:block;border:0;text-align:left;padding:.2rem 0}
+  table.stack td::before{content:attr(data-label);display:block;font-size:.75rem;color:var(--muted);font-weight:600}
+  table.scroll{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  pre,.asl-code{overflow-x:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none;transition:none}
+}
+@media print{
+  body,.asl-title,.asl-stat,.asl-callout,.asl-quote,.asl-code{background:#fff;color:#000;box-shadow:none}
+  a{text-decoration:underline}
+}
+
+</style>
+</head>
+<body>
+<header class="asl-title variant-band">
+<h1>Floors &amp; More member-direct rebate</h1><p class="dek">Q3 2026, Jul 1 to Sep 30, 2026</p>
+</header>
+<main>
+<p>Floors &amp; More has <strong>$15,459.15 in rebate owed</strong> on $103,061 billed across 136 paid invoices.</p><div class="asl-grid g-3 stats"><div class="asl-stat tone-green emph"><p class="label">Rebate owed</p><p class="value">$15,459.15</p><p class="note">15% of billed</p></div><div class="asl-stat"><p class="label">Total billed</p><p class="value">$103,061</p></div><div class="asl-stat"><p class="label">Paid invoices</p><p class="value">136</p></div></div><section class="asl-section"><h2>Monthly billing</h2><div class="asl-grid g-3-2"><table class="asl-table rowhead"><thead><tr><th scope="col">Month</th><th scope="col" class="num">Invoices</th><th scope="col" class="num">Billed</th><th scope="col" class="num">Rebate (15%)</th></tr></thead><tbody><tr><th scope="row" data-label="Month">July 2026</th><td class="num" data-label="Invoices">45</td><td class="num" data-label="Billed">$38,185</td><td class="num" data-label="Rebate (15%)">$5,727.75</td></tr><tr><th scope="row" data-label="Month">August 2026</th><td class="num" data-label="Invoices">43</td><td class="num" data-label="Billed">$28,935</td><td class="num" data-label="Rebate (15%)">$4,340.25</td></tr><tr><th scope="row" data-label="Month">September 2026</th><td class="num" data-label="Invoices">48</td><td class="num" data-label="Billed">$35,941</td><td class="num" data-label="Rebate (15%)">$5,391.15</td></tr></tbody></table><figure class="asl-chart"><svg role="img" aria-label="Bar chart, Monthly billing: Jul $38,185, Aug $28,935, Sep $35,941" viewBox="0 0 640 280" width="640" height="280"><line x1="28" y1="244" x2="628" y2="244" class="axis"/><rect class="bar" x="38.0" y="16.0" width="186.7" height="228.0"/><text x="131.3" y="268" text-anchor="middle" font-size="12" font-family="sans-serif">Jul</text><rect class="bar" x="234.7" y="71.2" width="186.7" height="172.8"/><text x="328.0" y="268" text-anchor="middle" font-size="12" font-family="sans-serif">Aug</text><rect class="bar" x="431.3" y="29.4" width="186.7" height="214.6"/><text x="524.7" y="268" text-anchor="middle" font-size="12" font-family="sans-serif">Sep</text></svg></figure></div></section><section class="asl-section"><h2>Billing by member</h2><table class="asl-table variant-striped rowhead"><thead><tr><th scope="col">Member</th><th scope="col" class="num">Invoices</th><th scope="col" class="num">Billed</th><th scope="col" class="num">Rebate (15%)</th></tr></thead><tbody><tr><th scope="row" data-label="Member">iDeal Floors</th><td class="num" data-label="Invoices">8</td><td class="num" data-label="Billed">$11,370</td><td class="num" data-label="Rebate (15%)">$1,705.50</td></tr><tr><th scope="row" data-label="Member">Floors &amp; Kitchens Today</th><td class="num" data-label="Invoices">7</td><td class="num" data-label="Billed">$10,747</td><td class="num" data-label="Rebate (15%)">$1,612.05</td></tr><tr><th scope="row" data-label="Member">Big Bob&#x27;s Flooring Outlet - Yuma</th><td class="num" data-label="Invoices">5</td><td class="num" data-label="Billed">$9,700</td><td class="num" data-label="Rebate (15%)">$1,455</td></tr><tr><th scope="row" data-label="Member">Proplank Flooring</th><td class="num" data-label="Invoices">7</td><td class="num" data-label="Billed">$6,600</td><td class="num" data-label="Rebate (15%)">$990</td></tr><tr><th scope="row" data-label="Member">Junge&#x27;s Flooring</th><td class="num" data-label="Invoices">5</td><td class="num" data-label="Billed">$5,950</td><td class="num" data-label="Rebate (15%)">$892.50</td></tr><tr><th scope="row" data-label="Member">Big Bob&#x27;s Flooring Outlet Ohio - NE Cincinnati</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$5,400</td><td class="num" data-label="Rebate (15%)">$810</td></tr><tr><th scope="row" data-label="Member">Big Bob&#x27;s Flooring Outlet</th><td class="num" data-label="Invoices">9</td><td class="num" data-label="Billed">$4,500</td><td class="num" data-label="Rebate (15%)">$675</td></tr><tr><th scope="row" data-label="Member">Melbourne Beach Flooring &amp; Kitchens</th><td class="num" data-label="Invoices">4</td><td class="num" data-label="Billed">$4,050</td><td class="num" data-label="Rebate (15%)">$607.50</td></tr><tr><th scope="row" data-label="Member">The Carpet Shop</th><td class="num" data-label="Invoices">7</td><td class="num" data-label="Billed">$3,756</td><td class="num" data-label="Rebate (15%)">$563.40</td></tr><tr><th scope="row" data-label="Member">Floor To Ceiling Willmar</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$3,300</td><td class="num" data-label="Rebate (15%)">$495</td></tr><tr><th scope="row" data-label="Member">About Floors n More</th><td class="num" data-label="Invoices">9</td><td class="num" data-label="Billed">$3,297</td><td class="num" data-label="Rebate (15%)">$494.55</td></tr><tr><th scope="row" data-label="Member">Total Pro Flooring</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$3,297</td><td class="num" data-label="Rebate (15%)">$494.55</td></tr><tr><th scope="row" data-label="Member">Big Bob&#x27;s Flooring</th><td class="num" data-label="Invoices">4</td><td class="num" data-label="Billed">$3,000</td><td class="num" data-label="Rebate (15%)">$450</td></tr><tr><th scope="row" data-label="Member">Drapery Affair &amp; The Floor Store</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$3,000</td><td class="num" data-label="Rebate (15%)">$450</td></tr><tr><th scope="row" data-label="Member">McKean&#x27;s Floor To Ceiling</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$3,000</td><td class="num" data-label="Rebate (15%)">$450</td></tr><tr><th scope="row" data-label="Member">Floor To Ceiling Mason City</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$2,400</td><td class="num" data-label="Rebate (15%)">$360</td></tr><tr><th scope="row" data-label="Member">Premium Floors &amp; Renovations</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$2,400</td><td class="num" data-label="Rebate (15%)">$360</td></tr><tr><th scope="row" data-label="Member">Sea Floor Carpet Hardwood and More</th><td class="num" data-label="Invoices">4</td><td class="num" data-label="Billed">$2,400</td><td class="num" data-label="Rebate (15%)">$360</td></tr><tr><th scope="row" data-label="Member">Steamway Floor to Ceiling</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$2,400</td><td class="num" data-label="Rebate (15%)">$360</td></tr><tr><th scope="row" data-label="Member">Bay Carpets &amp; Flooring</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$2,100</td><td class="num" data-label="Rebate (15%)">$315</td></tr><tr><th scope="row" data-label="Member">Floor To Ceiling St. Joseph</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$2,100</td><td class="num" data-label="Rebate (15%)">$315</td></tr><tr><th scope="row" data-label="Member">Floor to Ceiling Mitchell</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$2,100</td><td class="num" data-label="Rebate (15%)">$315</td></tr><tr><th scope="row" data-label="Member">Floor to Ceiling Ottumwa</th><td class="num" data-label="Invoices">6</td><td class="num" data-label="Billed">$2,100</td><td class="num" data-label="Rebate (15%)">$315</td></tr><tr><th scope="row" data-label="Member">Seafloor Carpet Hardwood and More</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$1,750</td><td class="num" data-label="Rebate (15%)">$262.50</td></tr><tr><th scope="row" data-label="Member">Apex Home Solutions</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$1,500</td><td class="num" data-label="Rebate (15%)">$225</td></tr><tr><th scope="row" data-label="Member">iDeal Floors Arlington</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$297</td><td class="num" data-label="Rebate (15%)">$44.55</td></tr><tr><th scope="row" data-label="Member">iDeal Floors Garland</th><td class="num" data-label="Invoices">3</td><td class="num" data-label="Billed">$297</td><td class="num" data-label="Rebate (15%)">$44.55</td></tr><tr><th scope="row" data-label="Member">Floors Plus More</th><td class="num" data-label="Invoices">1</td><td class="num" data-label="Billed">$250</td><td class="num" data-label="Rebate (15%)">$37.50</td></tr></tbody></table></section><section class="asl-section"><h2>Billing by service</h2><table class="asl-table variant-compact rowhead"><thead><tr><th scope="col">Service</th><th scope="col" class="num">Billed</th></tr></thead><tbody><tr><th scope="row" data-label="Service">Neuralami Local SEO</th><td class="num" data-label="Billed">$30,000</td></tr><tr><th scope="row" data-label="Service">Neuralami Paid Search Management Fee</th><td class="num" data-label="Billed">$24,820</td></tr><tr><th scope="row" data-label="Service">Neuralami Custom Content | Content Core</th><td class="num" data-label="Billed">$12,500</td></tr><tr><th scope="row" data-label="Service">Neuralami Press Release Pro</th><td class="num" data-label="Billed">$8,100</td></tr><tr><th scope="row" data-label="Service">Neuralami Custom Content | Content Core+More</th><td class="num" data-label="Billed">$3,600</td></tr><tr><th scope="row" data-label="Service">Custom Automation Development</th><td class="num" data-label="Billed">$3,500</td></tr><tr><th scope="row" data-label="Service">Neuralami Custom Content | Content Core 5 Pages</th><td class="num" data-label="Billed">$3,300</td></tr><tr><th scope="row" data-label="Service">Listing Sync Pro | USA</th><td class="num" data-label="Billed">$2,813.72</td></tr><tr><th scope="row" data-label="Service">Neuralami Custom Content | Content Core+</th><td class="num" data-label="Billed">$2,100</td></tr><tr><th scope="row" data-label="Service">Neuralami Paid Search Advertising</th><td class="num" data-label="Billed">$1,900</td></tr><tr><th scope="row" data-label="Service">Four Months Google Ads Mgmt Fee Catchup</th><td class="num" data-label="Billed">$1,600</td></tr><tr><th scope="row" data-label="Service">Custom Content Project - See Memo</th><td class="num" data-label="Billed">$1,500</td></tr><tr><th scope="row" data-label="Service">Neuralami Local Listings</th><td class="num" data-label="Billed">$1,485</td></tr><tr><th scope="row" data-label="Service">Neuralami Press Release Essentials</th><td class="num" data-label="Billed">$1,100</td></tr><tr><th scope="row" data-label="Service">Citation Builder</th><td class="num" data-label="Billed">$1,049.03</td></tr><tr><th scope="row" data-label="Service">Legacy Blog Post Import - 417 Articles</th><td class="num" data-label="Billed">$1,000</td></tr><tr><th scope="row" data-label="Service">Listing Sync Pro</th><td class="num" data-label="Billed">$970.59</td></tr><tr><th scope="row" data-label="Service">Local SEO Payment for September</th><td class="num" data-label="Billed">$500</td></tr><tr><th scope="row" data-label="Service">Neuralami Display Ad Creatives</th><td class="num" data-label="Billed">$500</td></tr><tr><th scope="row" data-label="Service">Facebook Marketplace Agent Early Adopter</th><td class="num" data-label="Billed">$250</td></tr><tr><th scope="row" data-label="Service">Neuralami Local Media Outreach</th><td class="num" data-label="Billed">$250</td></tr><tr><th scope="row" data-label="Service">Local SEO | Pro</th><td class="num" data-label="Billed">$166.66</td></tr><tr><th scope="row" data-label="Service">Google Ads Mgmt Fee Upgrade Pro-Rate for 9-SEP - 26-SEP</th><td class="num" data-label="Billed">$56</td></tr></tbody></table><p>Paid invoices with a non-zero amount. Source: Neuralami billing export.</p></section></main>
+</body>
+</html>

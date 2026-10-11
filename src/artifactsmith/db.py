@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS versions (
   source_key TEXT,
   publish_json TEXT,
   style TEXT,
+  mode TEXT,
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   PRIMARY KEY (artifact_id, version)
@@ -122,6 +123,8 @@ class DB:
             self.conn.execute("ALTER TABLE versions ADD COLUMN style TEXT")
         if "publish_json" not in ver_cols:
             self.conn.execute("ALTER TABLE versions ADD COLUMN publish_json TEXT")
+        if "mode" not in ver_cols:
+            self.conn.execute("ALTER TABLE versions ADD COLUMN mode TEXT")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

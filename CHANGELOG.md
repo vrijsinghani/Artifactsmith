@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- `create` `mode=fast` renders a first HTML page from Markdown (`::: ` blocks) in the chosen style; `mode=full` stays the default (`AM_BUILD_MODE`).
 - `publish` stores a finished HTML or Markdown page without a model call, through the same safety checks, renderer, and version, share, and preview path as a build.
 
 ### Fixed

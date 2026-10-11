@@ -111,6 +111,17 @@ def create(
     source_files: list[dict[str, str]] | None = None,
     format: str | None = None,
     style: str | None = None,
+    mode: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Build mode for a first HTML page: fast or full. "
+                "fast writes Markdown and the server renders the style. "
+                "full is the HTML build. Default is AM_BUILD_MODE (full). "
+                "Other formats ignore fast."
+            )
+        ),
+    ] = None,
     workspace: str | None = None,
     model: str | None = None,
     capabilities: dict[str, Any] | None = None,
@@ -129,8 +140,12 @@ def create(
 
     format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
     writes the bytes. html uses the visual style (house, bold, editorial, playful, terminal, swiss;
-    default AM_DEFAULT_STYLE, usually house). style is accepted on markdown, pdf, docx, and xlsx
+    default AM_DEFAULT_STYLE, usually house).     style is accepted on markdown, pdf, docx, and xlsx
     but ignored: those formats still use the writing-only prompt.
+
+    mode is fast or full (default AM_BUILD_MODE, usually full). fast applies to a first HTML
+    build: the model writes Markdown and the server renders it. full is the HTML build.
+    Other formats ignore fast.
 
     source_content (optional, up to 200 KB total with source_files) is researched material the page
     is built from. The builder uses only the request plus this material for facts.
@@ -157,6 +172,7 @@ def create(
         capabilities=capabilities,
         idempotency_key=idempotency_key,
         style=style,
+        mode=mode,
     )
 
 

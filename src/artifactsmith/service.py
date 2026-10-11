@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import builder
+from .build_mode import ModeError, parse_build_mode
 from .config import CFG
 from .db import DB, jloads
 from .renderers import EXTENSION, SUPPORTED_FORMATS
@@ -282,6 +283,7 @@ class Service:
         capabilities: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
         style: str | None = None,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "create")
         ws = workspace or principal["workspace"]
@@ -301,6 +303,12 @@ class Service:
             style = parse_style(style, default=CFG.default_style)
         except StyleError as e:
             raise AMError(str(e)) from e
+        try:
+            mode = parse_build_mode(mode, default=CFG.build_mode)
+        except ModeError as e:
+            raise AMError(str(e)) from e
+        if fmt != "html":
+            mode = "full"
         title = (display_name or "").strip()
         raw_slug = (slug or "").strip()
         if not title and not raw_slug:
@@ -336,6 +344,7 @@ class Service:
                 "source_files": source_files,
                 "capabilities": caps,
                 "style": style,
+                "mode": mode,
             }
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
@@ -363,6 +372,7 @@ class Service:
             "status": "queued",
             "source_bytes": bundle["bytes"] if bundle else 0,
             "style": style,
+            "mode": mode,
         }
         with self.db.tx() as c:
             self._check_quota(c, principal)
@@ -394,8 +404,8 @@ class Service:
                 )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,style,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (aid, newv, None, verbatim_request, "queued", jid, model, skey, style, principal["name"], t),
+                "source_key,style,mode,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (aid, newv, None, verbatim_request, "queued", jid, model, skey, style, mode, principal["name"], t),
             )
             c.execute(
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
@@ -761,6 +771,9 @@ class Service:
             if v.get("source_key"):
                 raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
                 source = json.loads(raw)
+            build_mode = v.get("mode") or "full"
+            if (a.get("format") or "html") != "html" or base_source is not None:
+                build_mode = "full"
             res = await builder.run_build(
                 kind=a["kind"],
                 slug=a["slug"],
@@ -775,6 +788,7 @@ class Service:
                 render_timeout=CFG.render_timeout_s,
                 format=a["format"] or "html",
                 style=v.get("style") or DEFAULT_STYLE,
+                mode=build_mode,
             )
         total = sum(len(b) for b in res.files.values())
         if total > CFG.max_output_bytes:
@@ -815,6 +829,8 @@ class Service:
             "created_at": iso(v["created_at"]),
             "built_at": iso(now()),
             "style": v.get("style") or DEFAULT_STYLE,
+            "mode": v.get("mode") or "full",
+            "notes": res.notes,
         }
         await asyncio.to_thread(
             self.store.put, prefix + "manifest.json", json.dumps(manifest, indent=2).encode(), "application/json"
@@ -1027,6 +1043,7 @@ class Service:
                 "model": x["model"],
                 "sha256": x["sha256"],
                 "style": x.get("style") or DEFAULT_STYLE,
+                "mode": x.get("mode") or "full",
             }
             for x in vs
         ]

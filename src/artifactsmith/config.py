@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .build_mode import DEFAULT_MODE, ModeError, parse_build_mode
 from .styles import DEFAULT_STYLE, StyleError, parse_style
 
 
@@ -47,6 +48,14 @@ def _setting_int(name: str, default: int, *, minimum: int | None = None, maximum
     if maximum is not None and value > maximum:
         raise ConfigError(f"{name} must be <= {maximum}, got {value}")
     return value
+
+
+def _setting_mode(name: str, default: str) -> str:
+    raw = _setting(name, default)
+    try:
+        return parse_build_mode(raw, default=default)
+    except ModeError as e:
+        raise ConfigError(f"{name}: {e}") from e
 
 
 def _setting_style(name: str, default: str) -> str:
@@ -101,6 +110,8 @@ class Config:
     llm_base: str = field(default_factory=lambda: _setting("AM_LLM_BASE", "https://api.openai.com"))
     default_model: str = field(default_factory=lambda: _setting("AM_DEFAULT_MODEL", "gpt-4o-mini"))
     default_style: str = field(default_factory=lambda: _setting_style("AM_DEFAULT_STYLE", DEFAULT_STYLE))
+    # full: model writes HTML. fast: model writes Markdown and the server renders it.
+    build_mode: str = field(default_factory=lambda: _setting_mode("AM_BUILD_MODE", DEFAULT_MODE))
 
     # Object store (S3-compatible). rustfs in compose.
     store_endpoint: str = field(default_factory=lambda: _setting("AM_STORE_ENDPOINT", ""))

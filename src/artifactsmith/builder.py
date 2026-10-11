@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from . import llm
+from .build_mode import ModeError, parse_build_mode
 from .config import CFG
 from .patch import (
     PATCH_SYSTEM_ADDENDUM,
@@ -825,12 +826,31 @@ async def run_build(
     render_timeout: int = 120,
     format: str = "html",
     style: str = DEFAULT_STYLE,
+    mode: str = "full",
 ) -> BuildResult:
     fmt = (format or "html").lower().strip()
     if fmt not in SUPPORTED_FORMATS:
         raise BuildError(f"unsupported format {fmt!r}")
+    try:
+        chosen_mode = parse_build_mode(mode)
+    except ModeError as exc:
+        raise BuildError(str(exc)) from exc
     _ = kind, slug  # reserved for future kinds / naming
     chosen = parse_style(style)
+    if chosen_mode == "fast" and fmt == "html" and base_source is None:
+        from .layout.build import run_fast_html
+
+        return await run_fast_html(
+            display_name=display_name,
+            verbatim=verbatim,
+            model=model,
+            base_version=base_version,
+            history=history,
+            progress=progress,
+            source=source,
+            render_timeout=render_timeout,
+            style=chosen,
+        )
     system = system_prompt_for(fmt, chosen)
     user = build_user_prompt(verbatim, display_name, base_source, base_version, history, source)
 

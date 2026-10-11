@@ -4,6 +4,7 @@ that the builder parses; this module never executes model output."""
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -20,6 +21,28 @@ _MODELS_WITHOUT_TEMPERATURE: set[str] = set()
 
 class LLMError(RuntimeError):
     pass
+
+
+# Reasoning effort is sent only when the model name is an o-series or gpt-5 model.
+# Other models omit the field. There is no probe request.
+_EFFORT_MODEL = re.compile(r"(?:^|[^A-Za-z0-9])(?:o[134]|gpt-5)(?:[^A-Za-z0-9]|$)")
+
+
+def supports_effort(model: str) -> bool:
+    """True when this model name accepts a reasoning-effort field."""
+    return bool(_EFFORT_MODEL.search(model))
+
+
+def apply_effort(payload: dict[str, object], model: str, effort: str | None) -> dict[str, object]:
+    """Copy ``payload`` with reasoning effort when ``model`` supports it."""
+    if not effort or not supports_effort(model):
+        return payload
+    updated = dict(payload)
+    if "messages" in updated:
+        updated["reasoning_effort"] = effort
+    else:
+        updated["reasoning"] = {"effort": effort}
+    return updated
 
 
 def _scrub_http_error(status: int, body: str) -> LLMError:
@@ -56,7 +79,7 @@ def _temperature_rejected(status: int, body: bytes, payload: dict[str, object]) 
     return "temperature" in body.decode("utf-8", errors="replace").lower()
 
 
-async def call_chat(model: str, system: str, user: str, timeout: float = 300) -> str:
+async def call_chat(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
     key = CFG.llm_key()
     headers = {"Content-Type": "application/json"}
     if key:
@@ -67,6 +90,7 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300) ->
     }
     if CFG.llm_send_temperature() and model not in _MODELS_WITHOUT_TEMPERATURE:
         payload["temperature"] = 0
+    payload = apply_effort(payload, model, effort)
     url = CFG.normalized_llm_base() + "/v1/chat/completions"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         status, body = await _post_chat(client, url, payload, headers)
@@ -87,15 +111,19 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300) ->
     return text
 
 
-async def call_responses(model: str, system: str, user: str, timeout: float = 300) -> str:
+async def call_responses(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
     key = CFG.llm_key()
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    payload = {
-        "model": model,
-        "input": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-    }
+    payload = apply_effort(
+        {
+            "model": model,
+            "input": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        },
+        model,
+        effort,
+    )
     url = CFG.normalized_llm_base() + "/v1/responses"
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as r:
@@ -114,7 +142,7 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
     return text
 
 
-async def call(model: str, system: str, user: str, timeout: float = 300) -> str:
+async def call(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
     if CFG.llm_api == "responses":
-        return await call_responses(model, system, user, timeout)
-    return await call_chat(model, system, user, timeout)
+        return await call_responses(model, system, user, timeout, effort=effort)
+    return await call_chat(model, system, user, timeout, effort=effort)

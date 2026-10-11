@@ -543,6 +543,20 @@ def test_create_rejects_unknown_style(svc):
         svc.create(p, slug="bad-style", display_name="Bad", kind="web_static", verbatim_request="x", style="neon")
 
 
+def test_create_records_mode(svc):
+    p = _principal()
+    created = svc.create(p, slug="fast-page", display_name="Fast", kind="web_static", verbatim_request="x", mode="fast")
+    assert created["mode"] == "fast"
+    row = svc.db.one("SELECT mode FROM versions WHERE artifact_id=?", created["artifact_id"])
+    assert row and row["mode"] == "fast"
+    other = svc.create(
+        p, slug="md-page", display_name="Md", kind="web_static", verbatim_request="x", format="markdown", mode="fast"
+    )
+    assert other["mode"] == "full"
+    with pytest.raises(AMError, match="mode"):
+        svc.create(p, slug="bad-mode", display_name="Bad", kind="web_static", verbatim_request="x", mode="turbo")
+
+
 @pytest.mark.asyncio
 async def test_style_persists_across_edit_and_shows_in_status_inspect(svc, monkeypatch):
     seen: list[str] = []

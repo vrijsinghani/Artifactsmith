@@ -147,6 +147,8 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 
 `create` and `edit` take an optional `style` for HTML: `house`, `bold`, `editorial`, `playful`, `terminal`, or `swiss`. The default is `AM_DEFAULT_STYLE` (usually `house`). Other formats accept `style` and ignore it. Omit `style` on `edit` to keep the last style.
 
+`create` also takes `mode`: `full` (default, `AM_BUILD_MODE`) has the model write HTML. `fast` has the model write Markdown and the server render that style. `fast` is a first HTML build only. Edits and other formats stay on the full path.
+
 - `house`: today's quiet page — white, one accent, boldness in one place.
 - `bold`: dark navy-to-violet hero, huge white headline, saturated cards and chips.
 
@@ -172,7 +174,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 
 | Tool | Permission | What it does |
 | ---- | ---------- | ------------ |
-| `create` | `create` | Queue a private build. Optional `format` and `style`. Does not create a share link. |
+| `create` | `create` | Queue a private build. Optional `format`, `style`, and `mode`. Does not create a share link. |
 | `publish` | `publish` | Store a finished page with no model call. Use this when you already have the finished page. |
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
 | `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
@@ -200,6 +202,7 @@ Optional:
 - `kind`: defaults to `web_static` (the only kind in this release).
 - `format`: `html` (default), `markdown`, `pdf`, `docx`, or `xlsx`.
 - `style`: `house` (default), `bold`, `editorial`, `playful`, `terminal`, or `swiss`. HTML only; ignored on other formats.
+- `mode`: `full` (default) or `fast`. `fast` is a first HTML build: Markdown in, styled HTML out.
 - `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
 - `model`, `workspace`, `idempotency_key`, `capabilities`.
 
@@ -309,6 +312,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_LLM_TEMPERATURE` | unset | Chat Completions temperature. Unset sends `0`; `none` omits the field. |
 | `AM_DEFAULT_MODEL` | `gpt-4o-mini` | Model name sent to the LLM. |
 | `AM_DEFAULT_STYLE` | `house` | HTML visual style when `create` omits `style`. |
+| `AM_BUILD_MODE` | `full` | `full` or `fast` when `create` omits `mode`. `fast` is first-build HTML only. |
 | `AM_SHARE_TTL_DAYS` | `30` | `0` means until revoked. |
 | `AM_SHARE_TTL_MAX_DAYS` | `365` | Cap on positive TTLs. |
 | `AM_STORE_ENDPOINT` | (required) | S3-compatible object store. |

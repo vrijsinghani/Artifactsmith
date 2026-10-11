@@ -25,3 +25,9 @@ Markdown link sanitization uses:
 4. linkify-it-py, from https://github.com/tsutsu3/linkify-it-py
    Copyright (c) 2020 tsutsu3. Licensed under the MIT License
    (copy in licenses/MIT-linkify-it-py.txt).
+
+Fast HTML builds parse Markdown containers, attributes, definition lists, and task lists with:
+
+5. mdit-py-plugins, from https://github.com/executablebooks/mdit-py-plugins
+   Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin (markdown-it container plugin).
+   Licensed under the MIT License (copy in licenses/MIT-mdit-py-plugins.txt).
