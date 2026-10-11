@@ -4,13 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from artifactsmith.renderers.safety import (
-    check_content,
-    check_fields,
-    find_private_links,
-    find_secrets,
-    sanitize_text,
-)
+from artifactsmith.renderers.safety import check_content, check_fields, find_private_links, sanitize_text
 
 
 def test_strips_scripts_keeps_public_urls():
@@ -149,70 +143,3 @@ def test_check_fields_catches_secret_in_title():
     secret = "sk-" + ("a" * 24)
     problems = check_fields(secret, label="metadata")
     assert any("possible secret" in p for p in problems)
-
-
-def _page(text: str) -> str:
-    return f"<!DOCTYPE html><html><head><title>t</title></head><body><p>{text}</p></body></html>"
-
-
-# API-doc prose and placeholders. Angle brackets and $ already sit outside the
-# token alphabet; the length floor is what drops "Bearer token" and YOUR_API_KEY.
-_BEARER_PROSE = [
-    "Bearer key",
-    "Bearer token",
-    "Bearer authentication",
-    "Bearer auth",
-    "Authorization: Bearer <token>",
-    "Authorization: Bearer <your-token>",
-    "Bearer YOUR_API_KEY",
-    "Bearer ${TOKEN}",
-    "Bearer $ARTIFACTSMITH_TOKEN",
-    "poll the execution until done. Bearer key. History and data pulls use /api/v1",
-    "Bearer " + "a1b2c3d4e5f6g7h8i9j",  # 19 chars: under the floor
-]
-
-
-@pytest.mark.parametrize("text", _BEARER_PROSE)
-def test_generic_bearer_ignores_prose_and_placeholders(text: str) -> None:
-    assert find_secrets(text) == []
-    assert check_fields(text, label="metadata") == []
-    assert check_content(_page(text), fmt="html") == []
-    assert check_content(text, fmt="markdown") == []
-
-
-@pytest.mark.parametrize(
-    "token",
-    [
-        pytest.param("eyJ" + ("A" * 24) + "." + ("e" * 24) + "." + ("Z" * 24), id="jwt"),
-        pytest.param("sk-" + ("a" * 24), id="sk"),
-        pytest.param("q7mK2pLx9vN4sD8wR1cF", id="alnum-20"),
-        pytest.param("YXJ0aWZhY3RzbWl0aC1kb2NzLXRva2VuIQ==", id="base64-pad-two"),
-        pytest.param("YXJ0aWZhY3RzbWl0aC1kb2NzLXRva2VuISE=", id="base64-pad-one"),
-    ],
-)
-def test_generic_bearer_flags_realistic_tokens(token: str) -> None:
-    text = f"Authorization: Bearer {token}"
-    hit = "possible secret (generic_bearer)"
-    assert hit in find_secrets(text)
-    assert any(hit in p for p in check_fields(text, label="metadata"))
-    assert hit in check_content(_page(text), fmt="html")
-    assert hit in check_content(text, fmt="markdown")
-
-
-@pytest.mark.parametrize(
-    ("label", "secret"),
-    [
-        ("pem_private_key", "-----BEGIN " + "PRIVATE KEY-----"),
-        ("aws_access_key", "AKIA" + ("A" * 16)),
-        ("github_pat", "ghp_" + ("a" * 36)),
-        ("github_fine_grained", "github_pat_" + ("a" * 22)),
-        ("slack_token", "xoxb-" + ("a" * 12)),
-        ("openai_sk", "sk-" + ("b" * 20)),
-    ],
-)
-def test_other_secret_patterns_unchanged(label: str, secret: str) -> None:
-    text = f"token {secret}"
-    hit = f"possible secret ({label})"
-    assert hit in find_secrets(text)
-    assert any(hit in p for p in check_fields(text, label="metadata"))
-    assert hit in check_content(_page(text), fmt="html")

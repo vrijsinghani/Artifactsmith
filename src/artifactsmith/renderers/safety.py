@@ -7,6 +7,7 @@ loopback hosts fail the build. Images, CSS, fonts, and iframes stay self-contain
 
 from __future__ import annotations
 
+import html
 import ipaddress
 import re
 import socket
@@ -32,10 +33,27 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("github_fine_grained", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("openai_sk", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
-    # 20+ token68 chars. Shorter words ("Bearer token", "YOUR_API_KEY") are prose.
-    # Trailing "=" is base64 padding; no \b after it ("=" / "+" / "/" are non-word).
-    ("generic_bearer", re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]{20,}={0,2}")),
 ]
+
+# generic_bearer is not a length floor: short hex and base64 are real tokens, and
+# long placeholders are prose. Match any token68 value after Bearer, then skip
+# plain words and placeholder shapes. Checked again on a normalized copy.
+_BEARER_RE = re.compile(r"\bbearer:?\s+[\"'`]?([A-Za-z0-9\-._~+/]+=*)", re.I)
+_BEARER_NOT_SECRET = re.compile(
+    r"""^(?:
+        [A-Za-z][a-z]*                     # key, token, Authentication
+      | KEY|TOKEN|TOKENS|AUTH|AUTHENTICATION|AUTHORIZATION|API|SECRET|HERE|YOUR
+      | MY|EXAMPLE|ACCESS|INSERT|REPLACE|PASTE
+      | (?=[a-z_-]*(?:your|my|api|key|token|here|example|access|secret|insert|replace|paste))
+        [a-z]+(?:[-_][a-z]+)+               # your-api-key-goes-here, access_token
+      | (?=[A-Z_]*(?:YOUR|MY|API|KEY|TOKEN|HERE|EXAMPLE|ACCESS|SECRET|INSERT|REPLACE|PASTE))
+        [A-Z]+(?:_[A-Z]+)+                  # YOUR_API_KEY, REPLACE_WITH_YOUR_TOKEN
+      | (.)\1{3,}                           # xxxxxxxx
+    )$""",
+    re.X,
+)
+# Soft hyphen, Mongolian vowel separator, zero-width / bidi marks, word joiners, BOM.
+_INVISIBLE = re.compile("[\u00ad\u180e\u200b-\u200f\u2060-\u2064\ufeff]")
 
 PRIVATE_HOST_NAMES = frozenset(
     {
@@ -108,11 +126,31 @@ def sanitize_text(text: str) -> str:
     return sanitize_markdown(strip_scripts(text))
 
 
+def _scan_text(text: str) -> str:
+    """Decode entities, NFKC-normalize, and drop invisible characters."""
+    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", html.unescape(text)))
+
+
+def _secret_views(text: str) -> tuple[str, ...]:
+    scan = _scan_text(text)
+    if scan == text:
+        return (text,)
+    return (text, scan)
+
+
+def _has_bearer_secret(text: str) -> bool:
+    # A trailing "." or "," ends the sentence ("Bearer key."), not the token.
+    return any(not _BEARER_NOT_SECRET.match(m.group(1).rstrip(".,")) for m in _BEARER_RE.finditer(text))
+
+
 def find_secrets(text: str) -> list[str]:
     hits: list[str] = []
+    views = _secret_views(text)
     for label, pat in SECRET_PATTERNS:
-        if pat.search(text):
+        if any(pat.search(part) for part in views):
             hits.append(f"possible secret ({label})")
+    if any(_has_bearer_secret(part) for part in views):
+        hits.append("possible secret (generic_bearer)")
     return hits
 
 
