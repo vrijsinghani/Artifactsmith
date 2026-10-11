@@ -355,7 +355,7 @@ print(1)
 ```
 
 ## The record
-The first paragraph of this section is long enough to sit beside another one on a desktop page.
+The first paragraph of this section is long enough to sit beside another one on a desktop page, and it stays real prose rather than a short label.
 
 The second paragraph keeps the line length comfortable and gives the section two columns.
 """
@@ -381,7 +381,8 @@ The second paragraph keeps the line length comfortable and gives the section two
     assert '<p class="drop">' in body
     assert 'class="cap"' not in body
     quote = body.split("asl-quote pull", 1)[1].split("</blockquote>", 1)[0]
-    assert "rebate below is owed" in quote
+    assert "real prose rather than a short label" in quote
+    assert "rebate below is owed" not in quote
     assert "Hold the payout." not in quote
     assert 'class="sec"' in editorial
     assert "01" in editorial and "02" in editorial
@@ -420,7 +421,7 @@ def test_editorial_drop_cap_floats_only_the_first_letter():
 For July the verdict sits in this callout and must not take a drop cap on the letter F.
 :::
 
-The body opens with a long line and a **bold rebate** phrase that stays in the same paragraph.
+The body opens with a long line and a **bold rebate** phrase that stays inside the same paragraph so the letter floats beside the words.
 """
     html, notes = render_layout(source, style="editorial", title="Rebate")
     assert notes == []
@@ -432,9 +433,36 @@ The body opens with a long line and a **bold rebate** phrase that stays in the s
     assert "cap" not in para
     sheet = html.split("<style>", 1)[1].split("</style>", 1)[0]
     assert sheet.count("float:") == 1
-    assert "display:grid" not in sheet.split("p.drop", 1)[1].split("}", 1)[0]
+    assert "display:flow-root" in sheet
+    assert "display:grid" not in sheet.split("p.drop{", 1)[1].split("}", 1)[0]
     doc = sanitize_html_document(html)
-    assert doc.replace(" ", "").count("float:") == 1
+    compact = doc.replace(" ", "")
+    assert compact.count("float:") == 1
+    assert "display:flow-root" in compact
+
+    short = """# Rebate
+
+## Facts
+Account value $62,832. Available funds (not cash) $30,193.
+
+## Notes
+Prices as of 2:44 PM ET.
+
+## Later
+The third section holds a long prose paragraph that must not take a drop cap once the opening sections had none at all, and the sentence keeps going so length alone would have qualified it.
+"""
+    html, notes = render_layout(short, style="editorial", title="Rebate")
+    assert notes == []
+    assert '<p class="drop">' not in html.split("<body>", 1)[1]
+
+    labeled = """# Rebate
+
+## Facts
+Source: transcript dated 2026-10-09 and the rest of this note is long enough that length alone would qualify it for a drop cap on the page.
+"""
+    html, notes = render_layout(labeled, style="editorial", title="Rebate")
+    assert notes == []
+    assert '<p class="drop">' not in html.split("<body>", 1)[1]
 
 
 def test_pull_quote_is_a_sentence():
@@ -444,10 +472,7 @@ The window runs **July 1 to September 30, 2026** and the rebate is owed on paid 
 """
     html, notes = render_layout(dated, style="editorial", title="Brief")
     assert notes == []
-    quote = re.sub("<[^>]+>", "", html.split("asl-quote pull", 1)[1].split("</blockquote>", 1)[0])
-    assert quote.strip() != "July 1 to September 30, 2026"
-    assert "rebate is owed" in quote
-    assert len(quote.split()) >= 8
+    assert "asl-quote pull" not in html
 
     numbered = """# Brief
 
@@ -467,15 +492,22 @@ The window runs **July 1 to September 30, 2026** and the rebate is owed on paid 
 
     quoted = """# Brief
 
+::: note
+Hold the payout. The rebate below is owed on paid invoices only and the date is July 1 to September 30, 2026.
+:::
+
+## Record
 > July 1 to September 30, 2026
 
-The rebate is owed on paid invoices across the whole quarter and nothing else is due.
+The rebate stays on paid invoices across the whole quarter and nothing else is due.
 """
     html, notes = render_layout(quoted, style="editorial", title="Brief")
     assert notes == []
     quote = re.sub("<[^>]+>", "", html.split('class="asl-quote pull"', 1)[1].split("</blockquote>", 1)[0])
     assert "September 30" not in quote
-    assert "rebate is owed" in quote
+    assert "Hold the payout" not in quote
+    assert "rebate stays on paid invoices" in quote
+    assert len(quote.split()) >= 8
 
 
 def test_bold_risk_cards_fit_real_items():
@@ -558,7 +590,7 @@ def test_auto_bar_chart_follows_a_short_number_table():
 
     wide = """# Bills
 
-| Service | Billed | Tax |
+| Service | Billed | Revenue |
 |---|---|---|
 | One | $1 | $1 |
 | Two | $2 | $1 |
@@ -582,6 +614,30 @@ def test_auto_bar_chart_follows_a_short_number_table():
     for headers, rows in skipped:
         assert 'class="asl-chart"' not in _page(headers, rows)
         assert "1,998" not in _page(headers, rows)
+
+    mixed_rows = [["Invoices", "136"], ["Members", "28"], ["Months", "3"], ["Rebate rate", "15"]]
+    for headers in (
+        ["Metric", "Value"],
+        ["KPI", "Value"],
+        ["Stat", "Total"],
+        ["Fact", "Figure"],
+        ["Detail", "Count"],
+        ["Summary", "Amount"],
+        ["Category", "Value"],
+    ):
+        assert 'class="asl-chart"' not in _page(headers, mixed_rows)
+
+    billing = _page(
+        ["Month", "Invoices", "Billed", "Rebate (15%)"],
+        [
+            ["July", "45", "$38,185", "$5,727.75"],
+            ["August", "43", "$28,935", "$4,340.25"],
+            ["September", "48", "$35,941", "$5,391.15"],
+        ],
+    )
+    assert billing.count('class="asl-chart"') == 1
+    label = billing.split('aria-label="', 1)[1].split('"', 1)[0]
+    assert "July" in label and "$38,185" in label and "45" not in label
 
     revenue = _page(
         ["Region", "Revenue"],

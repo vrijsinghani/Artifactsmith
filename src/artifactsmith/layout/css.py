@@ -314,6 +314,7 @@ _EXTRAS: dict[str, str] = {
 .asl-quote{font-size:1.6rem;font-style:italic;margin-left:0}
 .asl-table th{background:transparent;border-bottom:1px solid var(--ink)}
 .asl-code{background:transparent;border:1px solid var(--line)}
+p.drop{display:flow-root}
 p.drop::first-letter{float:left;font-size:3.1rem;line-height:.8;padding-right:.35rem;color:var(--accent);font-weight:500}
 .sec{color:var(--accent);margin-right:.45rem;letter-spacing:.08em;font-variant:small-caps}
 .asl-quote.pull{font-size:1.65rem;margin:1.1rem 0 1.3rem}

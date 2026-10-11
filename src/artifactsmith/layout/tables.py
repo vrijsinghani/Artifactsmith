@@ -283,15 +283,21 @@ _QUANTITY_HEADER = re.compile(
     r"rates?|taxes|tax|profits?|margins?|percents?|pct|figures?|values?|sums?",
     re.I,
 )
+# Row labels that name a measure. Two or more means a key-value fact table.
+_METRIC_LABEL = re.compile(
+    _QUANTITY_HEADER.pattern + r"|months?|days?|weeks?|years?|people|users?|rate|ratio|average|median|count of",
+    re.I,
+)
+_PRIMARY_MONEY = re.compile(r"billed|revenue|sales|totals?|amounts?|spend|costs?|paid|balance", re.I)
 
 
 def auto_bar_chart(block: Block) -> Block | None:
     """A bar chart for one measured amount column, 3 to 12 data rows.
 
-    A 2-column table uses the second column. A wider table is charted only when
-    exactly one column is a currency, percent, count, or amount. Years, IDs,
-    ranks, and key-value fact tables are left as tables. The caller skips this
-    when the page already has a chart.
+    A 2-column table uses the second column. A wider table with several amount
+    columns charts the one primary money column (billed, revenue, total, and so
+    on). Years, IDs, ranks, and key-value fact tables are left as tables. The
+    caller skips this when the page already has a chart.
     """
     headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
     data = rows[:-1] if rows and _is_total_row(rows[-1]) else list(rows)
@@ -304,14 +310,9 @@ def auto_bar_chart(block: Block) -> Block | None:
     if columns is None:
         return None
     amounts = [index for index, column in enumerate(columns) if _amount_series(column) is not None]
-    if width == 2:
-        if amounts != [1]:
-            return None
-        amount_at = 1
-    elif len(amounts) != 1:
+    amount_at = _amount_column(columns, amounts, width)
+    if amount_at is None:
         return None
-    else:
-        amount_at = amounts[0]
     label_at = _label_index(columns, amount_at)
     if label_at is None or _FACT_LABEL.fullmatch(columns[label_at][0].strip()):
         return None
@@ -320,10 +321,34 @@ def auto_bar_chart(block: Block) -> Block | None:
         return None
     values, unit = series
     labels = [cell.strip()[:80] for cell in columns[label_at][1]]
-    if any(not label for label in labels):
+    if any(not label for label in labels) or _mixed_measures(labels):
         return None
     kind = "hbar" if len(labels) > 6 else "bar"
     return Block(kind="chart", plain=kind, html=unit, labels=tuple(labels), numbers=tuple(values))
+
+
+def _amount_column(columns: list[tuple[str, list[str]]], amounts: list[int], width: int) -> int | None:
+    """The one amount column, or the single primary money column when several qualify."""
+    if len(amounts) == 1:
+        chosen = amounts[0]
+        if width == 2 and chosen != 1:
+            return None
+        return chosen
+    primary = [
+        index
+        for index in amounts
+        if (series := _amount_series(columns[index])) is not None
+        and series[1] in "$€£¥"
+        and _PRIMARY_MONEY.search(columns[index][0])
+    ]
+    if len(primary) == 1:
+        return primary[0]
+    return None
+
+
+def _mixed_measures(labels: list[str]) -> bool:
+    """True when the row labels name different measures, as in a fact table."""
+    return sum(1 for label in labels if _METRIC_LABEL.search(label)) >= 2
 
 
 def _plain_columns(headers: list[Cell], rows: list[list[Cell]], width: int) -> list[tuple[str, list[str]]] | None:

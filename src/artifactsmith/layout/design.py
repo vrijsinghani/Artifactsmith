@@ -133,15 +133,27 @@ def _risk_title(item: Block) -> None:
         return
 
 
+_DROP_MIN = 120
+_LABEL_LINE = re.compile(r"^[A-Za-z][^:\n]{0,40}:\s")
+
+
 def _apply_drop(lead: list[Block], sections: list[list[Block]]) -> None:
-    """First body paragraph only. Heroes and callouts keep their own treatment."""
-    for block in _body_paragraphs(lead, sections):
-        if len(block.plain) >= 40:
+    """Opening prose only: a long paragraph in the lead or the first two sections."""
+    pools = [lead, *sections[:2]]
+    for block in _body_paragraphs(pools):
+        if _opening_prose(block):
             _add_class(block, "drop")
             return
 
 
-def _body_paragraphs(lead: list[Block], sections: list[list[Block]]) -> list[Block]:
+def _opening_prose(block: Block) -> bool:
+    text = block.plain.strip()
+    if len(text) < _DROP_MIN or not text[0].isalpha():
+        return False
+    return _LABEL_LINE.match(text) is None
+
+
+def _body_paragraphs(pools: list[list[Block]]) -> list[Block]:
     found: list[Block] = []
 
     def visit(nodes: list[Block]) -> None:
@@ -153,29 +165,55 @@ def _body_paragraphs(lead: list[Block], sections: list[list[Block]]) -> list[Blo
             elif block.kind in {"grid", "flow", "compare"}:
                 visit(block.children)
 
-    visit(lead)
-    for section in sections:
-        visit(section)
+    for pool in pools:
+        visit(pool)
     return found
 
 
 def _mark_pull(lead: list[Block], sections: list[list[Block]]) -> bool:
-    """Use a written ``>`` quote when it is a real sentence."""
-    for block in _walk(lead, sections):
-        if block.kind == "quote" and _is_pull_sentence(_block_plain(block)):
+    """Use a section ``>`` quote when it is a sentence the opening did not already say."""
+    opening = _opening_text(lead)
+    for block in _walk([], sections):
+        text = _block_plain(block)
+        if block.kind == "quote" and _is_pull_sentence(text) and not _reuses_opening(text, opening):
             _add_class(block, "pull")
             return True
     return False
 
 
 def _find_pull(lead: list[Block], sections: list[list[Block]]) -> str:
-    for block in _walk(lead, sections):
+    opening = _opening_text(lead)
+    for block in _walk([], sections):
         if block.kind == "quote":
             continue
         text = _pull_text(block.html, block.plain)
-        if text:
+        if text and not _reuses_opening(text, opening):
             return text
     return ""
+
+
+def _opening_text(lead: list[Block]) -> str:
+    """Hero, verdict, and note text. A pull quote must not repeat it."""
+    parts: list[str] = []
+
+    def visit(nodes: list[Block], *, inside: bool) -> None:
+        for block in nodes:
+            now = inside or block.kind in {"hero", "callout", "band"}
+            if now and block.kind not in {"band", "callout"} and block.plain.strip():
+                parts.append(block.plain.strip())
+            if now:
+                visit(block.children, inside=True)
+
+    visit(lead, inside=False)
+    return " ".join(parts)
+
+
+def _reuses_opening(sentence: str, opening: str) -> bool:
+    if not opening:
+        return False
+    needle = re.sub(r"\s+", " ", sentence).strip().casefold().rstrip(".!?")
+    folded = re.sub(r"\s+", " ", opening).casefold()
+    return bool(needle) and needle in folded
 
 
 def _pull_text(html: str, plain: str) -> str:
