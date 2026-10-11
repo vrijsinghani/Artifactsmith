@@ -7,7 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
-- OpenAI secret checks flag `sk-proj-`, `sk-svcacct-`, and `sk-admin-` keys (bodies may include `_` and `-`) and still ignore short prose such as `sk-learn`.
+- OpenAI secret checks flag classic `sk-` keys and hyphenated `sk-proj-`, `sk-svcacct-`, and `sk-admin-` keys that contain a digit, and still ignore hyphenated prose such as `sk-learn` and `sk-your-openai-api-key-goes-here`.
 - Bearer secret checks skip prose and placeholder shapes (`Bearer token`, `YOUR_API_KEY`, `your-api-key-goes-here`) instead of a character-length floor, and still flag short hex, base62, and padded base64. Secret scans also check a copy with HTML entities decoded and invisible characters removed.
 - Single-file HTML (and clearly Markdown) builds recover when the model omits `===FILE: …===` but still emits a complete document. The recovered body still runs through the same sanitizer, checkers, and secret scan.
 - PDF and DOCX render inline Markdown emphasis (bold, italic, inline code) instead of raw `**` markers.

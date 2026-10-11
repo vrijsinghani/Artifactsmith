@@ -32,9 +32,24 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{36,}\b")),
     ("github_fine_grained", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
-    # Optional proj/svcacct/admin prefix. Bodies may include "_" and "-".
-    # The 20-character floor keeps short prose ("sk-learn") from matching.
-    ("openai_sk", re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b")),
+    # Classic sk- keys: 20+ alphanumerics (unchanged). Hyphen/underscore bodies
+    # (sk-proj-, sk-svcacct-, sk-admin-, other sk-xxx- keys) must also look random:
+    # a digit for the three OpenAI prefixes, a digit plus upper and lower case
+    # otherwise. Hyphenated prose stays clean. Lookaheads are bounded to 80 chars:
+    # an unbounded version was quadratic on 'sk-sk-sk-...' input.
+    # Known residual: "sk-proj-" + "2026-roadmap-final-draft" stays flagged (prefix plus a digit).
+    (
+        "openai_sk",
+        re.compile(
+            r"""\bsk-(?:
+                [A-Za-z0-9]{20,}\b
+              | (?:proj|svcacct|admin)-(?=[A-Za-z0-9_-]{0,80}[0-9])[A-Za-z0-9_-]{20,}\b
+              | (?=[A-Za-z0-9_-]{0,80}[0-9])(?=[A-Za-z0-9_-]{0,80}[A-Z])(?=[A-Za-z0-9_-]{0,80}[a-z])
+                [A-Za-z0-9_-]{20,}\b
+            )""",
+            re.X,
+        ),
+    ),
 ]
 
 # generic_bearer is not a length floor: short hex and base64 are real tokens, and

@@ -8,6 +8,9 @@ under the 20-character floor.
 from __future__ import annotations
 
 import re
+import subprocess
+import time
+from pathlib import Path
 
 import pytest
 
@@ -102,3 +105,74 @@ def test_key_split_by_zero_width_flagged(sep: str) -> None:
 )
 def test_prose_and_placeholders_not_flagged(text: str) -> None:
     _assert_clean(text)
+
+
+# Known residual: "sk-proj-" + "2026-roadmap-final-draft" stays flagged (prefix plus a digit).
+# Acceptable. Hyphenated prose without that shape must stay clean.
+_B1_PROSE = [
+    "sk-learn-compatible-estimator-interface",
+    "the sk-learn-style-fit-predict-transform API",
+    "use sk-learn-based-classification-models",
+    "high-risk-sk-learn-pipeline-components",
+    "a kiosk-sk-learn-demo-for-the-trade-show",
+    "https://example.com/blog/sk-learn-pipeline-tutorial-guide",
+    "sk-learn_pipeline_final_version_v2",
+    "sk-proj-management-best-practices-guide",
+    "sk-admin-dashboard-and-settings-page",
+    "sk-svcacct-rotation-policy-overview",
+    "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "sk-your-openai-api-key-goes-here",
+    "risk-free-trial-period-for-everyone",
+]
+
+
+@pytest.mark.parametrize("text", _B1_PROSE)
+def test_hyphenated_prose_and_placeholders_not_flagged(text: str) -> None:
+    _assert_clean(text)
+
+
+def test_prefix_plus_digit_roadmap_still_flagged() -> None:
+    _assert_flagged("sk-proj-" + "2026-roadmap-final-draft")
+
+
+_MIXED = "aB3cDeFgHiJkLmNoPqRsTuVw"
+
+
+def test_embedded_proj_key_flagged() -> None:
+    _assert_flagged("foo-sk-proj-" + _MIXED)
+
+
+def test_proj_key_with_trailing_hyphen_flagged() -> None:
+    _assert_flagged("sk-proj-" + _MIXED + "-")
+
+
+def test_zero_width_between_sk_and_proj_flagged() -> None:
+    raw = "sk-\u200bproj-" + _MIXED
+    assert _openai_pattern().search(raw) is None
+    _assert_flagged(raw)
+
+
+def test_repeated_sk_prefix_stays_fast() -> None:
+    started = time.perf_counter()
+    assert find_secrets("sk-" * 666_000) == []
+    assert time.perf_counter() - started < 2.0
+
+
+def _denylist_secret_re() -> str:
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "denylist.sh").read_text(encoding="utf-8")
+    match = re.search(r"^SECRET_RE='([^']*)'", script, re.M)
+    assert match is not None
+    return match.group(1)
+
+
+def test_denylist_ignores_risk_free_trial_phrase(tmp_path: Path) -> None:
+    sample = tmp_path / "sample.txt"
+    sample.write_text("risk-free-trial-period-for-everyone\n", encoding="utf-8")
+    result = subprocess.run(
+        ["grep", "-E", "-n", _denylist_secret_re(), str(sample)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
