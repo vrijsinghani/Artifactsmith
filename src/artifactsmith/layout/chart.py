@@ -93,7 +93,12 @@ def parse_chart(info: str, content: str) -> tuple[str, str, list[str], list[tupl
 
 def _fmt(value: float, unit: str) -> str:
     if value == int(value) and abs(value) < 1e15:
-        shown = f"{int(value):,}"
+        number = int(value)
+        # A bare year is not a thousands-grouped quantity ("1998", never "1,998").
+        if unit == "" and 1900 <= number <= 2100:
+            shown = str(number)
+        else:
+            shown = f"{number:,}"
     else:
         shown = f"{value:,.2f}"
     if unit in {"$", "€", "£", "¥"}:

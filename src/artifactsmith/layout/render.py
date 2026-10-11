@@ -319,8 +319,7 @@ def _hero(block: Block, ctx: _Ctx) -> str:
     inner = block.html
     if ctx.style == "terminal":
         inner = f'<span class="prompt">$</span> {inner}'
-    drop = ' class="drop"' if "drop" in block.classes else ""
-    return f'<div class="{" ".join(names)}"><p{drop}>{inner}</p></div>'
+    return f'<div class="{" ".join(names)}"><p>{inner}</p></div>'
 
 
 def _is_item_list(block: Block) -> bool:

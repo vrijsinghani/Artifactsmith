@@ -29,7 +29,7 @@ _STYLE_PROPS: set[str] = set(
     break-inside caption-side color color-scheme
     column-count column-gap columns content counter-increment counter-reset cursor
     display filter backdrop-filter flex flex-basis flex-direction flex-flow flex-grow flex-shrink
-    flex-wrap font font-family font-feature-settings font-size font-style font-variant
+    flex-wrap float font font-family font-feature-settings font-size font-style font-variant
     font-variant-numeric font-weight gap grid-area grid-auto-flow grid-column grid-row
     grid-template-areas grid-template-columns grid-template-rows height hyphens inset
     inset-inline justify-content justify-items justify-self left letter-spacing

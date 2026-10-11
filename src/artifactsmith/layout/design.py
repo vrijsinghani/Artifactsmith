@@ -8,7 +8,30 @@ from .inline import esc
 from .model import Block
 
 _RISK_HEAD = re.compile(r"\b(risks?|issues?|concerns?|watch-?outs?)\b", re.I)
+_RISK_MAX = 320
 _STRONG = re.compile(r"<strong>([^<]*)</strong>")
+_LEAD = re.compile(r"^(\s*)<strong>([^<]*)</strong>:?\s*")
+_MONTH = (
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+_DATE = re.compile(
+    rf"^(?:{_MONTH}\.?\s+\d{{1,2}}(?:,\s*\d{{4}})?|\d{{4}}|q[1-4]\s+\d{{4}}|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}})"
+    rf"(?:\s*(?:to|through|–|—|-)\s*(?:{_MONTH}\.?\s+)?\d{{1,2}}(?:,\s*\d{{4}})?)?$",
+    re.I,
+)
+_VERB = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|has|have|had|do|does|did|will|can|could|should|would|"
+    r"may|might|must|need|needs|owe|owes|owed|hold|holds|held|keep|keeps|make|makes|made|"
+    r"pay|pays|paid|show|shows|include|includes|cover|covers|approve|approves|approved|"
+    r"slip|slips|remain|remains|reach|reaches|fall|falls|rise|rises|leave|leaves|take|takes|"
+    r"come|comes|say|says|said|call|calls|give|gives|start|starts|expect|expects|expected|"
+    r"estimate|estimates|estimated|recommend|recommends|decide|decides|decided|require|requires|"
+    r"bill|billed|grow|grows|stay|stays|turn|turns|lead|leads|want|wants|use|uses|used|work|works|"
+    r"run|runs|look|looks|find|finds|found|open|opens|close|closes|end|ends|stop|stops|see|sees|"
+    r"get|gets|go|goes|sold)\b",
+    re.I,
+)
 
 
 def design_page(style: str, lead: list[Block], sections: list[list[Block]]) -> tuple[list[Block], list[list[Block]]]:
@@ -73,12 +96,13 @@ def _mark_risks(sections: list[list[Block]]) -> list[list[Block]]:
             items = _items(block)
             if items is None or not 2 <= len(items) <= 8:
                 continue
-            if any(not item.plain.strip() or len(item.plain) > 160 for item in items):
+            if any(not item.plain.strip() or len(item.plain) > _RISK_MAX for item in items):
                 continue
             target = block.children[0] if _wrapped_list(block) else block
             _add_class(target, "risks")
             for index, item in enumerate(items):
                 _add_class(item, f"tone-{_risk_tone(item.plain, index)}")
+                _risk_title(item)
             break
     return sections
 
@@ -94,40 +118,51 @@ def _risk_tone(text: str, index: int) -> str:
     return ("red", "amber", "blue", "green")[index % 4]
 
 
-def _apply_drop(lead: list[Block], sections: list[list[Block]]) -> None:
-    _apply_drop_nodes(lead) or any(_apply_drop_nodes(section) for section in sections)
-
-
-def _apply_drop_nodes(nodes: list[Block]) -> bool:
-    for block in nodes:
-        if block.kind in {"paragraph", "hero"} and len(block.plain) >= 40:
-            updated = _with_drop(block.html)
-            if updated != block.html:
-                block.html = updated
-                _add_class(block, "drop")
-                return True
-        if block.kind in {"table", "chart", "code", "stat"}:
+def _risk_title(item: Block) -> None:
+    """The bold lead phrase is the card title. The rest of the item stays body copy."""
+    nodes = [child for child in item.children if child.kind == "paragraph"] or [item]
+    for node in nodes:
+        match = _LEAD.match(node.html)
+        if match is None:
             continue
-        if block.children and _apply_drop_nodes(block.children):
-            return True
-    return False
+        title = match.group(2).strip().rstrip(":").strip()
+        if not title:
+            continue
+        node.html = f'{match.group(1)}<strong class="risk-title">{title}</strong>{node.html[match.end() :]}'
+        item.html = node.html
+        return
 
 
-def _with_drop(html: str) -> str:
-    if not html:
-        return html
-    if html[0].isalpha() or html[0].isdigit():
-        return f'<span class="cap">{html[0]}</span>{html[1:]}'
-    match = re.match(r"^(<(?:strong|em|b)>)([A-Za-z0-9])", html)
-    if match is None:
-        return html
-    return f'{match.group(1)}<span class="cap">{match.group(2)}</span>{html[match.end() :]}'
+def _apply_drop(lead: list[Block], sections: list[list[Block]]) -> None:
+    """First body paragraph only. Heroes and callouts keep their own treatment."""
+    for block in _body_paragraphs(lead, sections):
+        if len(block.plain) >= 40:
+            _add_class(block, "drop")
+            return
+
+
+def _body_paragraphs(lead: list[Block], sections: list[list[Block]]) -> list[Block]:
+    found: list[Block] = []
+
+    def visit(nodes: list[Block]) -> None:
+        for block in nodes:
+            if block.kind in {"hero", "callout", "band", "quote"}:
+                continue
+            if block.kind == "paragraph":
+                found.append(block)
+            elif block.kind in {"grid", "flow", "compare"}:
+                visit(block.children)
+
+    visit(lead)
+    for section in sections:
+        visit(section)
+    return found
 
 
 def _mark_pull(lead: list[Block], sections: list[list[Block]]) -> bool:
-    """Use a written ``>`` quote or ``::: quote`` as the pull quote."""
+    """Use a written ``>`` quote when it is a real sentence."""
     for block in _walk(lead, sections):
-        if block.kind == "quote":
+        if block.kind == "quote" and _is_pull_sentence(_block_plain(block)):
             _add_class(block, "pull")
             return True
     return False
@@ -146,20 +181,47 @@ def _find_pull(lead: list[Block], sections: list[list[Block]]) -> str:
 def _pull_text(html: str, plain: str) -> str:
     strongs = [re.sub(r"<[^>]+>", "", str(part)).strip() for part in _STRONG.findall(html)]
     strongs = [part for part in strongs if part]
-    if not strongs:
-        return ""
+    sentences = _sentences(plain)
     for text in strongs:
-        if text[-1:] in ".!?" and 12 <= len(text) <= 220:
+        if _is_pull_sentence(text):
             return text
-    for text in strongs:
-        if 12 <= len(text) <= 80:
-            return text
-    # Split on sentence ends, not on decimal points inside "$15,459.15".
-    for sentence in re.split(r"(?<=[.!?])\s+", plain.strip()):
-        sentence = sentence.strip()
-        if 20 <= len(sentence) <= 220 and any(part in sentence for part in strongs):
+    for sentence in sentences:
+        if any(part in sentence for part in strongs) and _is_pull_sentence(sentence):
+            return sentence
+    for sentence in sentences:
+        if _is_pull_sentence(sentence):
             return sentence
     return ""
+
+
+def _sentences(plain: str) -> list[str]:
+    # Split on sentence ends, not on decimal points inside "$15,459.15".
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", plain.strip()) if part.strip()]
+
+
+def _is_pull_sentence(text: str) -> bool:
+    """A pull quote is a sentence with a verb and at least eight words."""
+    cleaned = text.strip()
+    if not cleaned or _date_or_number(cleaned):
+        return False
+    words = cleaned.split()
+    if len(words) < 8 or len(cleaned) > 220:
+        return False
+    return _VERB.search(cleaned) is not None
+
+
+def _date_or_number(text: str) -> bool:
+    cleaned = text.strip().rstrip(".!?")
+    if _DATE.fullmatch(cleaned):
+        return True
+    letters = re.findall(r"[A-Za-z]{2,}", cleaned)
+    return not letters and bool(re.search(r"\d", cleaned))
+
+
+def _block_plain(block: Block) -> str:
+    if block.plain.strip():
+        return block.plain.strip()
+    return " ".join(child.plain for child in block.children).strip()
 
 
 def _insert_pull(lead: list[Block], text: str) -> list[Block]:

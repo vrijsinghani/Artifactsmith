@@ -273,13 +273,12 @@ _EXTRAS: dict[str, str] = {
     "bold": """
 .asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem}
 .asl-hero{background:#1d4ed8;color:#fff;border-left:0;border-radius:12px}
-.asl-hero p,.asl-hero a{color:#fff}
+.asl-hero a{color:#fff}
 .asl-title h1{font-size:2.7rem;color:#fff}
 .asl-title .dek,.asl-title a{color:#e0e7ff}
 .asl-badge{border-radius:999px;background:#fff;color:#1a1230}
 .asl-stat{background:#1d4ed8;color:#fff;border-radius:14px}
 .asl-stat .label,.asl-stat .note{color:#f8fafc}
-.asl-stat .value{color:#fff}
 .asl-stat.tone-green{background:#047857}
 .asl-stat.tone-amber{background:#b45309}
 .asl-stat.tone-violet,.asl-stat.tone-accent{background:#6d28d9}
@@ -289,19 +288,20 @@ _EXTRAS: dict[str, str] = {
 .asl-callout.warn{background:#b45309}
 .asl-callout.success{background:#047857}
 .asl-callout.danger{background:#b42318}
-.asl-callout-label{color:#fff}
 .asl-table th{background:#1e1b4b;color:#fff}
 .asl-code{background:#1e1b4b;color:#e0e7ff;border-radius:12px}
+.asl-code .lang{color:#c4b5fd}
 .asl-hero-band{background:#1b1464;color:#fff;border-radius:16px;padding:1rem;margin:0 0 1.2rem}
 .asl-hero-band .asl-hero,.asl-hero-band .asl-callout{background:none;color:#fff;border:0;margin:0 0 .75rem;padding:0}
 .asl-hero-band p,.asl-hero-band a{color:#fff}
 .asl-risks{list-style:none;padding:0;display:grid;gap:.65rem}
 .asl-risks li{margin:0;padding:.7rem .85rem;border-radius:12px;color:#fff}
+.asl-risks .risk-title{display:block;margin:0 0 .2rem}
 .asl-risks .tone-red{background:#b42318}.asl-risks .tone-amber{background:#b45309}.asl-risks .tone-green{background:#047857}.asl-risks .tone-blue{background:#1d4ed8}
 .panel .dots{display:flex;gap:.3rem;margin:0 0 .5rem}
 .panel .dots span{width:.5rem;height:.5rem;border-radius:9px;background:#c4b5fd;display:inline-block}
 .asl-quote{background:#5b2dbe;color:#fff;padding:1rem 1.2rem;border-radius:12px}
-.asl-section.variant-card{background:#fff;border-radius:14px;padding:1rem}
+.asl-section.variant-card{background:#fff;padding:1rem}
 """,
     "editorial": """
 .asl-title h1{font-size:3rem;font-weight:500;letter-spacing:-0.02em}
@@ -314,8 +314,7 @@ _EXTRAS: dict[str, str] = {
 .asl-quote{font-size:1.6rem;font-style:italic;margin-left:0}
 .asl-table th{background:transparent;border-bottom:1px solid var(--ink)}
 .asl-code{background:transparent;border:1px solid var(--line)}
-p.drop{display:grid;grid-template-columns:auto 1fr;column-gap:.5rem;align-items:start}
-p.drop .cap{font-size:3.1rem;line-height:.78;color:var(--accent);font-weight:500;font-style:normal}
+p.drop::first-letter{float:left;font-size:3.1rem;line-height:.8;padding-right:.35rem;color:var(--accent);font-weight:500}
 .sec{color:var(--accent);margin-right:.45rem;letter-spacing:.08em;font-variant:small-caps}
 .asl-quote.pull{font-size:1.65rem;margin:1.1rem 0 1.3rem}
 """,
