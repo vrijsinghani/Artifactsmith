@@ -196,6 +196,12 @@ class XlsxRenderer:
     model_filename = "content.md"
 
     def render(self, *, title: str, body: str) -> RenderOutput:
+        from .md_parser import parser_for_file
+
+        with parser_for_file():
+            return self._render_workbook(title=title, body=body)
+
+    def _render_workbook(self, *, title: str, body: str) -> RenderOutput:
         from openpyxl import Workbook
 
         wb = Workbook()

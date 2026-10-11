@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from markdown_it.token import Token
 
 from .links import public_href_or_none
+from .md_parser import linkify_parser
 from .safety import URL_RE
 
 
@@ -181,11 +182,7 @@ def iter_styled_spans(text: str, *, inline: bool = False) -> list[InlineSpan]:
     """
     if not text:
         return []
-    from markdown_it import MarkdownIt
-
-    md = MarkdownIt("commonmark", {"linkify": True})
-    md.enable("linkify")
-    md.validateLink = lambda _url: True  # type: ignore[assignment]
+    md = linkify_parser()
     tokens = md.parseInline(text) if inline else md.parse(text)
     parts: list[InlineSpan] = []
 

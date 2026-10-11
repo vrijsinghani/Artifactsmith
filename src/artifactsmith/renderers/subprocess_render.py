@@ -1,4 +1,16 @@
-"""Run a renderer in a killable child process with output-size and memory limits."""
+"""Killable child for native renderers. HTML and Markdown run in-process.
+
+The child exists so a deadline can ``proc.kill`` the job, ``RLIMIT_AS`` applies
+only to that job, and a native crash cannot take down the server. It is not a
+sandbox (same user, no seccomp). Untrusted text is sanitized before render.
+
+HTML and Markdown only encode a string already capped by ``check_content``.
+They cannot abort the interpreter, so they skip the process. PDF (WeasyPrint /
+Cairo), DOCX, and XLSX (lxml) stay in a fresh ``spawn`` child. A long-lived
+worker would keep that address space and library caches across jobs, and
+killing a hung job discards the warm process. ``fork`` is unsafe once the
+server has other threads.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +19,9 @@ import resource
 from typing import Any
 
 from .base import RenderOutput
+
+# Pure encoders of already-capped text. No native layout library.
+IN_PROCESS_FORMATS = frozenset({"html", "markdown"})
 
 # Soft address-space cap for the render child (bytes). Overridable in tests.
 DEFAULT_AS_LIMIT = 512 * 1024 * 1024
@@ -21,7 +36,7 @@ class RenderTimeout(Exception):
 
 
 class RenderTooLarge(Exception):
-    """Raised when rendered bytes exceed the configured cap (checked in-child)."""
+    """Raised when rendered bytes exceed the configured cap."""
 
     def __init__(self, size: int, limit: int) -> None:
         self.size = size
@@ -115,3 +130,44 @@ def render_killable(
     if kind == "too_large":
         raise RenderTooLarge(msg[1], msg[2])
     raise RuntimeError(msg[1])
+
+
+def render_inprocess(*, fmt: str, title: str, body: str, max_bytes: int) -> RenderOutput:
+    """Render on this interpreter and enforce the output byte cap."""
+    from artifactsmith.renderers import get_renderer
+
+    out = get_renderer(fmt).render(title=title, body=body)
+    total = sum(len(blob) for blob in out.files.values())
+    if total > max_bytes:
+        raise RenderTooLarge(total, max_bytes)
+    return out
+
+
+def render_bounded(
+    *,
+    fmt: str,
+    title: str,
+    body: str,
+    timeout_s: float,
+    max_bytes: int,
+    mp_context: str = "spawn",
+    worker: Any | None = None,
+    as_limit: int = DEFAULT_AS_LIMIT,
+) -> RenderOutput:
+    """Render HTML and Markdown here. Run PDF, DOCX, and XLSX in a killable child.
+
+    ``worker`` forces the child path so tests can still inject a hang or a crash.
+    """
+    key = (fmt or "html").lower().strip()
+    if worker is None and key in IN_PROCESS_FORMATS:
+        return render_inprocess(fmt=key, title=title, body=body, max_bytes=max_bytes)
+    return render_killable(
+        fmt=fmt,
+        title=title,
+        body=body,
+        timeout_s=timeout_s,
+        max_bytes=max_bytes,
+        mp_context=mp_context,
+        worker=worker,
+        as_limit=as_limit,
+    )

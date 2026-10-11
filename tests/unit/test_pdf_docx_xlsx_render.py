@@ -6,6 +6,8 @@ import io
 import re
 import zipfile
 
+import pytest
+
 from artifactsmith.renderers import get_renderer
 from artifactsmith.renderers.md_parse import blocks_to_simple_html, parse_blocks
 from artifactsmith.renderers.pdf import DenyAllURLFetcher
@@ -444,3 +446,26 @@ def test_xlsx_sheet_names_follow_excel_rules():
     lowered = [n.lower() for n in names]
     assert len(lowered) == len(set(lowered))
     assert all(n.strip() for n in names)
+
+
+def test_xlsx_builds_one_markdown_parser_per_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    from artifactsmith.renderers import md_parser
+
+    calls = {"n": 0}
+    orig = md_parser._new_linkify_parser
+
+    def counting() -> object:
+        calls["n"] += 1
+        return orig()
+
+    monkeypatch.setattr(md_parser, "_new_linkify_parser", counting)
+    cols = 7
+    rows = 34
+    header = "| " + " | ".join(f"h{i}" for i in range(cols)) + " |"
+    sep = "| " + " | ".join("---" for _ in range(cols)) + " |"
+    data = "\n".join("| " + " | ".join(f"c{r}-{c}" for c in range(cols)) + " |" for r in range(rows))
+    body = f"# Workbook\n\n## Inventory\n\n{header}\n{sep}\n{data}\n"
+    out = get_renderer("xlsx").render(title="Workbook", body=body)
+    assert calls["n"] == 1
+    assert out.primary == "document.xlsx"
+    assert out.files["document.xlsx"][:2] == b"PK"

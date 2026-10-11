@@ -15,6 +15,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- HTML and Markdown render in-process; PDF, DOCX, and XLSX stay in a fresh killable child, and XLSX builds its Markdown parser once per file.
 - HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
 - CSS sanitizer keeps SVG paint properties so class-colored charts render; `url()` paint is still dropped.
 - HTML exports start with a no-fetch CSP meta tag; pages over 2 MB are rejected; SVG roots/elements/text/nesting are capped.

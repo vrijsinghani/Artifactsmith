@@ -19,9 +19,12 @@ from .safety import URL_RE
 
 def _parser(*, linkify: bool = True) -> MarkdownIt:
     """CommonMark parser that accepts every destination; we enforce policy ourselves."""
-    md = MarkdownIt("commonmark", {"linkify": linkify})
     if linkify:
-        md.enable("linkify")
+        # Same parser XLSX reuses for the whole file. Other callers get a fresh one.
+        from .md_parser import linkify_parser
+
+        return linkify_parser()
+    md = MarkdownIt("commonmark", {"linkify": False})
     # markdown-it rejects javascript:/etc. before we can neutralize them.
     md.validateLink = lambda _url: True  # type: ignore[assignment]
     return md

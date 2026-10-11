@@ -68,7 +68,7 @@ Confirm each bound is enforced in code, not only documented.
 
 | Limit | Where to check | Fail if |
 |---|---|---|
-| Render deadline | `AM_RENDER_TIMEOUT`, `subprocess_render.render_killable` | Renderer ignores timeout or leaves the child alive |
+| Render deadline | `AM_RENDER_TIMEOUT`, `subprocess_render.render_killable` for PDF/DOCX/XLSX. HTML and Markdown use `render_inprocess` (capped text encode, no child). | A PDF/DOCX/XLSX renderer ignores timeout or leaves the child alive |
 | Build deadline | `AM_BUILD_TIMEOUT` | Job can run past the cap |
 | Memory / output size | `AM_MAX_OUTPUT_BYTES` | Oversize HTML/PDF/XLSX is stored |
 | Input size | `SOURCE_CAP_BYTES`, `VERBATIM_CAP_CHARS` | Caps are bypassed via `source_files` split or edit reuse |

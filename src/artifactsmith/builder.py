@@ -16,7 +16,7 @@ from .config import CFG
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
 from .renderers.safety import check_content, check_fields, sanitize_text
-from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_killable
+from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_bounded
 from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
 
 log = logging.getLogger("artifactsmith.builder")
@@ -476,7 +476,7 @@ async def run_build(
         progress(f"rendering {fmt}")
         try:
             rendered = await asyncio.to_thread(
-                render_killable,
+                render_bounded,
                 fmt=fmt,
                 title=display_name,
                 body=body,
