@@ -310,8 +310,9 @@ def share(
         int | None,
         Field(
             description=(
-                "Share lifetime in days. Optional. Defaults to AM_SHARE_TTL_DAYS "
-                "(0 means until revoked; otherwise capped by AM_SHARE_TTL_MAX_DAYS)."
+                "Share lifetime in days. Optional. Defaults to AM_SHARE_TTL_DAYS. "
+                "Ignored when AM_SHARE_TTL_DAYS is 0 (the link lasts until revoked). "
+                "Otherwise capped by AM_SHARE_TTL_MAX_DAYS."
             )
         ),
     ] = None,
@@ -319,7 +320,7 @@ def share(
     """Publish a public link for one exact version. Anyone with the link can open it.
 
     Permission: share.
-    Arguments: artifact_id (required), version (optional; latest done version), ttl_days (optional).
+    Arguments: artifact_id (required), version (optional; latest done version), ttl_days (optional; ignored when AM_SHARE_TTL_DAYS is 0).
     Returns: state, url, version, expires_at, lifetime, reused. The link stays on that version.
     Example: share(artifact_id="art_example")
     unshare revokes it immediately."""
@@ -332,13 +333,17 @@ def unshare(
     artifact_id: Annotated[str, Field(description="Artifact whose public links should be revoked. Required.")],
     version: Annotated[
         int | None,
-        Field(description="Revoke only this version. Optional; omit to revoke every version of the artifact."),
+        Field(
+            description=(
+                "Revoke only this version. Optional. Omit it, or pass 0, to revoke every version of the artifact."
+            )
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """Revoke public share links. Takes effect immediately; the old URL returns 404.
 
     Permission: share.
-    Arguments: artifact_id (required), version (optional; omit to revoke every version).
+    Arguments: artifact_id (required), version (optional; omit it, or pass 0, to revoke every version).
     Returns: artifact_id, revoked_links (count), state "not_shared".
     Example: unshare(artifact_id="art_example")"""
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)

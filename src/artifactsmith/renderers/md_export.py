@@ -130,17 +130,37 @@ def _find_outside_code(src: str, span: str, start: int, code: list[tuple[int, in
         return idx
 
 
-def _label_from(tokens: list[Token]) -> str:
+def _label_from(tokens: list[Token], *, escape_html: bool = False) -> str:
     parts: list[str] = []
     for tok in tokens:
+        content = tok.content or ""
         if tok.type == "text":
-            parts.append(tok.content or "")
+            parts.append(content)
         elif tok.type == "html_inline":
-            parts.append(tok.content or "")
+            parts.append(escape_md_text(content) if escape_html else content)
         elif tok.type == "softbreak":
             parts.append("\n")
         elif tok.type == "code_inline":
-            parts.append(tok.content or "")
+            parts.append(content)
+    return "".join(parts)
+
+
+def _inert_from_tokens(tokens: list[Token]) -> str:
+    """Blocked-anchor label. Raw ``html_inline`` fragments are escaped once."""
+    raw = _label_from(tokens)
+    stripped = raw.strip()
+    if stripped and classify_href(stripped) == "blocked" and re.search(r"[a-z][a-z0-9+.-]*:", stripped, re.I):
+        safe = _label_from(tokens, escape_html=True).strip() or stripped
+        return _md_inline_code(safe)
+    parts: list[str] = []
+    for tok in tokens:
+        content = tok.content or ""
+        if tok.type == "html_inline":
+            parts.append(escape_md_text(content))
+        elif tok.type in ("text", "code_inline"):
+            parts.append(escape_md_text(content))
+        elif tok.type == "softbreak":
+            parts.append("\n")
     return "".join(parts)
 
 
@@ -164,12 +184,14 @@ def _rewrite_inline(src: str, children: list[Token]) -> str:
                 closed = True
                 j += 1
                 break
+            if ch.type == "html_inline" and _is_anchor_open(ch.content or ""):
+                break  # nested or unclosed opener: stop here so the scan stays linear
             if ch.type not in ("text", "html_inline", "code_inline", "softbreak"):
                 break
             inner.append(ch)
             j += 1
         if not closed:
-            i += 1
+            i = max(j, i + 1)
             continue
         idx = _find_outside_code(src, open_html, search_from, code)
         if idx < 0:
@@ -181,7 +203,7 @@ def _rewrite_inline(src: str, children: list[Token]) -> str:
             continue
         href = _allowed_href(open_html)
         label = _label_from(inner)
-        repl = _format_link(label, href) if href else _inert_label(label)
+        repl = _format_link(label, href) if href else _inert_from_tokens(inner)
         replacements.append((idx, close.end(), repl))
         search_from = close.end()
         i = j
@@ -244,6 +266,8 @@ def _rewrite_html_block(html: str) -> str:
         parser.feed(html)
         parser.close()
     except Exception:  # noqa: BLE001 — leave the block unchanged rather than drop text
+        return html
+    if parser._anchor is not None:  # anchor left open (block ended at a blank line): keep the block as is
         return html
     if not parser.changed:
         return html

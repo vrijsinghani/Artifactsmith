@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
+
 from artifactsmith.renderers import get_renderer
-from artifactsmith.renderers.md_sanitize import collect_link_destinations
+from artifactsmith.renderers.md_sanitize import _destinations_policy_clean, collect_link_destinations
 from artifactsmith.renderers.safety import sanitize_text
 
 
@@ -50,3 +52,26 @@ def test_markdown_export_blocked_link_stays_blocked() -> None:
     assert "admin" in text
     assert "click" in text
     assert "local" in text
+
+
+def test_blocked_href_scheme_less_host_stays_unlinkified() -> None:
+    text = _export('<a href="javascript:x">www.10.0.0.5.nip.io</a>')
+    assert _destinations_policy_clean(text)
+    assert collect_link_destinations(text) == []
+
+
+def test_anchor_split_by_blank_line_keeps_label() -> None:
+    text = _export('<p>Read <a href="https://example.com/ok">x\n\ny</a>.</p>')
+    assert "x" in text
+
+
+def test_unclosed_anchors_stay_linear() -> None:
+    body = '<a href="https://example.com/ok">x ' * 20000
+    started = time.perf_counter()
+    get_renderer("markdown").render(title="Page", body=body)
+    assert time.perf_counter() - started < 2
+
+
+def test_label_cannot_smuggle_a_second_destination() -> None:
+    text = _export('<a href="https://example.com/ok">x](javascript:alert(1))</a>')
+    assert collect_link_destinations(text) == ["https://example.com/ok"]
