@@ -52,8 +52,12 @@ _BEARER_NOT_SECRET = re.compile(
     )$""",
     re.X,
 )
-# Soft hyphen, Mongolian vowel separator, zero-width / bidi marks, word joiners, BOM.
-_INVISIBLE = re.compile("[\u00ad\u180e\u200b-\u200f\u2060-\u2064\ufeff]")
+# Cf format characters, variation selectors, tag characters, combining grapheme
+# joiner, Hangul fillers, and line/paragraph separators. These must not split a token.
+_INVISIBLE = re.compile(
+    "[\u00ad\u034f\u061c\u115f\u1160\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2028\u2029"
+    "\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\U000e0000-\U000e007f\U000e0100-\U000e01ef]"
+)
 
 PRIVATE_HOST_NAMES = frozenset(
     {

@@ -131,6 +131,20 @@ def test_bearer_realistic_tokens_flagged(text: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "sep",
+    [
+        pytest.param("\u034f", id="cgj-034f"),
+        pytest.param("\ufe0f", id="vs16-fe0f"),
+        pytest.param("\U000e0020", id="tag-e0020"),
+        pytest.param("\u2028", id="line-sep-2028"),
+        pytest.param("\u061c", id="alm-061c"),
+    ],
+)
+def test_bearer_word_prefix_split_by_invisible(sep: str) -> None:
+    _assert_bearer(f"Bearer abcdef{sep}12345XYZ7890qwer")
+
+
+@pytest.mark.parametrize(
     ("label", "text"),
     [
         ("github_pat", "ghp_" + ("a" * 36)),
