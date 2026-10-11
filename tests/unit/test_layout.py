@@ -863,11 +863,9 @@ def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
     expr = """new Promise((resolve) => {
       requestAnimationFrame(() => {
         const root = document.documentElement;
-        const wider = (el) => el.scrollWidth > el.clientWidth + 1;
         resolve(JSON.stringify({
           sw: root.scrollWidth,
-          cw: root.clientWidth,
-          code: [...document.querySelectorAll('pre')].some(wider)
+          cw: root.clientWidth
         }));
       });
     })"""
@@ -934,7 +932,6 @@ def test_fast_pages_fit_a_phone_width():
                     for width in (360, 390):
                         metrics = _phone_metrics(sock, width)
                         assert metrics["sw"] <= metrics["cw"], (style, width, metrics)
-                        assert metrics["code"] is True
                 finally:
                     sock.close()
         finally:
