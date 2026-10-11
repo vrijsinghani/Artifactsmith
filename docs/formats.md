@@ -4,7 +4,7 @@ You pick a format when you create an artifact. HTML is the default. Markdown, PD
 
 ## How a file is produced
 
-The model writes content. A renderer on the server turns that content into bytes. You do not get model-written code executed, and the renderer does not fetch the network.
+The model writes content. A renderer on the server turns that content into bytes. You do not get model-written code executed, and the renderer does not fetch the network. `publish` skips the model when you already have the finished page: HTML for `format=html`, Markdown for `markdown`, `pdf`, `docx`, and `xlsx`. That page uses this same renderer and the same checks.
 
 `artifactsmith.renderers.Renderer` is the contract.
 
@@ -40,7 +40,7 @@ PDF, DOCX, and XLSX store the rendered file and `content.md`. `edit` loads `cont
 
 ## Safety
 
-`artifactsmith.renderers.safety` runs inside `builder.run_build`.
+`artifactsmith.renderers.safety` runs inside `builder.run_build` and `builder.publish_page`.
 
 Likely secrets fail the build (PEM keys and common cloud, GitHub, Slack, and OpenAI token shapes).
 

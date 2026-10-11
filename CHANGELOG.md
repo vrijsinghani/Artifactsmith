@@ -5,6 +5,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+
+- `publish` stores a finished HTML or Markdown page without a model call, through the same safety checks, renderer, and version, share, and preview path as a build.
+
 ### Fixed
 
 - Bearer secret checks skip prose and placeholder shapes (`Bearer token`, `YOUR_API_KEY`, `your-api-key-goes-here`) instead of a character-length floor, and still flag short hex, base62, and padded base64. Secret scans also check a copy with HTML entities decoded and invisible characters removed.

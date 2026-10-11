@@ -17,7 +17,7 @@ SQLite holds artifacts, versions, jobs, tokens, and shares. The S3-compatible ob
 
 ## Build pipeline
 
-`create` and `edit` check the caller, write a `queued` version, and return immediately. The worker calls the LLM once and retries once if checks fail. The model returns marked-up text (`===FILE: …===`). The server parses that text and does not execute it.
+`create` and `edit` check the caller, write a `queued` version, and return immediately. The worker calls the LLM once and retries once if checks fail. The model returns marked-up text (`===FILE: …===`). The server parses that text and does not execute it. `publish` writes the same kind of queued version, but the worker skips the model and checks the caller's finished HTML or Markdown.
 
 Safety checks look for secrets, private hosts, allow-list misses, scripts, and size. Public http(s) citations may remain. The renderer for `format` then writes bytes. Files go to the object store and the version becomes `done`.
 
@@ -28,7 +28,7 @@ HTML uses the house-style system prompt and stores `index.html`. Markdown, PDF, 
 | Module | Role |
 | ------ | ---- |
 | `server` | MCP tools, bearer auth, preview routes |
-| `service` | Create, edit, share, delete, worker, cards |
+| `service` | Create, publish, edit, share, delete, worker, cards |
 | `builder` | Prompt, parse, sanitize, dispatch renderer |
 | `renderers` | Format interface plus HTML, Markdown, PDF, DOCX, XLSX |
 | `renderers.safety` | Shared checks for every format |

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS versions (
   summary TEXT,
   size INTEGER,
   source_key TEXT,
+  publish_json TEXT,
   style TEXT,
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
@@ -119,6 +120,8 @@ class DB:
         ver_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(versions)").fetchall()}
         if "style" not in ver_cols:
             self.conn.execute("ALTER TABLE versions ADD COLUMN style TEXT")
+        if "publish_json" not in ver_cols:
+            self.conn.execute("ALTER TABLE versions ADD COLUMN publish_json TEXT")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

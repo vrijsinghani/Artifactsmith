@@ -97,7 +97,7 @@ To restore: stop the server, replace the data dir and secrets, restore the bucke
 ## Token rotation
 
 ```bash
-artifactsmith token add --name agent-next --workspace alpha --perms create,read,edit,export,share,delete
+artifactsmith token add --name agent-next --workspace alpha --perms create,read,edit,publish,export,share,delete
 # point clients at the new token
 artifactsmith token revoke --name agent
 ```

@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     add = tok.add_parser("add", help="add a token")
     add.add_argument("--name", required=True)
     add.add_argument("--workspace", required=True)
-    add.add_argument("--perms", default="create,read,edit,export,share,delete")
+    add.add_argument("--perms", default="create,read,edit,publish,export,share,delete")
     add.add_argument("--token", default=None, help="use a specific token value instead of generating one")
     add.set_defaults(fn=cmd_token_add)
     lst = tok.add_parser("list", help="list tokens")

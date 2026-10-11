@@ -320,21 +320,26 @@ def check_fields(
     return problems
 
 
+# Model output and caller-published pages share this cap. Read at call time.
+CONTENT_MAX_CHARS = 2_000_000
+
+
 def check_content(
     text: str,
     *,
     fmt: str,
     block_private_links: bool = True,
     allowed_link_domains: list[str] | None = None,
-    max_chars: int = 2_000_000,
+    max_chars: int | None = None,
 ) -> list[str]:
     """Return human-readable problems that must be fixed before rendering.
 
     Secret detection is a heuristic, not a guarantee that no secrets remain.
     """
+    limit = CONTENT_MAX_CHARS if max_chars is None else max_chars
     problems: list[str] = []
-    if len(text) > max_chars:
-        problems.append(f"content exceeds {max_chars} characters")
+    if len(text) > limit:
+        problems.append(f"content exceeds {limit} characters")
     problems.extend(find_secrets(text))
     if block_private_links:
         problems.extend(find_private_links(text, fmt=fmt))

@@ -31,8 +31,8 @@ The configured LLM endpoint. Its output is untrusted.
 | Threat | Control |
 | ------ | ------- |
 | Cross-workspace read | Token workspace must match the artifact. Knowing an id is not access. |
-| Privilege abuse | Perms are create, read, edit, export, share, delete. |
-| Accidental publish | `create` and `edit` do not mint `/s/`. `share` is a separate call. |
+| Privilege abuse | Perms are create, read, edit, publish, export, share, delete. |
+| Accidental publish | `create`, `edit`, and `publish` do not mint `/s/`. `share` is a separate call. |
 | Stale public page | Shares pin version and sha256. `unshare` sets `revoked_at` immediately. |
 | Token theft | Tokens stored as SHA-256. The operator can revoke. Prefer `NAME_FILE` for secrets. |
 | XSS / drive-by JS | HTML passes an nh3 allowlist; CSS passes a tinycss2 allowlist. CSP `script-src 'none'`. Separate cookieless origin. |
@@ -54,7 +54,7 @@ Scanning of binary payloads for hidden secrets.
 
 A compromised LLM provider. Output is treated as hostile text. Delimiters reduce accidental instruction confusion; they do not stop a determined model from ignoring them.
 
-Availability against a caller who holds a valid create token, beyond the per-token quota.
+Availability against a caller who holds a valid create or publish token, beyond the per-token quota.
 
 Multi-process / multi-host SQLite. Run one server process per data directory.
 

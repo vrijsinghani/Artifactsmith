@@ -33,6 +33,8 @@ __all__ = [
     "check_source",
     "needs_input",
     "parse_output",
+    "publish_page",
+    "render_checked_body",
     "render_html",
     "run_build",
     "sanitize_html",
@@ -173,6 +175,22 @@ class BuildResult:
 
 class BuildError(RuntimeError):
     pass
+
+
+class RetryableCheck(BuildError):
+    """A safety check the model may fix on a second attempt.
+
+    ``problems`` are the check names. Callers that skip the model should show
+    ``str(exc)`` and not retry.
+    """
+
+    def __init__(self, problems: list[str]) -> None:
+        self.problems = problems
+        super().__init__("; ".join(problems))
+
+
+# Stored on published versions so cards do not name an LLM.
+PUBLISHED_MODEL = "published"
 
 
 class NeedsInput(Exception):
@@ -371,6 +389,169 @@ def system_prompt_for(fmt: str, style: str = DEFAULT_STYLE) -> str:
     return CONTENT_SYSTEM
 
 
+def _hard_problems(problems: list[str]) -> list[str]:
+    """Secrets and private or disallowed hosts are not fixed by sanitizing."""
+    return [
+        p
+        for p in problems
+        if p.startswith("possible secret") or p.startswith("private or local") or p.startswith("link host not")
+    ]
+
+
+def _sweep_rendered(files: dict[str, bytes]) -> str | None:
+    """Final sweep: scripts and private or disallowed hosts must not survive rendering."""
+    from .renderers.safety import find_disallowed_links, find_private_links
+
+    for name, data in files.items():
+        if not name.endswith((".html", ".md", ".txt")):
+            continue
+        text_out = data.decode("utf-8", errors="replace")
+        if "<script" in text_out.lower():
+            return "script survived rendering"
+        link_fmt = "html" if name.endswith(".html") else "markdown"
+        if CFG.block_private_links and find_private_links(text_out, fmt=link_fmt):
+            return "private link survived rendering"
+        if find_disallowed_links(text_out, CFG.allowed_link_domains):
+            return "disallowed link host survived rendering"
+    return None
+
+
+async def render_checked_body(
+    *,
+    fmt: str,
+    display_name: str,
+    body: str,
+    summary: str,
+    assumptions: list[str],
+    render_timeout: float,
+    model: str,
+    raw_chars: int,
+    notes: list[str],
+    progress: Callable[[str], None],
+) -> BuildResult:
+    """Run the output safety pipeline and renderer. Does not call the model.
+
+    Raises ``RetryableCheck`` with the failed check names, or ``BuildError`` when
+    the sanitizer rejects the page (that one is not retried).
+    """
+    field_problems = check_fields(
+        display_name,
+        summary,
+        *assumptions,
+        block_private_links=CFG.block_private_links,
+        allowed_link_domains=CFG.allowed_link_domains,
+        label="metadata",
+    )
+    if field_problems:
+        raise RetryableCheck(field_problems)
+    pre = check_content(
+        body,
+        fmt=fmt,
+        block_private_links=CFG.block_private_links,
+        allowed_link_domains=CFG.allowed_link_domains,
+    )
+    hard = _hard_problems(pre)
+    if hard:
+        raise RetryableCheck(hard)
+    try:
+        body = sanitize_html(body) if fmt == "html" else sanitize_text(body)
+    except HtmlSanitizeError as exc:
+        raise BuildError(str(exc)) from exc
+    problems = check_content(
+        body,
+        fmt=fmt,
+        block_private_links=CFG.block_private_links,
+        allowed_link_domains=CFG.allowed_link_domains,
+    )
+    if problems:
+        raise RetryableCheck(problems)
+    progress(f"rendering {fmt}")
+    try:
+        rendered = await asyncio.to_thread(
+            render_bounded,
+            fmt=fmt,
+            title=display_name,
+            body=body,
+            timeout_s=float(render_timeout),
+            max_bytes=CFG.max_output_bytes,
+        )
+    except (RenderTimeout, RenderTooLarge) as exc:
+        log.warning("renderer bounded failure format=%s: %s", fmt, exc)
+        raise RetryableCheck([str(exc)]) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("renderer failed for format=%s: %s", fmt, exc)
+        raise RetryableCheck([f"renderer error: {type(exc).__name__}"]) from exc
+    sweep = _sweep_rendered(rendered.files)
+    if sweep:
+        raise RetryableCheck([sweep])
+    return BuildResult(
+        files=rendered.files,
+        primary=rendered.primary,
+        assumptions=assumptions,
+        summary=summary,
+        model=model,
+        raw_chars=raw_chars,
+        notes=notes,
+    )
+
+
+async def publish_page(
+    *,
+    fmt: str,
+    display_name: str,
+    html: str | None = None,
+    markdown: str | None = None,
+    summary: str = "",
+    assumptions: list[str] | None = None,
+    render_timeout: float = 120,
+    progress: Callable[[str], None] | None = None,
+) -> BuildResult:
+    """Check and render a caller-built page. No model call.
+
+    ``html`` is the page when ``fmt`` is html. ``markdown`` is the page for
+    markdown, pdf, docx, and xlsx. A companion document, when present, is
+    scanned for secrets and private links and is not rendered.
+    """
+    kind = (fmt or "html").lower().strip()
+    if kind not in SUPPORTED_FORMATS:
+        raise BuildError(f"unsupported format {kind!r}")
+    if kind == "html":
+        if not (html or "").strip():
+            raise BuildError("html is required when format is html")
+        body = html or ""
+        extra, extra_fmt = markdown, "markdown"
+    else:
+        if not (markdown or "").strip():
+            raise BuildError(f"markdown is required when format is {kind}")
+        body = markdown or ""
+        extra, extra_fmt = html, "html"
+    if extra and extra.strip():
+        extra_problems = _hard_problems(
+            check_content(
+                extra,
+                fmt=extra_fmt,
+                block_private_links=CFG.block_private_links,
+                allowed_link_domains=CFG.allowed_link_domains,
+            )
+        )
+        if extra_problems:
+            raise RetryableCheck(extra_problems)
+    report = progress or (lambda _msg: None)
+    report("checking published page")
+    return await render_checked_body(
+        fmt=kind,
+        display_name=display_name,
+        body=body,
+        summary=summary,
+        assumptions=list(assumptions or []),
+        render_timeout=render_timeout,
+        model=PUBLISHED_MODEL,
+        raw_chars=len(body),
+        notes=[],
+        progress=report,
+    )
+
+
 async def run_build(
     *,
     kind: str,
@@ -429,100 +610,23 @@ async def run_build(
             last_problems = [str(e)]
             notes.append(f"attempt {attempt}: {e}")
             continue
-        # Titles, summaries, and assumptions reach cards and non-HTML renderers.
-        field_problems = check_fields(
-            display_name,
-            summary,
-            *assumptions,
-            block_private_links=CFG.block_private_links,
-            allowed_link_domains=CFG.allowed_link_domains,
-            label="metadata",
-        )
-        if field_problems:
-            last_problems = field_problems
-            notes.append(f"attempt {attempt}: " + "; ".join(field_problems))
-            continue
-        # Fail closed on private links / secrets before stripping (so the model can correct them).
-        pre = check_content(
-            body,
-            fmt=fmt,
-            block_private_links=CFG.block_private_links,
-            allowed_link_domains=CFG.allowed_link_domains,
-        )
-        # Secrets and private links are not fixed by sanitization — reject.
-        hard = [
-            p
-            for p in pre
-            if p.startswith("possible secret") or p.startswith("private or local") or p.startswith("link host not")
-        ]
-        if hard:
-            last_problems = hard
-            notes.append(f"attempt {attempt}: " + "; ".join(hard))
-            continue
         try:
-            body = sanitize_html(body) if fmt == "html" else sanitize_text(body)
-        except HtmlSanitizeError as exc:
-            raise BuildError(str(exc)) from exc
-        problems = check_content(
-            body,
-            fmt=fmt,
-            block_private_links=CFG.block_private_links,
-            allowed_link_domains=CFG.allowed_link_domains,
-        )
-        if problems:
-            last_problems = problems
-            notes.append(f"attempt {attempt}: " + "; ".join(problems))
-            continue
-        progress(f"rendering {fmt}")
-        try:
-            rendered = await asyncio.to_thread(
-                render_bounded,
+            return await render_checked_body(
                 fmt=fmt,
-                title=display_name,
+                display_name=display_name,
                 body=body,
-                timeout_s=float(render_timeout),
-                max_bytes=CFG.max_output_bytes,
-            )
-        except (RenderTimeout, RenderTooLarge) as e:
-            last_problems = [str(e)]
-            notes.append(f"attempt {attempt}: {last_problems[0]}")
-            log.warning("renderer bounded failure format=%s: %s", fmt, e)
-            continue
-        except Exception as e:  # noqa: BLE001
-            last_problems = [f"renderer error: {type(e).__name__}"]
-            notes.append(f"attempt {attempt}: {last_problems[0]}")
-            log.exception("renderer failed for format=%s: %s", fmt, e)
-            continue
-        # Final sweep: scripts and private/disallowed hosts must not survive.
-        from .renderers.safety import find_disallowed_links, find_private_links
-
-        for name, data in list(rendered.files.items()):
-            if name.endswith((".html", ".md", ".txt")):
-                text_out = data.decode("utf-8", errors="replace")
-                if "<script" in text_out.lower():
-                    last_problems = ["script survived rendering"]
-                    notes.append(f"attempt {attempt}: {last_problems[0]}")
-                    break
-                link_fmt = "html" if name.endswith(".html") else "markdown"
-                if CFG.block_private_links and find_private_links(text_out, fmt=link_fmt):
-                    last_problems = ["private link survived rendering"]
-                    notes.append(f"attempt {attempt}: {last_problems[0]}")
-                    break
-                if find_disallowed_links(text_out, CFG.allowed_link_domains):
-                    last_problems = ["disallowed link host survived rendering"]
-                    notes.append(f"attempt {attempt}: {last_problems[0]}")
-                    break
-        else:
-            return BuildResult(
-                files=rendered.files,
-                primary=rendered.primary,
-                assumptions=assumptions,
                 summary=summary,
+                assumptions=assumptions,
+                render_timeout=float(render_timeout),
                 model=model,
                 raw_chars=len(text),
                 notes=notes,
+                progress=progress,
             )
-        continue
+        except RetryableCheck as exc:
+            last_problems = exc.problems
+            notes.append(f"attempt {attempt}: " + "; ".join(exc.problems))
+            continue
     raise BuildError("builder output failed checks twice: " + "; ".join(last_problems))
 
 

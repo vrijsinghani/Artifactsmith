@@ -24,7 +24,7 @@ from .styles import DEFAULT_STYLE, StyleError, parse_style
 
 log = logging.getLogger("artifactsmith.service")
 
-ALL_PERMS = {"create", "read", "edit", "export", "share", "delete"}
+ALL_PERMS = {"create", "read", "edit", "publish", "export", "share", "delete"}
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 WS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
@@ -529,6 +529,43 @@ class Service:
         self._enqueue(jid)
         return result
 
+    def publish(
+        self,
+        principal: dict[str, Any],
+        *,
+        html: str | None = None,
+        markdown: str | None = None,
+        slug: str | None = None,
+        display_name: str | None = None,
+        artifact_id: str | None = None,
+        base_version: int | None = None,
+        format: str | None = None,
+        summary: str | None = None,
+        assumptions: list[str] | None = None,
+        workspace: str | None = None,
+        idempotency_key: str | None = None,
+        style: str | None = None,
+    ) -> dict[str, Any]:
+        """Queue a finished page. The worker skips the model and runs the output checks."""
+        from .publishing import admit_publish
+
+        return admit_publish(
+            self,
+            principal,
+            html=html,
+            markdown=markdown,
+            slug=slug,
+            display_name=display_name,
+            artifact_id=artifact_id,
+            base_version=base_version,
+            format=format,
+            summary=summary,
+            assumptions=assumptions,
+            workspace=workspace,
+            idempotency_key=idempotency_key,
+            style=style,
+        )
+
     # ---------------- worker ----------------
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Record the running loop so _enqueue works before workers start."""
@@ -577,7 +614,7 @@ class Service:
                 (status, error, progress_msg, now(), jid),
             )
             c.execute(
-                "UPDATE versions SET status=? WHERE artifact_id=? AND version=?",
+                "UPDATE versions SET status=?, publish_json=NULL WHERE artifact_id=? AND version=?",
                 (status, j["artifact_id"], j["version"]),
             )
         self.progress.pop(jid, None)
@@ -667,45 +704,63 @@ class Service:
         progress: Any,
     ) -> None:
         """Load sources, build, render, and upload under the caller's deadline."""
-        base_source = None
-        if v["base_version"]:
-            bv = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], v["base_version"])
-            if not bv:
-                raise AMError("base version vanished")
-            key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
-            data, _ = await asyncio.to_thread(self.store.get, key)
-            base_source = data.decode("utf-8", errors="replace")
-        history_rows = self.db.all(
-            "SELECT verbatim_request FROM versions WHERE artifact_id=? AND version<? AND status='done' "
-            "ORDER BY version DESC LIMIT ?",
-            a["id"],
-            v["version"],
-            HISTORY_CAP_ENTRIES,
-        )
-        history = list(reversed([r["verbatim_request"] for r in history_rows]))
-        hist_chars = sum(len(h) for h in history)
-        while history and hist_chars > HISTORY_CAP_CHARS:
-            hist_chars -= len(history.pop(0))
+        if v.get("publish_json"):
+            from .publishing import load_publish_payload
 
-        source = None
-        if v.get("source_key"):
-            raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
-            source = json.loads(raw)
-        res = await builder.run_build(
-            kind=a["kind"],
-            slug=a["slug"],
-            display_name=a["display_name"],
-            verbatim=v["verbatim_request"],
-            model=v["model"] or CFG.default_model,
-            base_source=base_source,
-            base_version=v["base_version"],
-            history=history,
-            progress=progress,
-            source=source,
-            render_timeout=CFG.render_timeout_s,
-            format=a["format"] or "html",
-            style=v.get("style") or DEFAULT_STYLE,
-        )
+            payload = load_publish_payload(v["publish_json"])
+            try:
+                res = await builder.publish_page(
+                    fmt=a["format"] or "html",
+                    display_name=a["display_name"],
+                    html=payload["html"],
+                    markdown=payload["markdown"],
+                    summary=payload["summary"],
+                    assumptions=payload["assumptions"],
+                    render_timeout=CFG.render_timeout_s,
+                    progress=progress,
+                )
+            except builder.BuildError as exc:
+                raise AMError(str(exc)) from exc
+        else:
+            base_source = None
+            if v["base_version"]:
+                bv = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], v["base_version"])
+                if not bv:
+                    raise AMError("base version vanished")
+                key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
+                data, _ = await asyncio.to_thread(self.store.get, key)
+                base_source = data.decode("utf-8", errors="replace")
+            history_rows = self.db.all(
+                "SELECT verbatim_request FROM versions WHERE artifact_id=? AND version<? AND status='done' "
+                "ORDER BY version DESC LIMIT ?",
+                a["id"],
+                v["version"],
+                HISTORY_CAP_ENTRIES,
+            )
+            history = list(reversed([r["verbatim_request"] for r in history_rows]))
+            hist_chars = sum(len(h) for h in history)
+            while history and hist_chars > HISTORY_CAP_CHARS:
+                hist_chars -= len(history.pop(0))
+
+            source = None
+            if v.get("source_key"):
+                raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
+                source = json.loads(raw)
+            res = await builder.run_build(
+                kind=a["kind"],
+                slug=a["slug"],
+                display_name=a["display_name"],
+                verbatim=v["verbatim_request"],
+                model=v["model"] or CFG.default_model,
+                base_source=base_source,
+                base_version=v["base_version"],
+                history=history,
+                progress=progress,
+                source=source,
+                render_timeout=CFG.render_timeout_s,
+                format=a["format"] or "html",
+                style=v.get("style") or DEFAULT_STYLE,
+            )
         total = sum(len(b) for b in res.files.values())
         if total > CFG.max_output_bytes:
             raise AMError(f"output {total} bytes exceeds cap")
@@ -752,7 +807,7 @@ class Service:
         with self.db.tx() as c:
             c.execute(
                 "UPDATE versions SET status='done', model=?, sha256=?, primary_file=?, files_json=?, "
-                "assumptions_json=?, summary=?, size=? WHERE artifact_id=? AND version=?",
+                "assumptions_json=?, summary=?, size=?, publish_json=NULL WHERE artifact_id=? AND version=?",
                 (
                     res.model,
                     primary_sha,

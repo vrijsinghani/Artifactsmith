@@ -27,12 +27,14 @@ SVC: Service | None = None
 
 INSTRUCTIONS = (
     "Artifact service. create and edit queue a background build and return artifact_id, version, and job_id "
-    "immediately. Call status with wait (up to 90 seconds) until the job is done, failed, or needs_input, then "
-    "show the card (title, version, preview_url, assumptions). Pass the user's exact words in verbatim_request. "
-    "Pass researched content in source_content or source_files. If a needed fact is missing, the job ends as "
-    "needs_input with a short missing message and stores no file. create does not publish a share link. share "
-    "publishes a public link for one exact version (lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare "
-    "revokes immediately. A token reaches only its own workspace and only the permissions it was granted."
+    "immediately. When you already have the finished page, call publish instead of create or edit: it skips "
+    "the model and runs the same safety checks. Call status with wait (up to 90 seconds) until the job is "
+    "done, failed, or needs_input, then show the card (title, version, preview_url, assumptions). Pass the "
+    "user's exact words in verbatim_request. Pass researched content in source_content or source_files. If a "
+    "needed fact is missing, the job ends as needs_input with a short missing message and stores no file. "
+    "create and publish do not publish a share link. share publishes a public link for one exact version "
+    "(lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare revokes immediately. A token reaches only "
+    "its own workspace and only the permissions it was granted."
 )
 
 
@@ -95,7 +97,7 @@ def create(
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Queue a new artifact. Returns artifact_id, version, and job_id immediately.
-    Then call status(job_id, wait=90).
+    Then call status(job_id, wait=90). If you already have the finished page, call publish instead.
 
     Required: verbatim_request (the user's exact words; the whole scope).
 
@@ -170,6 +172,57 @@ def edit(
         source_files=source_files,
         workspace=workspace,
         model=model,
+        idempotency_key=idempotency_key,
+        style=style,
+    )
+
+
+@mcp.tool()
+def publish(
+    ctx: Context[Any, Any, Any],
+    html: str | None = None,
+    markdown: str | None = None,
+    display_name: str | None = None,
+    slug: str | None = None,
+    artifact_id: str | None = None,
+    base_version: int | None = None,
+    format: str | None = None,
+    summary: str | None = None,
+    assumptions: list[str] | None = None,
+    workspace: str | None = None,
+    style: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Store a page you have already finished. Use this when you already have the finished page.
+    No model call. Returns artifact_id, version, and job_id immediately. Then call status(job_id, wait=90).
+
+    html is the complete HTML document when format is html (the default). markdown is the finished
+    Markdown when format is markdown, pdf, docx, or xlsx. You may pass the other field as well: it is
+    checked for secrets and private links and is not rendered.
+
+    New artifact: pass display_name or slug (same rules as create). New version of an existing artifact:
+    pass artifact_id and base_version (the latest done version). format stays the one stored on the artifact.
+
+    The page runs the same safety pipeline as model output: size caps, secret scan, private-link checks,
+    the sanitizer, the renderer for format (including PDF, DOCX, and XLSX), and the final sweep. A rejected
+    page ends as failed, and error names the check that failed. publish does not create a share link.
+    It counts toward the per-token build quota and requires the publish permission.
+
+    summary and assumptions are optional card fields and are scanned like model output. style is recorded
+    and does not restyle the page you submitted."""
+    return _run(
+        _svc().publish,
+        _principal(ctx),
+        html=html,
+        markdown=markdown,
+        slug=slug,
+        display_name=display_name,
+        artifact_id=artifact_id,
+        base_version=base_version,
+        format=format,
+        summary=summary,
+        assumptions=assumptions,
+        workspace=workspace,
         idempotency_key=idempotency_key,
         style=style,
     )

@@ -121,9 +121,9 @@ Header: Authorization: Bearer asmb_…
 
 ## How it works
 
-Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link.
+Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link. When you already have the finished page, call `publish` instead of `create`: it stores that HTML or Markdown with no model call.
 
-The server calls an OpenAI-compatible endpoint (up to two attempts when checks fail). The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. Call `status` (or `wait` up to 90 seconds) to get a private preview.
+The server calls an OpenAI-compatible endpoint (up to two attempts when checks fail). The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. `publish` skips the model and runs the same checks and renderer. Call `status` (or `wait` up to 90 seconds) to get a private preview.
 
 `share` creates a public link for one exact version. `unshare` makes that link return 404. Tokens belong to one workspace and carry a permission set.
 
@@ -139,7 +139,7 @@ Documents may cite public http(s) sources as clickable links. The server strips 
 | DOCX       | `docx`                 | `document.docx` | [python-docx](https://python-docx.readthedocs.io/) |
 | XLSX       | `xlsx`                 | `document.xlsx` | [openpyxl](https://openpyxl.readthedocs.io/) |
 
-HTML uses a visual style (house by default) and stores a complete page. The other formats ask the model for Markdown, then a renderer converts it. PDF, DOCX, and XLSX also store `content.md` so later edits have a text base.
+HTML uses a visual style (house by default) and stores a complete page. The other formats ask the model for Markdown, then a renderer converts it. `publish` accepts the finished HTML or Markdown and uses that same renderer. PDF, DOCX, and XLSX also store `content.md` so later edits have a text base.
 
 PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does not include Chromium. Details are in [docs/formats.md](docs/formats.md).
 
@@ -173,6 +173,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | Tool | Permission | What it does |
 | ---- | ---------- | ------------ |
 | `create` | `create` | Queue a private build. Optional `format` and `style`. Does not create a share link. |
+| `publish` | `publish` | Store a finished page with no model call. Use this when you already have the finished page. |
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
 | `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `list_artifacts` | `read` | Catalog for the token's workspace. |
@@ -216,6 +217,22 @@ support every fact the request asks for (including “why it matters”):
 
 If a needed fact is missing from the request and the source, the job ends as `needs_input` and stores no file. When server checks fail, the model is called a second time, so a failed build takes about twice as long to report as a clean one.
 
+### `publish` arguments
+
+Use `publish` when you already have the finished page (a deterministic generator, for example). It does not call the model. The page still goes through the same size caps, secret scan, private-link checks, sanitizer, renderer, and final sweep as model output.
+
+New artifact: pass `display_name` or `slug`, plus the page.
+
+- `html`: complete HTML document. Required when `format` is `html` (the default).
+- `markdown`: finished Markdown. Required when `format` is `markdown`, `pdf`, `docx`, or `xlsx`.
+- You may also pass the other field. It is checked for secrets and private links and is not rendered.
+
+New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` stays the one stored on the artifact.
+
+`summary` and `assumptions` are optional card fields and are scanned like model output. `style` is recorded and does not restyle the page you submitted.
+
+Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
+
 ## Configuration
 
 Every setting also has a `NAME_FILE` variant that reads the value from a file.
@@ -254,7 +271,7 @@ Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empt
 
 Tokens are issued per workspace and stored as SHA-256 hashes. Knowing an artifact id does not grant access.
 
-Permissions are `create`, `read`, `edit`, `export`, `share`, and `delete`.
+Permissions are `create`, `read`, `edit`, `publish`, `export`, `share`, and `delete`.
 
 Builds stay private until you call `share`. That creates a public `/s/…` URL. `unshare` makes it return 404.
 
@@ -271,7 +288,7 @@ The process does not send usage data anywhere.
 A **workspace** is a namespace for artifacts (for example `alpha` or `team-a`). Each token belongs to exactly one workspace and can only create or read artifacts in that workspace. Knowing an artifact id from another workspace does not grant access.
 
 ```bash
-artifactsmith token add --name NAME --workspace WS [--perms create,read,edit,export,share,delete]
+artifactsmith token add --name NAME --workspace WS [--perms create,read,edit,publish,export,share,delete]
 artifactsmith token list
 artifactsmith token revoke --id ID | --name NAME
 ```
