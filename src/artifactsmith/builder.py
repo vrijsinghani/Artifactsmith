@@ -31,9 +31,6 @@ from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
 
 log = logging.getLogger("artifactsmith.builder")
 
-# A stalled patch must fall back while the job still has budget for a full rewrite.
-PATCH_TIMEOUT_S = 90
-
 # Re-export for callers and tests that import from builder.
 __all__ = [
     "BuildError",
@@ -663,7 +660,7 @@ async def _try_edit_patch(
     system = system_prompt_for(fmt, chosen) + PATCH_SYSTEM_ADDENDUM
     user = build_patch_prompt(verbatim, display_name, base_source, base_version, history, source)
     try:
-        text = await llm.call(model, system, user, timeout=PATCH_TIMEOUT_S)
+        text = await llm.call(model, system, user, timeout=CFG.edit_patch_timeout_s)
     except httpx.TimeoutException:
         _note_patch_fallback(notes, "timeout")
         return None

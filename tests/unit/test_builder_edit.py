@@ -370,7 +370,8 @@ async def test_patch_timeout_falls_back(monkeypatch: pytest.MonkeyPatch, caplog:
     monkeypatch.setattr(b.llm, "call", fake_call)
     with caplog.at_level(logging.INFO, logger="artifactsmith.builder"):
         result = await b.run_build(**_kw())
-    assert timeouts == [b.PATCH_TIMEOUT_S, 300]
+    assert b.CFG.edit_patch_timeout_s == 45
+    assert timeouts == [45, 300]
     assert b"18" in result.files["index.html"]
     assert "edit patch fell back: timeout" in result.notes
     assert "edit patch fell back: timeout" in caplog.text

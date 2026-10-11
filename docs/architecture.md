@@ -17,7 +17,7 @@ SQLite holds artifacts, versions, jobs, tokens, and shares. The S3-compatible ob
 
 ## Build pipeline
 
-`create` and `edit` check the caller, write a `queued` version, and return immediately. A create calls the LLM once and retries once if checks fail. The model returns marked-up text (`===FILE: …===`). An edit first asks for a find/replace patch (90 second timeout) and applies it to the base file. If that patch does not apply, only restyles a move with CSS, times out, or the patched document fails the same parse, sanitize, and safety checks, the job falls back to the full-file reply in the same build. The server parses that text and does not execute it. `publish` writes the same kind of queued version, but the worker skips the model and checks the caller's finished HTML or Markdown.
+`create` and `edit` check the caller, write a `queued` version, and return immediately. A create calls the LLM once and retries once if checks fail. The model returns marked-up text (`===FILE: …===`). An edit first asks for a find/replace patch (`AM_EDIT_PATCH_TIMEOUT_S`, default 45 seconds) and applies it to the base file. If that patch does not apply, only restyles a move with CSS, times out, or the patched document fails the same parse, sanitize, and safety checks, the job falls back to the full-file reply in the same build. The server parses that text and does not execute it. `publish` writes the same kind of queued version, but the worker skips the model and checks the caller's finished HTML or Markdown.
 
 Safety checks look for secrets, private hosts, allow-list misses, scripts, and size. Public http(s) citations may remain. The renderer for `format` then writes bytes. Files go to the object store and the version becomes `done`.
 

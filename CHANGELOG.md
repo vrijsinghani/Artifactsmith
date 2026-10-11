@@ -21,9 +21,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Changed
 
+- The edit patch call times out after `AM_EDIT_PATCH_TIMEOUT_S` seconds (default 45) and then falls back to a full rewrite.
 - `token perms` adds, removes, or lists permissions on an existing token (one audit line per change; the token value stays the same); over-long `summary` and `assumptions` are rejected when the call arrives; a job that fails because the artifact is being deleted clears its stored page.
 - HTML and Markdown render in-process; PDF, DOCX, and XLSX stay in a fresh killable child, and XLSX builds its Markdown parser once per file.
-- Edits return a find/replace patch (`===PATCH===` with `<<<FIND>>>` / `<<<REPLACE>>>` / `<<<END>>>`) applied to the base file, and fall back to the existing full-file prompt in the same job when the patch does not apply or fails checks. A move must change markup, not CSS order; the patch call times out after 90 seconds. A missing end marker before the next block is closed in place, and a hunk or result that still contains patch markers is rejected.
+- Edits return a find/replace patch (`===PATCH===` with `<<<FIND>>>` / `<<<REPLACE>>>` / `<<<END>>>`) applied to the base file, and fall back to the existing full-file prompt in the same job when the patch does not apply or fails checks. A move must change markup, not CSS order; the patch call times out after `AM_EDIT_PATCH_TIMEOUT_S` seconds. A missing end marker before the next block is closed in place, and a hunk or result that still contains patch markers is rejected.
 - HTML sanitizer keeps a drawing-only inline SVG subset so charts survive; scripts, fetches, and active SVG stay blocked.
 - CSS sanitizer keeps SVG paint properties so class-colored charts render; `url()` paint is still dropped.
 - HTML exports start with a no-fetch CSP meta tag; pages over 2 MB are rejected; SVG roots/elements/text/nesting are capped.

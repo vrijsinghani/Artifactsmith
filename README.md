@@ -255,6 +255,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_MAX_OUTPUT_BYTES` | 50 MiB | Rendered output cap. |
 | `AM_RENDER_TIMEOUT` | `120` | Seconds for one renderer call. |
 | `AM_BUILD_TIMEOUT` | `900` | Seconds for the whole job. |
+| `AM_EDIT_PATCH_TIMEOUT_S` | `45` | Seconds for the edit patch call. A timeout falls back to a full rewrite. |
 | `AM_MAX_BUILDS` | `2` | Concurrent workers. |
 | `AM_BUILDS_PER_HOUR` | `20` | Per-token quota. |
 | `AM_HOST` | `127.0.0.1` | Listen address for `artifactsmith serve`. Compose/image set `0.0.0.0` in-container. |

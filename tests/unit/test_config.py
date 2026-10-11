@@ -20,6 +20,13 @@ def test_get_renderer_rejects_unknown():
         raise AssertionError("expected ValueError")
 
 
+def test_edit_patch_timeout_defaults_to_45(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AM_EDIT_PATCH_TIMEOUT_S", raising=False)
+    assert Config().edit_patch_timeout_s == 45
+    monkeypatch.setenv("AM_EDIT_PATCH_TIMEOUT_S", "30")
+    assert Config().edit_patch_timeout_s == 30
+
+
 def test_setting_helpers(monkeypatch):
     monkeypatch.setenv("AM_TEST_INT", "9")
     assert _setting_int("AM_TEST_INT", 1) == 9

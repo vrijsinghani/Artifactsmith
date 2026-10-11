@@ -111,6 +111,8 @@ class Config:
     builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_BUILDS_PER_HOUR", 20, minimum=1))
     build_timeout_s: int = field(default_factory=lambda: _setting_int("AM_BUILD_TIMEOUT", 900, minimum=1))
     render_timeout_s: int = field(default_factory=lambda: _setting_int("AM_RENDER_TIMEOUT", 120, minimum=1))
+    # A stalled edit patch falls back while the job still has budget for a full rewrite.
+    edit_patch_timeout_s: int = field(default_factory=lambda: _setting_int("AM_EDIT_PATCH_TIMEOUT_S", 45, minimum=1))
     max_output_bytes: int = field(
         default_factory=lambda: _setting_int("AM_MAX_OUTPUT_BYTES", 50 * 1024 * 1024, minimum=1)
     )
