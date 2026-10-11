@@ -32,7 +32,9 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{36,}\b")),
     ("github_fine_grained", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
-    ("openai_sk", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
+    # Optional proj/svcacct/admin prefix. Bodies may include "_" and "-".
+    # The 20-character floor keeps short prose ("sk-learn") from matching.
+    ("openai_sk", re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b")),
 ]
 
 # generic_bearer is not a length floor: short hex and base64 are real tokens, and
