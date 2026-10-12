@@ -716,6 +716,44 @@ def test_auto_bar_chart_follows_a_short_number_table():
     assert "$1,998" in aria_label("bar", "", ["A"], [1998], "$")
 
 
+def test_metric_labels_ignore_substrings_and_blank_units_are_not_money():
+    from artifactsmith.layout.chart import aria_label
+    from artifactsmith.layout.tables import _METRIC_LABEL, _metric_label
+
+    assert _METRIC_LABEL.search("Corporate") is None
+    assert _METRIC_LABEL.search("Wholesale") is None
+    assert _metric_label("Paid search") is False
+    assert _metric_label("Corporate") is False
+    assert _metric_label("Wholesale") is False
+    assert _metric_label("Rebate rate") is True
+    assert _metric_label("Invoices") is True
+
+    for header in ("Corporate", "Wholesale", "Paid search"):
+        plain = _page(["Shop", header], [["North", "10"], ["South", "20"], ["East", "30"]])
+        assert 'class="asl-chart"' not in plain
+
+    invoices = _page(["Shop", "Invoices"], [["North", "10"], ["South", "20"], ["East", "30"]])
+    assert invoices.count('class="asl-chart"') == 1
+    names = _page(
+        ["Channel", "Revenue"],
+        [["Corporate", "$1,200"], ["Wholesale", "$900"], ["Paid search", "$800"]],
+    )
+    assert names.count('class="asl-chart"') == 1
+    assert "$1,200" in names and "Wholesale" in names
+
+    priced = _page(
+        ["Product", "Total", "Price"],
+        [["A", "12", "$4"], ["B", "3", "$9"], ["C", "8", "$2"]],
+    )
+    assert priced.count('class="asl-chart"') == 1
+    priced_label = priced.split('aria-label="', 1)[1].split('"', 1)[0]
+    assert "$4" in priced_label and "12" not in priced_label
+
+    clicks = aria_label("bar", "", ["Ads"], [412], "clicks")
+    assert "412 clicks" in clicks
+    assert "412clicks" not in clicks
+
+
 def test_samples_render_without_notes():
     expectations = {
         "a-pmcc-watch.md": ("Hold both", 'colspan="8"', "Long-term call", "Confirmed", "nasdaq.com"),
@@ -904,7 +942,9 @@ _CELL_SPLITS = r"""new Promise((resolve) => {
       }
     }
     const root = document.documentElement;
-    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits}));
+    const wide = document.querySelector("table.scroll, pre, .asl-code");
+    const inner = !!wide && wide.scrollWidth > wide.clientWidth + 1;
+    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits, inner}));
   });
 })"""
 
@@ -1025,6 +1065,8 @@ def test_fast_pages_fit_a_phone_width():
                             assert isinstance(splits, list)
                             fresh = {word for word in splits if isinstance(word, str)} - allowed
                             assert not fresh, (style, name, width, sorted(fresh))
+                            if name == "phone" and width == 360:
+                                assert metrics["inner"] is True
                     finally:
                         sock.close()
                         try:

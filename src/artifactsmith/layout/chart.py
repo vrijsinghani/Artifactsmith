@@ -103,8 +103,10 @@ def _fmt(value: float, unit: str) -> str:
         shown = f"{value:,.2f}"
     if unit in {"$", "€", "£", "¥"}:
         return f"{unit}{shown}"
-    if unit:
+    if unit == "%":
         return f"{shown}{unit}"
+    if unit:
+        return f"{shown} {unit}"
     return shown
 
 

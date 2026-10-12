@@ -138,7 +138,7 @@ _PALETTES: dict[str, dict[str, str]] = {
 }
 
 _BASE = """
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5;overflow-wrap:break-word}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5;overflow-wrap:break-word;overflow-x:clip}
 .asl-title,main{max-width:72rem;margin:0 auto;padding-left:1.25rem;padding-right:1.25rem;box-sizing:border-box}
 .asl-title{padding-top:1.25rem;margin-bottom:1.2rem}
 main{padding-top:0;padding-bottom:3rem}

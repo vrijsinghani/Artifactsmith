@@ -282,20 +282,21 @@ _ID_HEADER = re.compile(
     re.I,
 )
 _FACT_LABEL = re.compile(r"^(metrics?|measures?|fields?|items?|keys?)$", re.I)
-_QUANTITY_HEADER = re.compile(
+# Whole words only. Without the boundaries, Corporate matches "rate" and Wholesale matches "sales".
+_METRIC_WORDS = (
     r"amounts?|totals?|revenues?|billed|billing|costs?|prices?|fees?|paid|owed|rebates?|"
     r"counts?|qty|quantit(?:y|ies)|invoices?|members?|sales?|spend|balances?|hours?|"
-    r"rates?|taxes|tax|profits?|margins?|percents?|pct|figures?|values?|sums?",
-    re.I,
+    r"rates?|taxes|tax|profits?|margins?|percents?|pct|figures?|values?|sums?"
 )
+_METRIC_LABEL = re.compile(rf"\b(?:{_METRIC_WORDS})\b", re.I)
 # A row label is a measure only when every word is one (fillers ignored).
 # "Corporate" and "Paid search" are names; "Rebate rate" and "Invoices" are measures.
 _MEASURE_WORD = re.compile(
-    rf"^(?:{_QUANTITY_HEADER.pattern}|months?|days?|weeks?|years?|people|users?|ratios?|averages?|medians?)$",
+    rf"^(?:{_METRIC_WORDS}|months?|days?|weeks?|years?|people|users?|ratios?|averages?|medians?)$",
     re.I,
 )
 _FILLER_WORDS = frozenset({"a", "an", "and", "for", "of", "per", "the", "to"})
-_PRIMARY_MONEY = re.compile(r"billed|revenue|sales|totals?|amounts?|spend|costs?|paid|balance", re.I)
+_PRIMARY_MONEY = re.compile(r"\b(?:billed|revenue|sales|totals?|amounts?|spend|costs?|paid|balance)\b", re.I)
 _CURRENCY = frozenset("$€£¥")
 
 
@@ -342,9 +343,15 @@ def _amount_column(columns: list[tuple[str, list[str]]], amounts: list[int], wid
         if width == 2 and chosen != 1:
             return None
         return chosen
-    currency = [
-        index for index in amounts if (series := _amount_series(columns[index])) is not None and series[1] in _CURRENCY
-    ]
+    currency = []
+    for index in amounts:
+        series = _amount_series(columns[index])
+        if series is None:
+            continue
+        unit = series[1]
+        # A blank unit is not money: "" in "$€£¥" is True.
+        if unit and unit in _CURRENCY:
+            currency.append(index)
     if len(currency) == 1:
         return currency[0]
     pool = currency or amounts
@@ -357,6 +364,12 @@ def _amount_column(columns: list[tuple[str, list[str]]], amounts: list[int], wid
 def _mixed_measures(labels: list[str]) -> bool:
     """True when two or more row labels are measure names, as in a fact table."""
     return sum(1 for label in labels if _measure_label(label)) >= 2
+
+
+def _metric_label(header: str) -> bool:
+    """True when every word is a metric word. Paid search is a name, not a metric."""
+    words = [word for word in re.findall(r"[A-Za-z]+", header) if word.lower() not in _FILLER_WORDS]
+    return bool(words) and all(_METRIC_LABEL.fullmatch(word) for word in words)
 
 
 def _measure_label(label: str) -> bool:
@@ -403,7 +416,7 @@ def _amount_series(column: tuple[str, list[str]]) -> tuple[list[float], str] | N
     unit = symbols[0] if symbols and symbols[0] else ""
     if _all_years(values) or _id_like(values, unit):
         return None
-    if unit == "" and _QUANTITY_HEADER.search(header) is None:
+    if unit == "" and not _metric_label(header):
         return None
     return values, unit
 

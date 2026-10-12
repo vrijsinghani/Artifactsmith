@@ -12,6 +12,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Chart labels match whole words, so Corporate, Wholesale, and Paid search are names; a blank unit is not money; chart text reads "412 clicks".
 - Fast pages stay within a phone width without splitting short words; `AM_FAST_STYLES` can default named styles to fast; drop caps and charts skip code-heavy paragraphs, partial measure names, and non-currency columns.
 - Fast pages take on each style's own design. A table draws a bar chart for its one main amount when the page has none; mixed facts, years, IDs, and ranks stay tables.
 - Fast layout rendering runs in the killable child with the render timeout and output cap. Bracket runs stay linear, colspan stops at 12, and a table wider than 24 columns or 5,000 cells is clipped. Plain Markdown gains a hero or verdict band, a stat strip, status badges, and a single-line total row on a phone. `callout`, `tip`, and `info` are note aliases. A ` ```html ` fence stays code.
