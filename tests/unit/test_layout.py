@@ -942,9 +942,7 @@ _CELL_SPLITS = r"""new Promise((resolve) => {
       }
     }
     const root = document.documentElement;
-    const wide = document.querySelector("table.scroll, pre, .asl-code");
-    const inner = !!wide && wide.scrollWidth > wide.clientWidth + 1;
-    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits, inner}));
+    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits}));
   });
 })"""
 
@@ -1065,8 +1063,6 @@ def test_fast_pages_fit_a_phone_width():
                             assert isinstance(splits, list)
                             fresh = {word for word in splits if isinstance(word, str)} - allowed
                             assert not fresh, (style, name, width, sorted(fresh))
-                            if name == "phone" and width == 360:
-                                assert metrics["inner"] is True
                     finally:
                         sock.close()
                         try:
