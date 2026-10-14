@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS versions (
   mode TEXT,
   format TEXT,
   note TEXT,
+  requested_name TEXT,
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   PRIMARY KEY (artifact_id, version)
@@ -146,6 +147,8 @@ class DB:
             self.conn.execute("ALTER TABLE versions ADD COLUMN format TEXT")
         if "note" not in ver_cols:
             self.conn.execute("ALTER TABLE versions ADD COLUMN note TEXT")
+        if "requested_name" not in ver_cols:
+            self.conn.execute("ALTER TABLE versions ADD COLUMN requested_name TEXT")
         share_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(shares)").fetchall()}
         if "pinned" not in share_cols:
             self.conn.execute("ALTER TABLE shares ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")

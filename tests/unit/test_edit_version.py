@@ -99,6 +99,74 @@ async def test_edit_history_and_versions_stay_full_documents(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
+async def test_edit_adopts_a_changed_page_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifactsmith.service.Store", _FakeStore)
+    svc = Service()
+    renamed = PAGE.replace("<title>Stores</title>", "<title>Vinnie draft</title>")
+
+    async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
+        if "===PATCH===" in system:
+            return "not a patch"
+        if "<base_file>" in user:
+            return _full(renamed)
+        return _full(PAGE)
+
+    monkeypatch.setattr("artifactsmith.builder.llm.call", fake_call)
+    principal = {"id": "tok_1", "name": "agent", "workspace": "alpha", "perms": {"create", "read", "edit"}}
+    created = svc.create(
+        principal,
+        slug="stores",
+        display_name="Stores",
+        verbatim_request="Show the store counts.",
+        format="html",
+    )
+    await svc._run_job(created["job_id"])
+    edited = svc.edit(
+        principal,
+        artifact_id=created["artifact_id"],
+        base_version=1,
+        verbatim_request="Retitle the page for Vinnie.",
+    )
+    await svc._run_job(edited["job_id"])
+    info = svc.inspect(principal, created["artifact_id"])
+    assert info["title"] == "Vinnie draft"
+    assert info["slug"] == "stores"
+
+
+@pytest.mark.asyncio
+async def test_edit_explicit_display_name_renames_the_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifactsmith.service.Store", _FakeStore)
+    svc = Service()
+
+    async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
+        if "===PATCH===" in system:
+            return "not a patch"
+        return _full(PAGE)
+
+    monkeypatch.setattr("artifactsmith.builder.llm.call", fake_call)
+    principal = {"id": "tok_1", "name": "agent", "workspace": "alpha", "perms": {"create", "read", "edit"}}
+    created = svc.create(
+        principal,
+        slug="stores",
+        display_name="Stores",
+        verbatim_request="Show the store counts.",
+        format="html",
+    )
+    await svc._run_job(created["job_id"])
+    edited = svc.edit(
+        principal,
+        artifact_id=created["artifact_id"],
+        base_version=1,
+        verbatim_request="Keep the page and rename the card.",
+        display_name="For Vinnie",
+    )
+    await svc._run_job(edited["job_id"])
+    info = svc.inspect(principal, created["artifact_id"])
+    assert info["title"] == "For Vinnie"
+    assert info["slug"] == "stores"
+
+
+@pytest.mark.asyncio
 async def test_edit_can_change_format_without_patching_the_old_file(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("artifactsmith.service.Store", _FakeStore)
     svc = Service()

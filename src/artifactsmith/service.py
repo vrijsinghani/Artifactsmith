@@ -12,6 +12,7 @@ import re
 import secrets
 import time
 from datetime import UTC, datetime
+from html import escape, unescape
 from typing import Any
 
 from . import builder
@@ -19,7 +20,7 @@ from .build_mode import ModeError, parse_build_mode
 from .config import CFG
 from .db import DB, jloads
 from .renderers import EXTENSION, SUPPORTED_FORMATS
-from .renderers.safety import strip_ooxml_controls
+from .renderers.safety import check_fields, strip_ooxml_controls
 from .store import Store
 from .styles import DEFAULT_STYLE, StyleError, parse_style
 
@@ -33,6 +34,118 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 SOURCE_CAP_BYTES = 200 * 1024
 VERBATIM_CAP_CHARS = 32_000
 DISPLAY_NAME_CAP_CHARS = 200
+_HTML_TITLE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
+_HTML_H1 = re.compile(r"<h1\b[^>]*>(.*?)</h1>", re.I | re.S)
+_MD_HEADING = re.compile(r"^#\s+(.+?)\s*$", re.M)
+_TAGS = re.compile(r"<[^>]+>")
+_TEXT_NAMES = (".html", ".md", ".txt")
+
+
+def _plain_fragment(fragment: str) -> str:
+    return " ".join(_TAGS.sub("", unescape(fragment)).split())
+
+
+def page_title(files: dict[str, bytes], primary: str) -> str | None:
+    """Title stored in a rendered page: HTML title, else the first Markdown heading."""
+    ordered: list[tuple[str, bytes]] = []
+    if primary in files:
+        ordered.append((primary, files[primary]))
+    for name in ("index.html", "document.md", "content.md"):
+        if name in files and name != primary:
+            ordered.append((name, files[name]))
+    for name, data in ordered:
+        if not name.endswith(_TEXT_NAMES):
+            continue
+        text = data.decode("utf-8", errors="replace")
+        if name.endswith(".html"):
+            found = _html_title(text)
+        else:
+            found = _md_heading(text)
+        if found:
+            return found
+    return None
+
+
+def _html_title(text: str) -> str | None:
+    match = _HTML_TITLE.search(text)
+    if match:
+        plain = _plain_fragment(match.group(1))
+        if plain:
+            return plain
+    match = _HTML_H1.search(text)
+    if match:
+        plain = _plain_fragment(match.group(1))
+        if plain:
+            return plain
+    return None
+
+
+_OG_TITLE = re.compile(r"""<meta\b[^>]*property=["']og:title["'][^>]*>""", re.I)
+
+
+def stamp_share_title(html: bytes, title: str) -> bytes:
+    """Set the served page's title and Open Graph title without touching stored bytes."""
+    safe = escape(title, quote=True)
+    text = html.decode("utf-8", errors="replace")
+    title_tag = f"<title>{safe}</title>"
+    if _HTML_TITLE.search(text):
+        text = _HTML_TITLE.sub(lambda _match: title_tag, text, count=1)
+    else:
+        text = re.sub(r"(?i)<head[^>]*>", lambda match: match.group(0) + "\n" + title_tag, text, count=1)
+    og = f'<meta property="og:title" content="{safe}">'
+    if _OG_TITLE.search(text):
+        text = _OG_TITLE.sub(lambda _match: og, text, count=1)
+    else:
+        text = re.sub(r"(?i)<head[^>]*>", lambda match: match.group(0) + "\n" + og, text, count=1)
+    return text.encode("utf-8")
+
+
+def _md_heading(text: str) -> str | None:
+    fenced = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        match = _MD_HEADING.match(line)
+        if not match:
+            continue
+        heading = match.group(1).strip()
+        if heading:
+            return heading
+    return None
+
+
+def resolved_display_name(
+    requested: str | None,
+    current: str,
+    slug: str,
+    files: dict[str, bytes],
+    primary: str,
+    *,
+    adopt_page_title: bool,
+) -> str | None:
+    """Name to store when a version finishes. None means leave the artifact name.
+
+    A caller-supplied name wins. A changed page title is used only for a later
+    version, so the first publish keeps the name the caller set.
+    """
+    explicit = (requested or "").strip()
+    if explicit:
+        return explicit
+    if not adopt_page_title:
+        return None
+    found = page_title(files, primary)
+    if not found or found == current:
+        return None
+    try:
+        return Service._validate_display_name(found, slug)
+    except AMError:
+        return None
+
+
 IDEMPOTENCY_KEY_CAP_CHARS = 128
 HISTORY_CAP_ENTRIES = 50
 HISTORY_CAP_CHARS = 64_000
@@ -251,6 +364,31 @@ class Service:
         if len(name) > DISPLAY_NAME_CAP_CHARS:
             raise AMError(f"display_name exceeds {DISPLAY_NAME_CAP_CHARS} characters")
         return name
+
+    def _requested_name(self, display_name: str | None, slug: str) -> str | None:
+        """Blank means the page title may rename the artifact when the version finishes."""
+        if display_name is None or not str(display_name).strip():
+            return None
+        name = self._validate_display_name(str(display_name), slug)
+        problems = check_fields(
+            name,
+            block_private_links=CFG.block_private_links,
+            allowed_link_domains=CFG.allowed_link_domains,
+            max_chars=DISPLAY_NAME_CAP_CHARS,
+            label="display_name",
+        )
+        if problems:
+            raise AMError(problems[0])
+        return name
+
+    def latest_done_version(self, artifact_id: str) -> int | None:
+        row = self.db.one(
+            "SELECT MAX(version) AS version FROM versions WHERE artifact_id=? AND status='done'",
+            artifact_id,
+        )
+        if not row or row["version"] is None:
+            return None
+        return int(row["version"])
 
     @staticmethod
     def _model(model: str | None) -> str:
@@ -475,6 +613,7 @@ class Service:
         idempotency_key: str | None = None,
         style: str | None = None,
         format: str | None = None,
+        display_name: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "edit")
         a = self.get_artifact(principal, artifact_id)
@@ -496,6 +635,7 @@ class Service:
         except StyleError as e:
             raise AMError(str(e)) from e
         fmt = requested_format(str(a.get("format") or ""), format)
+        requested_name = self._requested_name(display_name, str(a["slug"]))
         bundle = self._source(source_content, source_files)
         fingerprint = self._request_fingerprint(
             {
@@ -508,6 +648,7 @@ class Service:
                 "source_files": source_files,
                 "style": style,
                 "format": fmt,
+                "display_name": requested_name,
             }
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
@@ -553,7 +694,7 @@ class Service:
             )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,style,format,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "source_key,style,format,requested_name,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     a["id"],
                     newv,
@@ -565,6 +706,7 @@ class Service:
                     skey,
                     style,
                     fmt,
+                    requested_name,
                     principal["name"],
                     t,
                 ),
@@ -859,11 +1001,21 @@ class Service:
                 }
             )
         primary_sha = builder.sha256(res.files[res.primary])
+        current_name = str(a.get("display_name") or "")
+        rename = resolved_display_name(
+            str(v.get("requested_name") or "") or None,
+            current_name,
+            str(a.get("slug") or ""),
+            res.files,
+            res.primary,
+            adopt_page_title=bool(v.get("base_version")),
+        )
+        shown_name = rename if rename and rename != current_name else current_name
         manifest = {
             "artifact_id": a["id"],
             "workspace": a["workspace"],
             "slug": a["slug"],
-            "display_name": a["display_name"],
+            "display_name": shown_name,
             "kind": a["kind"],
             "format": fmt,
             "version": v["version"],
@@ -904,7 +1056,16 @@ class Service:
                 ),
             )
             c.execute("UPDATE jobs SET status='done', progress='done', finished_at=? WHERE id=?", (now(), jid))
-            c.execute("UPDATE artifacts SET format=?, updated_at=? WHERE id=?", (fmt, now(), a["id"]))
+            latest_row = c.execute(
+                "SELECT MAX(version) AS version FROM versions WHERE artifact_id=? AND status='done'",
+                (a["id"],),
+            ).fetchone()
+            # This version is already marked done above. A newer done version keeps the name it set.
+            is_latest = latest_row is not None and int(latest_row["version"]) == int(v["version"])
+            c.execute(
+                "UPDATE artifacts SET display_name=?, format=?, updated_at=? WHERE id=?",
+                (shown_name if is_latest else current_name, fmt, now(), a["id"]),
+            )
         self.progress.pop(jid, None)
         self.audit_by_client(j["client"], "build_done", artifact_id=a["id"], version=v["version"], sha256=primary_sha)
 

@@ -24,7 +24,7 @@ from . import __version__
 from .config import CFG
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .renderers import MIME, SOURCE_NAME
-from .service import AMError, Service, unsign
+from .service import AMError, Service, page_title, stamp_share_title, unsign
 from .web.routes import build_pages
 
 SVC: Service | None = None
@@ -207,6 +207,7 @@ def edit(
     style: str | None = None,
     idempotency_key: str | None = None,
     format: str | None = None,
+    display_name: str | None = None,
 ) -> dict[str, Any]:
     """Build a new version from base_version (the latest done version) using the user's exact change request.
     Returns a conflict if base_version is stale. Inspect, then edit from the latest.
@@ -223,6 +224,10 @@ def edit(
     artifact's format updates. The artifact id and slug stay the same. Older versions keep the format
     they were built with.
 
+    display_name (optional) is the card title. When this version finishes, that name replaces the
+    artifact's display_name. Omit it and a changed page title (the HTML title, or the first Markdown
+    heading) becomes the card title instead. The slug stays the same.
+
     Ends as needs_input with a missing message if the change needs facts that were not supplied."""
     return _run(
         _svc().edit,
@@ -237,6 +242,7 @@ def edit(
         idempotency_key=idempotency_key,
         style=style,
         format=format,
+        display_name=display_name,
     )
 
 
@@ -280,8 +286,10 @@ def publish(
     pass artifact_id and base_version (the latest done version). Omit format on an html or markdown
     artifact and markdown with no html is markdown; html with no markdown is html; both fields keep
     the artifact's format. A pdf, docx, or xlsx artifact keeps that format when format is omitted and
-    the new page is markdown. Pass format to choose html, markdown, pdf, docx, or xlsx. The artifact
-    id and slug stay the same. Older versions keep the format they were published with.
+    the new page is markdown. Pass format to choose html, markdown, pdf, docx, or xlsx. Pass display_name
+    to rename the card when this version finishes. Omit display_name and a changed page title (the HTML
+    title, or the first Markdown heading) becomes the card title. The artifact id and slug stay the same.
+    Older versions keep the format they were published with.
 
     The page runs the same safety pipeline as model output: size caps, secret scan, private-link checks,
     the sanitizer, the renderer for format (including PDF, DOCX, and XLSX), and the final sweep. A rejected
@@ -564,13 +572,17 @@ async def _open_page(
         return _not_found()
     if raw:
         return _serve(data, ct, name, attachment=attachment)
+    latest = await asyncio.to_thread(_svc().latest_done_version, aid)
+    shown = title if latest == version else (page_title({name: data}, name) or title)
     if is_markdown_primary(name, ct):
         try:
-            html = await asyncio.to_thread(markdown_share_html, data, title=title, style=style)
+            html = await asyncio.to_thread(markdown_share_html, data, title=shown, style=style)
         except MarkdownViewError:
             logging.getLogger("artifactsmith").warning("markdown view refused artifact=%s version=%s", aid, version)
             return _not_found()
-        return _serve(html, MIME["html"], SOURCE_NAME["html"], attachment=False)
+        return _serve(stamp_share_title(html, shown), MIME["html"], SOURCE_NAME["html"], attachment=False)
+    if name.endswith(".html") or (ct or "").lower().startswith("text/html"):
+        return _serve(stamp_share_title(data, shown), ct, name, attachment=False)
     return _serve(data, ct, name, attachment=False)
 
 

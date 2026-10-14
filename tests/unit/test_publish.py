@@ -16,7 +16,7 @@ from artifactsmith.config import CFG
 from artifactsmith.db import DB
 from artifactsmith.renderers.base import RenderOutput
 from artifactsmith.renderers.safety import METADATA_MAX_CHARS
-from artifactsmith.service import ALL_PERMS, AMError, Service
+from artifactsmith.service import ALL_PERMS, AMError, Service, page_title
 
 
 class FakeStore:
@@ -1051,7 +1051,159 @@ def test_note_column_migrates(tmp_path: Path) -> None:
     db = DB(path)
     cols = {str(row[1]) for row in db.conn.execute("PRAGMA table_info(versions)").fetchall()}
     assert "note" in cols
+    assert "requested_name" in cols
     row = db.one("SELECT verbatim_request, note FROM versions WHERE artifact_id=?", "art_old")
     assert row is not None
     assert row["verbatim_request"] == "Published a finished page."
     assert row["note"] is None
+
+
+def _titled(title: str) -> str:
+    return f"<html><head><title>{title}</title></head><body><h1>{title}</h1><p>Body</p></body></html>"
+
+
+def _share_html(svc: Service, artifact_id: str, version: int | None = None) -> str:
+    from starlette.testclient import TestClient
+
+    import artifactsmith.server as server
+
+    shared = svc.share(_principal(), artifact_id, version=version)
+    sid = str(shared["url"]).rstrip("/").rsplit("/", 1)[-1]
+    server.SVC = svc
+    try:
+        page = TestClient(server.preview_app).get(f"/s/{sid}/")
+    finally:
+        server.SVC = None
+    assert page.status_code == 200
+    return page.text
+
+
+@pytest.mark.asyncio
+async def test_publish_version_adopts_a_changed_page_title(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    old = "V11 Appendix B draft answers v2 (for Vikas, not sent)"
+    new = "Appendix B answers for Vinnie (draft)"
+    first = svc.publish(principal, display_name=old, slug="appendix-b", html=_titled(old))
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        html=_titled(new),
+    )
+    await svc._run_job(str(second["job_id"]))
+    art = svc.get_artifact(principal, str(first["artifact_id"]))
+    assert art["display_name"] == new
+    assert art["slug"] == "appendix-b"
+    assert svc.list(principal)["artifacts"][0]["title"] == new
+    version = svc.db.must("SELECT * FROM versions WHERE artifact_id=? AND version=2", art["id"])
+    assert svc.card(art, version)["title"] == new
+    html = _share_html(svc, str(art["id"]))
+    assert f"<title>{new}</title>" in html
+    assert f'property="og:title" content="{new}"' in html
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_publish_version_explicit_display_name_beats_the_page_title(
+    svc: Service, no_model: dict[str, int]
+) -> None:
+    principal = _principal()
+    first = svc.publish(principal, display_name="Old card", slug="keep-slug", html=_titled("Old card"))
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        display_name="Card name",
+        html=_titled("Other title"),
+    )
+    await svc._run_job(str(second["job_id"]))
+    art = svc.get_artifact(principal, str(first["artifact_id"]))
+    assert art["display_name"] == "Card name"
+    assert art["slug"] == "keep-slug"
+    html = _share_html(svc, str(art["id"]))
+    assert "<title>Card name</title>" in html
+    assert 'property="og:title" content="Card name"' in html
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_publish_version_keeps_the_name_when_the_title_is_unchanged(
+    svc: Service, no_model: dict[str, int]
+) -> None:
+    principal = _principal()
+    first = svc.publish(principal, display_name="Same", slug="same-name", html=_titled("Same"))
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        html=_titled("Same"),
+    )
+    await svc._run_job(str(second["job_id"]))
+    art = svc.get_artifact(principal, str(first["artifact_id"]))
+    assert art["display_name"] == "Same"
+    assert art["slug"] == "same-name"
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_publish_does_not_rename(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(principal, display_name="Stay", slug="stay-name", html=_titled("Stay"))
+    await svc._run_job(str(first["job_id"]))
+    bad = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        display_name="Should not stick",
+        html=_titled("Should not stick") + _secret(),
+    )
+    assert "possible secret" in await _job_error(svc, bad)
+    art = svc.get_artifact(principal, str(first["artifact_id"]))
+    assert art["display_name"] == "Stay"
+    assert art["slug"] == "stay-name"
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_first_publish_keeps_the_caller_name(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(principal, display_name="Caller card", slug="caller-card", html=_titled("Page heading"))
+    await svc._run_job(str(first["job_id"]))
+    art = svc.get_artifact(principal, str(first["artifact_id"]))
+    assert art["display_name"] == "Caller card"
+    assert art["slug"] == "caller-card"
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_pinned_share_keeps_the_version_title(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    old = "V11 Appendix B draft answers v2 (for Vikas, not sent)"
+    new = "Appendix B answers for Vinnie (draft)"
+    first = svc.publish(principal, display_name=old, slug="appendix-pin", html=_titled(old))
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        html=_titled(new),
+    )
+    await svc._run_job(str(second["job_id"]))
+    aid = str(first["artifact_id"])
+    older = _share_html(svc, aid, version=1)
+    latest = _share_html(svc, aid)
+    assert f"<title>{old}</title>" in older
+    assert f'property="og:title" content="{old}"' in older
+    assert f"<title>{new}</title>" in latest
+    assert f'property="og:title" content="{new}"' in latest
+    assert no_model["n"] == 0
+
+
+def test_page_title_reads_the_page_not_a_fence() -> None:
+    fenced = {"document.md": b"```\n# not a title\n```\n\n# Real title\n"}
+    assert page_title(fenced, "document.md") == "Real title"
+    sidecar = {"document.pdf": b"%PDF", "content.md": b"# Sheet title\n\nrow\n"}
+    assert page_title(sidecar, "document.pdf") == "Sheet title"

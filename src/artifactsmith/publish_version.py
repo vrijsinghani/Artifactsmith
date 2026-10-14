@@ -51,8 +51,7 @@ def publish_version(
         current=str(artifact.get("format") or ""),
     )
     require_body(fmt, html, markdown)
-    if display_name is not None and display_name.strip() and display_name.strip() != artifact["display_name"]:
-        raise AMError("display_name is fixed on the artifact")
+    requested_name = svc._requested_name(display_name, str(artifact["slug"]))
     chosen = _kept_style(svc, artifact["id"], style)
     fingerprint = svc._request_fingerprint(
         {
@@ -66,6 +65,7 @@ def publish_version(
             "assumptions": assumptions,
             "style": chosen,
             **({"note": note} if note else {}),
+            "display_name": requested_name,
         }
     )
     prior = svc._idem_lookup(principal, idempotency_key, fingerprint)
@@ -94,6 +94,7 @@ def publish_version(
             t=t,
             format=fmt,
             note=note,
+            requested_name=requested_name,
         )
         insert_job(c, jid=jid, aid=artifact["id"], version=newv, client=principal["id"], t=t)
         c.execute("UPDATE artifacts SET updated_at=? WHERE id=?", (t, artifact["id"]))

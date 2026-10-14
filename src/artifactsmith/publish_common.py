@@ -238,10 +238,12 @@ def insert_version(
     t: float,
     format: str,
     note: str = "",
+    requested_name: str | None = None,
 ) -> None:
     c.execute(
         "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-        "source_key,publish_json,style,format,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "source_key,publish_json,style,format,note,requested_name,created_by,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             aid,
             version,
@@ -255,6 +257,7 @@ def insert_version(
             style,
             format,
             note or None,
+            requested_name,
             actor,
             t,
         ),
