@@ -36,7 +36,8 @@ INSTRUCTIONS = (
     "in publish is only for a page you designed yourself: it is shown exactly as given, with no "
     "ArtifactSmith styling. Pass format for pdf, docx, or xlsx. "
     "create and edit queue a background build and return artifact_id, version, and job_id immediately. "
-    "publish skips the model and runs the same safety checks. Call status with wait (up to 90 seconds) "
+    "publish skips the model and runs the same safety checks. An optional note is stored and shown by inspect. "
+    "include_content on inspect reads that version's text back. Call status with wait (up to 90 seconds) "
     "until the job is done, failed, or needs_input, then show the card (title, version, preview_url, "
     "assumptions). Pass the user's exact words in verbatim_request. Pass researched content in "
     "source_content or source_files. If a needed fact is missing, the job ends as needs_input with a short "
@@ -254,11 +255,14 @@ def publish(
     workspace: str | None = None,
     style: str | None = None,
     idempotency_key: str | None = None,
+    note: str | None = None,
 ) -> dict[str, Any]:
     """Store a page you have already finished. Use this when you already have the finished page.
     No model call. Returns artifact_id, version, and job_id immediately. Then call status(job_id, wait=90).
     When the job is done, status and inspect list safety_changes for each safety edit that changed the page.
     HTML publish does not turn bare URLs into links. The document title is stored as given and escaped in the page.
+    note is optional. Inspect shows a non-empty note beside "Published a finished page." It is not the
+    text a later edit sends to the model. A secret, private link, or over-long note is rejected before a row exists.
 
     Want a styled page? Pass Markdown and it is styled automatically. Omit format when you pass
     markdown and no html. style is house, bold, editorial, playful, terminal, or swiss (default house)
@@ -303,6 +307,7 @@ def publish(
         workspace=workspace,
         idempotency_key=idempotency_key,
         style=style,
+        note=note,
     )
 
 

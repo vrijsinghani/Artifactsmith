@@ -35,6 +35,7 @@ def publish_version(
     idempotency_key: str | None,
     style: str | None,
     display_name: str | None,
+    note: str = "",
 ) -> dict[str, Any]:
     artifact = svc.get_artifact(principal, artifact_id)
     if workspace is not None and workspace != artifact["workspace"]:
@@ -64,6 +65,7 @@ def publish_version(
             "summary": summary,
             "assumptions": assumptions,
             "style": chosen,
+            **({"note": note} if note else {}),
         }
     )
     prior = svc._idem_lookup(principal, idempotency_key, fingerprint)
@@ -91,6 +93,7 @@ def publish_version(
             actor=principal["name"],
             t=t,
             format=fmt,
+            note=note,
         )
         insert_job(c, jid=jid, aid=artifact["id"], version=newv, client=principal["id"], t=t)
         c.execute("UPDATE artifacts SET updated_at=? WHERE id=?", (t, artifact["id"]))

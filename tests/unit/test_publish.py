@@ -7,12 +7,15 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
-from artifactsmith.builder import BuildError, publish_page, sanitize_html
+from artifactsmith.builder import BuildError, BuildResult, publish_page, sanitize_html
 from artifactsmith.config import CFG
+from artifactsmith.db import DB
 from artifactsmith.renderers.base import RenderOutput
+from artifactsmith.renderers.safety import METADATA_MAX_CHARS
 from artifactsmith.service import ALL_PERMS, AMError, Service
 
 
@@ -922,3 +925,99 @@ async def test_publish_markdown_lists_heading_and_link(svc: Service, no_model: d
     status = await svc.status(principal, job_id=str(created["job_id"]))
     assert "added_heading" in status["safety_changes"]
     assert "linkified_url" in status["safety_changes"]
+
+
+def test_publish_note_is_on_inspect_and_rejected_before_a_row(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
+    principal = _principal()
+    html = "<html><body><p>ok</p></body></html>"
+    created = svc.publish(principal, display_name="Harbor", html=html, note="checked the harbor table")
+    inspected = svc.inspect(principal, str(created["artifact_id"]))
+    assert inspected["history"][0]["verbatim_request"] == "Published a finished page."
+    assert inspected["history"][0]["note"] == "checked the harbor table"
+    omitted = svc.publish(principal, display_name="Plain", slug="plain-note", html=html)
+    plain = svc.inspect(principal, str(omitted["artifact_id"]))
+    assert "note" not in plain["history"][0]
+    assert plain["history"][0]["verbatim_request"] == "Published a finished page."
+    with pytest.raises(AMError, match="exceeds"):
+        svc.publish(principal, display_name="Long", html=html, note="x" * (METADATA_MAX_CHARS + 1))
+    with pytest.raises(AMError, match="possible secret"):
+        svc.publish(principal, display_name="Secret", html=html, note="sk-" + ("a" * 24))
+    with pytest.raises(AMError, match="private or local link host"):
+        svc.publish(principal, display_name="Local", html=html, note="see http://127.0.0.1/admin")
+    monkeypatch.setattr(CFG, "allowed_link_domains", ["example.com"])
+    with pytest.raises(AMError, match="not on allow-list"):
+        svc.publish(principal, display_name="Offlist", html=html, note="see https://evil.test/x")
+    rows = svc.db.one("SELECT COUNT(*) AS n FROM versions")
+    assert rows is not None
+    assert rows["n"] == 2
+
+
+def test_publish_note_is_part_of_the_idempotency_fingerprint(svc: Service) -> None:
+    principal = _principal()
+    html = "<html><body><p>same</p></body></html>"
+    first = svc.publish(principal, display_name="Same", slug="noted", html=html, note="one", idempotency_key="kn")
+    with pytest.raises(AMError, match="idempotency_key was already used"):
+        svc.publish(principal, display_name="Same", slug="noted", html=html, note="two", idempotency_key="kn")
+    replay = svc.publish(principal, display_name="Same", slug="noted", html=html, note="one", idempotency_key="kn")
+    assert replay["job_id"] == first["job_id"]
+    plain = svc.publish(principal, display_name="Plain", slug="plain-fp", html=html, idempotency_key="kp")
+    blank = svc.publish(principal, display_name="Plain", slug="plain-fp", html=html, note="   ", idempotency_key="kp")
+    assert blank["idempotent_replay"] is True
+    assert blank["job_id"] == plain["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_publish_note_stays_out_of_the_next_edit(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="Harbor",
+        html="<html><body><p>ok</p></body></html>",
+        note="checked the harbor table",
+    )
+    await svc._run_job(str(created["job_id"]))
+    seen: dict[str, list[str]] = {}
+
+    async def fake_build(**kw: object) -> BuildResult:
+        history = kw.get("history")
+        seen["history"] = list(history) if isinstance(history, list) else []
+        return BuildResult(
+            files={"index.html": b"<html><body><p>next</p></body></html>"},
+            primary="index.html",
+            assumptions=[],
+            summary="next",
+            model="m",
+        )
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", fake_build)
+    edited = svc.edit(
+        principal,
+        artifact_id=str(created["artifact_id"]),
+        base_version=1,
+        verbatim_request="tweak the page",
+    )
+    await svc._run_job(str(edited["job_id"]))
+    assert seen["history"] == ["Published a finished page."]
+    assert "checked the harbor table" not in seen["history"]
+
+
+def test_note_column_migrates(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE versions (artifact_id TEXT, version INTEGER, verbatim_request TEXT NOT NULL, "
+        "status TEXT, job_id TEXT, created_by TEXT, created_at REAL)"
+    )
+    conn.execute(
+        "INSERT INTO versions (artifact_id, version, verbatim_request, status, job_id, created_by, created_at) "
+        "VALUES ('art_old', 1, 'Published a finished page.', 'done', 'job_old', 'agent', 0)"
+    )
+    conn.commit()
+    conn.close()
+    db = DB(path)
+    cols = {str(row[1]) for row in db.conn.execute("PRAGMA table_info(versions)").fetchall()}
+    assert "note" in cols
+    row = db.one("SELECT verbatim_request, note FROM versions WHERE artifact_id=?", "art_old")
+    assert row is not None
+    assert row["verbatim_request"] == "Published a finished page."
+    assert row["note"] is None

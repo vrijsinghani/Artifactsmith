@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from .builder import PUBLISHED_MODEL
+from .config import CFG
 from .renderers import safety
 from .renderers.safety import CONTENT_MAX_CHARS
 from .service import AMError, Service, requested_format
@@ -83,6 +84,26 @@ def _reject_long_metadata(text: str) -> None:
     limit = safety.METADATA_MAX_CHARS
     if len(text) > limit:
         raise AMError(f"metadata exceeds {limit} characters")
+
+
+def note_text(value: str | None) -> str:
+    """Optional publish note. Rejected before a version row exists."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise AMError("note must be a string")
+    text = value.strip()
+    if not text:
+        return ""
+    problems = safety.check_fields(
+        text,
+        block_private_links=CFG.block_private_links,
+        allowed_link_domains=CFG.allowed_link_domains,
+        label="note",
+    )
+    if problems:
+        raise AMError("; ".join(problems))
+    return text
 
 
 def summary_text(value: str | None) -> str:
@@ -216,10 +237,11 @@ def insert_version(
     actor: str,
     t: float,
     format: str,
+    note: str = "",
 ) -> None:
     c.execute(
         "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-        "source_key,publish_json,style,format,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "source_key,publish_json,style,format,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             aid,
             version,
@@ -232,6 +254,7 @@ def insert_version(
             payload,
             style,
             format,
+            note or None,
             actor,
             t,
         ),

@@ -610,6 +610,7 @@ class Service:
         workspace: str | None = None,
         idempotency_key: str | None = None,
         style: str | None = None,
+        note: str | None = None,
     ) -> dict[str, Any]:
         """Queue a finished page. The worker skips the model and runs the output checks."""
         from .publishing import admit_publish
@@ -629,6 +630,7 @@ class Service:
             workspace=workspace,
             idempotency_key=idempotency_key,
             style=style,
+            note=note,
         )
 
     # ---------------- worker ----------------
@@ -1120,8 +1122,9 @@ class Service:
         self.require(principal, "read")
         a = self.get_artifact(principal, artifact_id)
         vs = self.db.all("SELECT * FROM versions WHERE artifact_id=? ORDER BY version", a["id"])
-        history = [
-            {
+        history = []
+        for x in vs:
+            row = {
                 "version": x["version"],
                 "base_version": x["base_version"],
                 "status": x["status"],
@@ -1134,8 +1137,10 @@ class Service:
                 "mode": x.get("mode") or "full",
                 "format": version_format(x, a),
             }
-            for x in vs
-        ]
+            stored_note = (x.get("note") or "").strip()
+            if stored_note:
+                row["note"] = stored_note
+            history.append(row)
         target = version or next((x["version"] for x in reversed(vs) if x["status"] == "done"), None)
         out = {
             "artifact_id": a["id"],

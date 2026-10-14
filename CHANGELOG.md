@@ -8,6 +8,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Added
 
 - My pages at `/app/` on the API origin. Paste a token to get an HttpOnly, SameSite=Strict session cookie (Secure when the public API URL is https). The page lists that workspace only, with search and a status filter, and a read-only detail page for versions and build jobs.
+- `inspect` takes optional `include_content`. When set, it returns the stored text of that version for the caller's workspace, capped at the same character limit as publish. PDF, DOCX, and XLSX return `content.md` and do not inline the binary.
+- `publish` takes an optional `note`. Inspect shows it beside `Published a finished page.` The note is not the sentence a later edit sends to the model.
 - `create` `mode=fast` renders a first HTML page from Markdown (`::: ` blocks) in the chosen style; `mode=full` stays the default (`AM_BUILD_MODE`).
 - `publish` stores a finished HTML or Markdown page without a model call, through the same safety checks, renderer, and version, share, and preview path as a build.
 
@@ -19,6 +21,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Publish Markdown with `format=markdown` to get a styled page (`style` defaults to house and is applied when the page is opened). Raw HTML is shown exactly as given. HTML with little or no CSS returns `warning`.
 - An existing public `/s/` link serves the latest done version of that artifact. Passing `version` or `pin` keeps a separate link on one version. The page is still 404 when the served file does not match its recorded sha256.
 - An inline screenshot (`data:image` png, jpeg, gif, webp, or avif, base64, on an `img` `src` or `srcset`, or a Markdown image) publishes and shows on the share page. Other `data:` URLs, including SVG, stay blocked. A bad or oversized image fails the job instead of dropping the picture quietly.
+- A published document title keeps its spaces. Markup in the title is escaped once in the page. An as-is HTML publish does not turn bare URLs into links. When the job is done, `status` and `inspect` list `safety_changes` for each safety edit that changed the page.
 - A shared or previewed markdown artifact opens as sanitized, house-styled HTML. The stored Markdown stays at `?raw=1` and `document.md`. Existing markdown artifacts render on open; their stored bytes and share hash are unchanged.
 - `publish` and `edit` may set a different supported `format` on a new version. The artifact id and slug stay the same. When that version finishes, the artifact's format updates. Older versions keep their own format. An unknown format is rejected.
 - A finished HTML document, or a request to publish HTML unchanged, stays on the full build when mode is omitted. Fast mode's HTML refusal tells the caller to use publish or mode=full.

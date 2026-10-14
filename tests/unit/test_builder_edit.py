@@ -219,7 +219,7 @@ async def test_sanitize_failure_on_a_patch_falls_back(monkeypatch: pytest.Monkey
     calls = {"n": 0}
     real = b.sanitize_html
 
-    def flaky(body: str) -> str:
+    def flaky(body: str, **_kwargs: object) -> str:
         calls["n"] += 1
         if calls["n"] == 1:
             raise HtmlSanitizeError("page too large")
@@ -291,7 +291,7 @@ async def test_create_sanitize_error_still_raises(monkeypatch: pytest.MonkeyPatc
     async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
         return _full("<html><body><p>ok</p></body></html>")
 
-    def explode(_body: str) -> str:
+    def explode(_body: str, **_kwargs: object) -> str:
         raise HtmlSanitizeError("page too large")
 
     monkeypatch.setattr(b.llm, "call", fake_call)

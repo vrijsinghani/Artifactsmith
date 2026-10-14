@@ -36,6 +36,7 @@ def publish_new(
     workspace: str | None,
     idempotency_key: str | None,
     style: str | None,
+    note: str = "",
 ) -> dict[str, Any]:
     ws = workspace or principal["workspace"]
     if not WS_RE.match(ws or ""):
@@ -67,6 +68,7 @@ def publish_new(
             "summary": summary,
             "assumptions": assumptions,
             "style": chosen,
+            **({"note": note} if note else {}),
         }
     )
     prior = svc._idem_lookup(principal, idempotency_key, fingerprint)
@@ -129,6 +131,7 @@ def publish_new(
             actor=principal["name"],
             t=t,
             format=fmt,
+            note=note,
         )
         insert_job(c, jid=jid, aid=aid, version=newv, client=principal["id"], t=t)
         idem_store(svc, c, principal, idempotency_key, fingerprint, result, t)
