@@ -4,7 +4,7 @@ You pick a format when you create an artifact. HTML is the default. Markdown, PD
 
 ## How a file is produced
 
-The model writes content. A renderer on the server turns that content into bytes. You do not get model-written code executed, and the renderer does not fetch the network. `publish` skips the model when you already have the finished page: HTML for `format=html`, Markdown for `markdown`, `pdf`, `docx`, and `xlsx`. That page uses this same renderer and the same checks.
+The model writes content. A renderer on the server turns that content into bytes. You do not get model-written code executed, and the renderer does not fetch the network. Want a styled page? Publish Markdown with `format=markdown` (house style by default, applied when the page is opened), or call `create` with `source_content`. Raw HTML in `publish` is shown exactly as given. `publish` skips the model: HTML for `format=html`, Markdown for `markdown`, `pdf`, `docx`, and `xlsx`. That page uses this same renderer and the same checks. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
 `artifactsmith.renderers.Renderer` is the contract.
 

@@ -121,7 +121,7 @@ Header: Authorization: Bearer asmb_…
 
 ## How it works
 
-Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link. When you already have the finished page, call `publish` instead of `create`: it stores that HTML or Markdown with no model call.
+Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link. Want a styled page? Publish Markdown with `format=markdown` (house style by default, applied when the page is opened), or call `create` with `source_content`. Raw HTML in `publish` is only for a page you designed yourself, and it is shown exactly as given.
 
 The server calls an OpenAI-compatible endpoint (up to two attempts when checks fail). The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. `publish` skips the model and runs the same checks and renderer. Call `status` (or `wait` up to 90 seconds) to get a private preview.
 
@@ -145,7 +145,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 
 ## Styles
 
-`create` and `edit` take an optional `style` for HTML: `house`, `bold`, `editorial`, `playful`, `terminal`, or `swiss`. The default is `AM_DEFAULT_STYLE` (usually `house`). Other formats accept `style` and ignore it. Omit `style` on `edit` to keep the last style.
+`create` and `edit` take an optional `style` for HTML: `house`, `bold`, `editorial`, `playful`, `terminal`, or `swiss`. The default is `AM_DEFAULT_STYLE` (usually `house`). On markdown, PDF, DOCX, and XLSX the model prompt does not use that visual style. A published markdown page is still shown in the recorded style when it is opened. Omit `style` on `edit` to keep the last style.
 
 `create` also takes `mode`: `full` (default, `AM_BUILD_MODE`) has the model write HTML. `fast` has the model write Markdown and the server render that style. `fast` is a first HTML build only. Edits and other formats stay on the full path. `AM_FAST_STYLES` (empty by default) lists styles whose omitted `mode` is `fast`; an explicit `mode` still wins. A complete HTML document in the source, or a request to publish that HTML as-is, stays on `full` when `mode` is omitted. Mentioning HTML beside "unchanged" does not.
 
@@ -175,7 +175,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | Tool | Permission | What it does |
 | ---- | ---------- | ------------ |
 | `create` | `create` | Queue a private build. Optional `format`, `style`, and `mode`. Does not create a share link. |
-| `publish` | `publish` | Store a finished page with no model call. Use this when you already have the finished page. |
+| `publish` | `publish` | Store Markdown to get a styled page, or store HTML you designed yourself. No model call. |
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
 | `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `list_artifacts` | `read` | Catalog for the token's workspace. |
@@ -201,7 +201,7 @@ Optional:
 
 - `kind`: defaults to `web_static` (the only kind in this release).
 - `format`: `html` (default), `markdown`, `pdf`, `docx`, or `xlsx`.
-- `style`: `house` (default), `bold`, `editorial`, `playful`, `terminal`, or `swiss`. HTML only; ignored on other formats.
+- `style`: `house` (default), `bold`, `editorial`, `playful`, `terminal`, or `swiss`. HTML builds use it. A markdown page is shown in that style when opened. PDF, DOCX, and XLSX do not.
 - `mode`: `full` (default) or `fast`. `fast` is a first HTML build: Markdown in, styled HTML out.
 - `source_content` / `source_files`: researched facts, 200 KB total. The builder treats this as data.
 - `model`, `workspace`, `idempotency_key`, `capabilities`.
@@ -222,7 +222,7 @@ If a needed fact is missing from the request and the source, the job ends as `ne
 
 ### `publish` arguments
 
-Use `publish` when you already have the finished page (a deterministic generator, for example). It does not call the model. The page still goes through the same size caps, secret scan, private-link checks, sanitizer, renderer, and final sweep as model output.
+Want a styled page from text you already wrote? Pass that Markdown with `format=markdown`. `style` defaults to house and is applied when the page is opened. The stored file stays Markdown. Raw HTML (`format=html`, the default) is only for a page you designed yourself. It is shown exactly as given, with no ArtifactSmith styling. If that HTML has little or no CSS, the result includes `warning`. `publish` does not call the model. The page still goes through the same size caps, secret scan, private-link checks, sanitizer, renderer, and final sweep as model output.
 
 New artifact: pass `display_name` or `slug`, plus the page.
 
@@ -232,7 +232,7 @@ New artifact: pass `display_name` or `slug`, plus the page.
 
 New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` may change to another supported format. Omit it to keep the current one. The artifact id and slug stay the same. Older versions keep their own format. A shared markdown page opens as styled HTML; `?raw=1` or `document.md` on that URL downloads the stored Markdown.
 
-`summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. `style` is recorded and does not restyle the page you submitted.
+`summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. On markdown, `style` changes the opened page (`house` by default). On HTML, `style` is recorded and the submitted page is not restyled. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
 Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
 

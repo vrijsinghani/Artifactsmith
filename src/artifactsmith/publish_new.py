@@ -6,7 +6,16 @@ from typing import Any
 
 from .builder import PUBLISHED_MODEL
 from .config import CFG
-from .publish_common import dump_payload, idem_hit, idem_store, insert_job, insert_version, require_body, style_or_error
+from .publish_common import (
+    dump_payload,
+    idem_hit,
+    idem_store,
+    insert_job,
+    insert_version,
+    require_body,
+    style_or_error,
+    unstyled_html_warning,
+)
 from .renderers import SUPPORTED_FORMATS
 from .service import SLUG_RE, WS_RE, AMError, Service, now, rid, slugify
 
@@ -87,6 +96,9 @@ def publish_new(
         "status": "queued",
         "style": chosen,
     }
+    warning = unstyled_html_warning(fmt, html)
+    if warning:
+        result["warning"] = warning
     with svc.db.tx() as c:
         svc._check_quota(c, principal)
         replay = idem_hit(c, principal, idempotency_key, fingerprint)

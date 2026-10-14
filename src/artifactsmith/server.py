@@ -29,15 +29,17 @@ from .service import AMError, Service, unsign
 SVC: Service | None = None
 
 INSTRUCTIONS = (
-    "Artifact service. create and edit queue a background build and return artifact_id, version, and job_id "
-    "immediately. When you already have the finished page, call publish instead of create or edit: it skips "
-    "the model and runs the same safety checks. Call status with wait (up to 90 seconds) until the job is "
-    "done, failed, or needs_input, then show the card (title, version, preview_url, assumptions). Pass the "
-    "user's exact words in verbatim_request. Pass researched content in source_content or source_files. If a "
-    "needed fact is missing, the job ends as needs_input with a short missing message and stores no file. "
-    "create and publish do not publish a share link. share publishes a public link for one exact version "
-    "(lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare revokes immediately. A token reaches only "
-    "its own workspace and only the permissions it was granted."
+    "Artifact service. Want a styled page? Publish Markdown with format=markdown (style defaults to house "
+    "and is applied when the page is opened), or call create with source_content. Raw HTML in publish is "
+    "only for a page you designed yourself: it is shown exactly as given, with no ArtifactSmith styling. "
+    "create and edit queue a background build and return artifact_id, version, and job_id immediately. "
+    "publish skips the model and runs the same safety checks. Call status with wait (up to 90 seconds) "
+    "until the job is done, failed, or needs_input, then show the card (title, version, preview_url, "
+    "assumptions). Pass the user's exact words in verbatim_request. Pass researched content in "
+    "source_content or source_files. If a needed fact is missing, the job ends as needs_input with a short "
+    "missing message and stores no file. create and publish do not publish a share link. share publishes a "
+    "public link for one exact version (lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare revokes "
+    "immediately. A token reaches only its own workspace and only the permissions it was granted."
 )
 
 
@@ -133,7 +135,11 @@ def create(
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Queue a new artifact. Returns artifact_id, version, and job_id immediately.
-    Then call status(job_id, wait=90). If you already have the finished page, call publish instead.
+    Then call status(job_id, wait=90).
+
+    Want a styled page from text you already wrote? Publish that Markdown with format=markdown
+    (style defaults to house). Want the server to write the page? Pass source_content here.
+    Raw HTML in publish is shown exactly as given, with no ArtifactSmith styling.
 
     Required: verbatim_request (the user's exact words; the whole scope).
 
@@ -145,8 +151,8 @@ def create(
 
     format is html (default), markdown, pdf, docx, or xlsx. The model writes content. A fixed renderer
     writes the bytes. html uses the visual style (house, bold, editorial, playful, terminal, swiss;
-    default AM_DEFAULT_STYLE, usually house).     style is accepted on markdown, pdf, docx, and xlsx
-    but ignored: those formats still use the writing-only prompt.
+    default AM_DEFAULT_STYLE, usually house). On markdown, pdf, docx, and xlsx the model prompt does
+    not use that visual style. A markdown page is still shown in the recorded style when it is opened.
 
     mode is fast or full (default AM_BUILD_MODE, usually full). When mode is omitted and the
     style is listed in AM_FAST_STYLES, the default is fast instead. fast applies to a first HTML
@@ -245,12 +251,18 @@ def publish(
     style: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    """Store a page you have already finished. Use this when you already have the finished page.
-    No model call. Returns artifact_id, version, and job_id immediately. Then call status(job_id, wait=90).
+    """Store a page with no model call. Returns artifact_id, version, and job_id immediately.
+    Then call status(job_id, wait=90).
 
-    html is the complete HTML document when format is html (the default). markdown is the finished
-    Markdown when format is markdown, pdf, docx, or xlsx. You may pass the other field as well: it is
-    checked for secrets and private links and is not rendered.
+    Want a styled page? Pass Markdown and format=markdown. style is house, bold, editorial, playful,
+    terminal, or swiss (default house) and is applied when the page is opened. The stored file stays
+    Markdown. Raw HTML (format=html, the default) is only for a page you designed yourself. It is
+    shown exactly as given, with no ArtifactSmith styling. If that HTML has little or no CSS, the
+    result includes warning.
+
+    html is the complete HTML document when format is html. markdown is the finished Markdown when
+    format is markdown, pdf, docx, or xlsx. You may pass the other field as well: it is checked for
+    secrets and private links and is not rendered. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
     New artifact: pass display_name or slug (same rules as create). New version of an existing artifact:
     pass artifact_id and base_version (the latest done version). format may change to another supported
@@ -264,7 +276,8 @@ def publish(
 
     summary and assumptions are optional card fields. Each is rejected when the call arrives if it is
     longer than the metadata cap (the same 'metadata exceeds N characters' error the job would report).
-    They are also scanned like model output. style is recorded and does not restyle the page you submitted."""
+    They are also scanned like model output. On markdown, style changes the opened page. On HTML, style
+    is recorded and the submitted page is not restyled."""
     return _run(
         _svc().publish,
         _principal(ctx),

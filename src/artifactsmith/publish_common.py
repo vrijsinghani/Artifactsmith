@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .builder import PUBLISHED_MODEL
@@ -13,6 +14,27 @@ from .styles import StyleError, parse_style
 
 # Shown in version history. Not sent to a model.
 PUBLISH_VERBATIM = "Published a finished page."
+
+UNSTYLED_HTML_WARNING = (
+    "This HTML has no CSS, so the page will look unstyled. "
+    "For ArtifactSmith styling, publish Markdown with format=markdown (style defaults to house). "
+    "Raw HTML is shown exactly as given."
+)
+_STYLE_BLOCK = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
+_STYLE_ATTR = re.compile(r"""\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+_CSS_ENOUGH = 24
+
+
+def unstyled_html_warning(fmt: str, html: str | None) -> str | None:
+    """Return a warning when published HTML will open without a stylesheet."""
+    if fmt != "html":
+        return None
+    css = "".join(match.group(1) or "" for match in _STYLE_BLOCK.finditer(html or ""))
+    for match in _STYLE_ATTR.finditer(html or ""):
+        css += match.group(1) or match.group(2) or ""
+    if len(re.sub(r"\s+", "", css)) >= _CSS_ENOUGH:
+        return None
+    return UNSTYLED_HTML_WARNING
 
 
 def load_publish_payload(raw: str) -> dict[str, Any]:

@@ -102,6 +102,7 @@ async def test_publish_html_matches_sanitizer_and_shares(svc: Service, no_model:
     created = svc.publish(principal, display_name="Watch", html=RAW, summary="Harbor watch")
     assert created["status"] == "queued"
     assert created["model"] == "published"
+    assert "unstyled" in str(created["warning"])
     await svc._run_job(str(created["job_id"]))
     assert no_model["n"] == 0
     stored, _, name = svc.read_file(str(created["artifact_id"]), 1, None)
@@ -403,6 +404,8 @@ def test_publish_idempotent_replay(svc: Service) -> None:
     replay = svc.publish(principal, display_name="Same", slug="same", html=html, idempotency_key="k1")
     assert replay["idempotent_replay"] is True
     assert replay["job_id"] == first["job_id"]
+    assert replay["warning"] == first["warning"]
+    assert "unstyled" in str(first["warning"])
     with pytest.raises(AMError, match="idempotency_key was already used"):
         svc.publish(
             principal,
@@ -573,3 +576,106 @@ async def test_failed_format_change_keeps_artifact_format(svc: Service, no_model
     assert "possible secret" in await _job_error(svc, bad)
     assert no_model["n"] == 0
     assert svc.get_artifact(principal, aid)["format"] == "html"
+
+
+_BOLD = "linear-gradient(135deg,#1b1464,#5b2dbe)"
+_HOUSE = "border-bottom:4px solid"
+_STYLED = "<html><head><style>body{color:#111;font:16px sans-serif}</style></head><body><p>Hi</p></body></html>"
+_BARE = "<html><body><p>Hi</p></body></html>"
+
+
+@pytest.mark.asyncio
+async def test_publish_markdown_style_renders_on_open(svc: Service, no_model: dict[str, int]) -> None:
+    from starlette.testclient import TestClient
+
+    import artifactsmith.server as server
+    from artifactsmith.markdown_view import markdown_share_html
+
+    principal = _principal()
+    bold = svc.publish(
+        principal,
+        display_name="Pilot",
+        slug="pilot-bold",
+        format="markdown",
+        style="bold",
+        markdown="# Pilot\n\nThe code is HARBOR-17.\n",
+    )
+    assert bold["style"] == "bold"
+    assert "warning" not in bold
+    await svc._run_job(str(bold["job_id"]))
+    data, _ct, name, _title, style = svc.read_primary_view(str(bold["artifact_id"]), 1)
+    assert name == "document.md"
+    assert style == "bold"
+    assert b"HARBOR-17" in data
+    assert b"<html" not in data.lower()
+    shared = svc.share(principal, str(bold["artifact_id"]))
+    sid = str(shared["url"]).rstrip("/").rsplit("/", 1)[-1]
+    server.SVC = svc
+    try:
+        client = TestClient(server.preview_app)
+        page = client.get(f"/s/{sid}/")
+        downloaded = client.get(f"/s/{sid}/?raw=1")
+    finally:
+        server.SVC = None
+    assert page.status_code == 200
+    assert _BOLD in page.text
+    assert page.headers["content-type"].startswith("text/html")
+    assert downloaded.content == data
+
+    house = svc.publish(
+        principal,
+        display_name="Harbor",
+        slug="pilot-house",
+        format="markdown",
+        markdown="# Harbor\n\nThe code is HARBOR-17.\n",
+    )
+    assert house["style"] == "house"
+    await svc._run_job(str(house["job_id"]))
+    stored, _ct, house_name, house_title, house_style = svc.read_primary_view(str(house["artifact_id"]), 1)
+    assert house_name == "document.md"
+    assert house_style == "house"
+    opened = markdown_share_html(stored, title=house_title, style=house_style).decode()
+    assert _HOUSE in opened
+    assert _BOLD not in opened
+    assert no_model["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_publish_warns_when_html_has_little_css(svc: Service) -> None:
+    principal = _principal()
+    bare = svc.publish(principal, display_name="Bare", slug="bare-html", html=_BARE)
+    assert "warning" in bare
+    assert "format=markdown" in str(bare["warning"])
+    little = svc.publish(
+        principal,
+        display_name="Little",
+        slug="little-html",
+        html="<html><head><style>b{color:red}</style></head><body><p>Hi</p></body></html>",
+    )
+    assert "warning" in little
+    styled = svc.publish(principal, display_name="Styled", slug="styled-html", html=_STYLED)
+    assert "warning" not in styled
+    markdown = svc.publish(
+        principal,
+        display_name="Notes",
+        slug="notes-md",
+        format="markdown",
+        markdown="# Notes\n",
+    )
+    assert "warning" not in markdown
+    await svc._run_job(str(bare["job_id"]))
+    await svc._run_job(str(styled["job_id"]))
+    again = svc.publish(
+        principal,
+        artifact_id=str(bare["artifact_id"]),
+        base_version=1,
+        html=_BARE,
+    )
+    assert "warning" in again
+    kept = svc.publish(
+        principal,
+        artifact_id=str(styled["artifact_id"]),
+        base_version=1,
+        html=_STYLED,
+    )
+    assert "warning" not in kept

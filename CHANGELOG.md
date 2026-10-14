@@ -12,6 +12,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Publish Markdown with `format=markdown` to get a styled page (`style` defaults to house and is applied when the page is opened). Raw HTML is shown exactly as given. HTML with little or no CSS returns `warning`.
 - An existing public `/s/` link serves the latest done version of that artifact. Passing `version` or `pin` keeps a separate link on one version. The page is still 404 when the served file does not match its recorded sha256.
 - A shared or previewed markdown artifact opens as sanitized, house-styled HTML. The stored Markdown stays at `?raw=1` and `document.md`. Existing markdown artifacts render on open; their stored bytes and share hash are unchanged.
 - `publish` and `edit` may set a different supported `format` on a new version. The artifact id and slug stay the same. When that version finishes, the artifact's format updates. Older versions keep their own format. An unknown format is rejected.
