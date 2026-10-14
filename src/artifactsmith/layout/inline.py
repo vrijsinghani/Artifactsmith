@@ -8,6 +8,7 @@ from html import escape
 from markdown_it.token import Token
 
 from ..renderers.links import public_href_or_none
+from ..renderers.raster_data import raster_data_image
 from .model import ALLOWED_CLASSES, TONES, classify
 
 _BR = re.compile(r"<br\s*/?>", re.I)
@@ -139,11 +140,15 @@ def render_inlines(tokens: list[Token]) -> str:
                 if child.type == "text":
                     alt += child.content or ""
             label = alt.strip() or "image"
-            href = public_href_or_none(str((tok.attrs or {}).get("src") or ""))
-            if href:
-                out.append(f'<a class="asl-fig" href="{esc(href)}">{esc(label)}</a>')
+            src = str((tok.attrs or {}).get("src") or "")
+            if raster_data_image(src):
+                out.append(f'<img alt="{esc(label)}" src="{esc(src)}">')
             else:
-                out.append(esc(label))
+                href = public_href_or_none(src)
+                if href:
+                    out.append(f'<a class="asl-fig" href="{esc(href)}">{esc(label)}</a>')
+                else:
+                    out.append(esc(label))
             i += 1
         else:
             i += 1

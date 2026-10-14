@@ -18,7 +18,6 @@ from .svg_sanitize import SVG_CLEAN_CONTENT, SVG_TAGS, filter_svg_attribute, san
 from .svg_tree import remove_elements_with_content
 
 MAX_HTML_BYTES = 2_000_000
-_DATA_IMAGE = re.compile(r"^data:image/(?:png|jpe?g|gif|webp|avif)[;,]", re.I)
 
 
 class HtmlSanitizeError(ValueError):
@@ -127,7 +126,7 @@ _CLEAN_CONTENT_TAGS: set[str] = {
 _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
     "*": {"class", "id", "title", "lang", "dir", "data-label", "aria-label"},
     "a": {"href", "title"},
-    "img": {"alt", "width", "height", "src"},
+    "img": {"alt", "width", "height", "src", "srcset"},
     "td": {"colspan", "rowspan"},
     "th": {"colspan", "rowspan", "scope"},
     "col": {"span"},
@@ -157,6 +156,10 @@ def _attribute_filter(tag: str, attr: str, value: str) -> str | None:
         return filter_svg_attribute(tag, attr, value)
     if attr == "style":
         return sanitize_inline_style(value) or None
+    # srcset is a candidate list, not one URL. A non-URL return here would keep
+    # a remote or relative candidate on an otherwise valid img.
+    if tag == "img" and attr == "srcset":
+        return value.strip() if _img_attr_kept(attr, value) else None
     if attr not in ("href", "src", "cite", "xlink:href", "action", "formaction", "poster"):
         return value
     from .links import classify_href, emit_href, public_href_or_none
@@ -169,13 +172,30 @@ def _attribute_filter(tag: str, attr: str, value: str) -> str | None:
     if tag == "a" and attr == "href":
         # Public http(s), or intentional //host upgraded when the host is public.
         return public_href_or_none(value)
-    if tag == "img" and attr == "src" and _DATA_IMAGE.match(value.strip()):
+    if tag == "img" and attr == "src" and _img_attr_kept(attr, value):
         return value.strip()
     # img src, cite, and every other URL-bearing attribute stay local-only.
     return None
 
 
+def _img_attr_kept(attr: str, value: str) -> bool:
+    from .raster_data import img_attr_verdict
+
+    return img_attr_verdict(attr, value) == "keep"
+
+
 _IMG_TAG_RE = re.compile(r"<img\b([^>]*)/?>", re.I)
+
+
+def _without_attr(tag: str, name: str) -> str:
+    """Drop one quoted or bare attribute from a start tag."""
+    return re.sub(
+        rf"""\s+{re.escape(name)}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
+        "",
+        tag,
+        count=1,
+        flags=re.I,
+    )
 
 
 def _attr(attrs: str, name: str) -> str | None:
@@ -194,8 +214,14 @@ def rewrite_remote_images_to_links(html: str) -> str:
     def repl(m: re.Match[str]) -> str:
         attrs = m.group(1)
         src = _attr(attrs, "src") or ""
-        if _DATA_IMAGE.match(src.strip()):
-            return m.group(0)
+        srcset = _attr(attrs, "srcset") or ""
+        kept_src = _img_attr_kept("src", src)
+        kept_srcset = bool(srcset) and _img_attr_kept("srcset", srcset)
+        if kept_src or (not src.strip() and kept_srcset):
+            tag_html = m.group(0)
+            if srcset and not kept_srcset:
+                tag_html = _without_attr(tag_html, "srcset")
+            return tag_html
         alt = (_attr(attrs, "alt") or "").strip() or "image"
         href = public_href_or_none(src)
         if not href:

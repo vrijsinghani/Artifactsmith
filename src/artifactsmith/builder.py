@@ -601,7 +601,7 @@ def _hard_problems(problems: list[str]) -> list[str]:
     return [
         p
         for p in problems
-        if p.startswith("possible secret") or p.startswith("private or local") or p.startswith("link host not")
+        if p.startswith(("possible secret", "private or local", "link host not", "inline image rejected"))
     ]
 
 

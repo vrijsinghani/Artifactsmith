@@ -14,6 +14,7 @@ from markdown_it.token import Token
 from .links import classify_href, public_href_or_none
 from .md_html import find_bad_html_element_attrs, sanitize_raw_html_attrs
 from .md_serialize import escape_all_md_punctuation, serialize_blocks
+from .raster_data import raster_data_image
 from .safety import URL_RE
 
 
@@ -119,6 +120,10 @@ def _rewrite_inline(children: list[Token] | None) -> list[Token]:
         tok = children[i]
         if tok.type == "image":
             src = _attr_str(tok, "src")
+            if raster_data_image(src):
+                out.append(tok)
+                i += 1
+                continue
             label = (_label_text(tok.children or []) or (tok.content or "")).strip() or "image"
             href = public_href_or_none(src)
             if href:
@@ -499,7 +504,7 @@ def _destinations_policy_clean(md_text: str) -> bool:
         i = 0
         while i < len(children):
             tok = children[i]
-            if tok.type == "image":
+            if tok.type == "image" and not raster_data_image(_attr_str(tok, "src")):
                 return False
             if tok.type == "html_inline" and find_bad_html_element_attrs(tok.content or ""):
                 return False
@@ -519,7 +524,7 @@ def _destinations_policy_clean(md_text: str) -> bool:
     for tok in tokens:
         if tok.type == "inline" and tok.children is not None and not walk(tok.children):
             return False
-        if tok.type == "image":
+        if tok.type == "image" and not raster_data_image(_attr_str(tok, "src")):
             return False
         if tok.type == "html_block" and find_bad_html_element_attrs(tok.content or ""):
             return False

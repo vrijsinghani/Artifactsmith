@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from markdown_it import MarkdownIt
+from markdown_it.common.normalize_url import validateLink as _default_validate_link
 from markdown_it.token import Token
 from mdit_py_plugins.attrs import attrs_block_plugin, attrs_plugin
 from mdit_py_plugins.attrs.parse import ParseError
@@ -13,6 +14,7 @@ from mdit_py_plugins.container import container_plugin
 from mdit_py_plugins.deflist import deflist_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 
+from ..renderers.raster_data import raster_data_image
 from .chart import parse_chart
 from .inline import cell_html, plain_text, render_inlines
 from .model import ALLOWED_ATTRS, CALLOUTS, Block, Cell, classify
@@ -35,6 +37,13 @@ def _parser(source: str) -> MarkdownIt:
     """
     md = MarkdownIt("commonmark", {"html": False})
     md.enable("table")
+
+    def _validate_link(url: str) -> bool:
+        if raster_data_image(url):
+            return True
+        return _default_validate_link(url)
+
+    md.validateLink = _validate_link  # type: ignore[method-assign]
     if ":::" in source:
         md.use(container_plugin, "block", validate=lambda params, _markup: bool(params.strip()))
     if "{" in source:

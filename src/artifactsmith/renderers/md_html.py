@@ -14,11 +14,9 @@ from html.parser import HTMLParser
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from .links import classify_href, public_href_or_none
+from .links import attr_value_confused, classify_href, public_href_or_none
+from .raster_data import img_attr_verdict, inline_image_problem, markdown_image_problems
 
-# Destination-style separators, plus C0 file separators (U+001C–U+001F) that
-# browsers keep inside a srcset URL token but ``str.split()`` would treat as WS.
-_ATTR_CONFUSION_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff\x1c-\x1f]"
 # Browsers split srcset/ping on ASCII whitespace only (not C0 like U+001F).
 _ASCII_WS_RE = re.compile(r"[\t\n\f\r ]+")
 _ASCII_WS_STRIP = "\t\n\f\r "
@@ -40,20 +38,9 @@ _URL_ATTRS = frozenset(
 )
 
 
-def _attr_value_confused(value: str) -> bool:
-    sep = _ATTR_CONFUSION_SEP
-    if re.search(rf"https?:{sep}+//", value, re.I):
-        return True
-    if re.search(rf"{sep}+@", value):
-        return True
-    if re.search(rf"{sep}+:[^\s]*@", value):
-        return True
-    return False
-
-
 def href_src_attr_ok(value: str) -> bool:
     """True when a single URL attribute value may stay as written."""
-    if _attr_value_confused(value):
+    if attr_value_confused(value):
         return False
     kind = classify_href(value)
     if kind == "public":
@@ -112,18 +99,34 @@ def _rebuild_start_tag(tag: str, attrs: list[tuple[str, str | None]], *, self_cl
 
 
 def _filter_attrs(
+    tag: str,
     attrs: list[tuple[str, str | None]],
 ) -> tuple[list[tuple[str, str | None]], list[str]]:
     """Return (kept attrs, problem strings for dropped URL attrs)."""
     kept: list[tuple[str, str | None]] = []
     problems: list[str] = []
     for name, val in attrs:
-        if _is_url_attr(name) and not _url_attr_ok(name, val):
-            shown = "" if val is None else val[:80]
-            problems.append(f"blocked or authority-confused HTML {name}: {shown}")
-            continue
+        if _is_url_attr(name):
+            problem = _url_problem(tag, name, val)
+            if problem:
+                problems.append(problem)
+                continue
         kept.append((name, val))
     return kept, problems
+
+
+def _url_problem(tag: str, name: str, val: str | None) -> str | None:
+    shown = "" if val is None else val[:80]
+    if val is not None and tag.lower() == "img" and name.lower() in ("src", "srcset"):
+        verdict = img_attr_verdict(name, val)
+        if verdict == "keep":
+            return None
+        problem = inline_image_problem(verdict)
+        if problem:
+            return problem
+    if val is None or not _url_attr_ok(name, val):
+        return f"blocked or authority-confused HTML {name}: {shown}"
+    return None
 
 
 class _HtmlAttrParser(HTMLParser):
@@ -137,7 +140,7 @@ class _HtmlAttrParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         original = self.get_starttag_text() or f"<{tag}>"
-        kept, problems = _filter_attrs(attrs)
+        kept, problems = _filter_attrs(tag, attrs)
         self.problems.extend(problems)
         if not self._rewrite:
             return
@@ -149,7 +152,7 @@ class _HtmlAttrParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         original = self.get_starttag_text() or f"<{tag} />"
-        kept, problems = _filter_attrs(attrs)
+        kept, problems = _filter_attrs(tag, attrs)
         self.problems.extend(problems)
         if not self._rewrite:
             return
@@ -232,12 +235,16 @@ def find_bad_markdown_raw_html_attrs(md_text: str) -> list[str]:
         if not children:
             return
         for tok in children:
+            if tok.type == "image":
+                problems.extend(markdown_image_problems(str(tok.attrGet("src") or "")))
             if tok.type == "html_inline" and tok.content:
                 problems.extend(find_bad_html_element_attrs(tok.content))
             if tok.children:
                 walk(tok.children)
 
     for tok in tokens:
+        if tok.type == "image":
+            problems.extend(markdown_image_problems(str(tok.attrGet("src") or "")))
         if tok.type == "html_block" and tok.content:
             problems.extend(find_bad_html_element_attrs(tok.content))
         elif tok.type == "inline" and tok.children:

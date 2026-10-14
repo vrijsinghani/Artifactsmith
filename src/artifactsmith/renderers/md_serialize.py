@@ -102,6 +102,10 @@ def serialize_inline(children: list[Token] | None) -> str:
             parts.append(tok.markup or ("*" if tok.type == "em_close" else "**"))
         elif tok.type == "html_inline":
             parts.append(tok.content or "")
+        elif tok.type == "image":
+            src = _attr_str(tok, "src")
+            label = serialize_inline(tok.children) or "image"
+            parts.append(f"![{label}]({_escape_md_link_dest(src)})")
         elif tok.children:
             parts.append(serialize_inline(tok.children))
         i += 1

@@ -22,7 +22,23 @@ from .safety import URL_RE, _host_is_private, _url_host
 
 HrefClass = Literal["fragment", "relative", "public", "blocked"]
 
+# Destination-style separators, plus C0 file separators (U+001C–U+001F) that
+# browsers keep inside a srcset URL token but ``str.split()`` would treat as WS.
+_ATTR_CONFUSION_SEP = r"[\t \x0b\x0c\r\n\u00a0\u200b\u3000\ufeff\x1c-\x1f]"
+
 _DANGEROUS_PREFIXES = ("javascript:", "vbscript:", "data:", "file:", "blob:")
+
+
+def attr_value_confused(value: str) -> bool:
+    """True when whitespace would let a URL attribute hide a different host."""
+    sep = _ATTR_CONFUSION_SEP
+    if re.search(rf"https?:{sep}+//", value, re.I):
+        return True
+    if re.search(rf"{sep}+@", value):
+        return True
+    if re.search(rf"{sep}+:[^\s]*@", value):
+        return True
+    return False
 
 
 def _strip_format_chars(s: str) -> str:

@@ -148,6 +148,7 @@ h1{font-size:2.1rem}
 h2{font-size:1.4rem;margin-top:1.4rem}
 h3{font-size:1.15rem}
 a{color:var(--accent)}
+img{max-width:100%;height:auto}
 .asl-title .dek{margin:.35rem 0 0;color:var(--muted);max-width:62ch}
 .asl-hero{margin:0 0 1.25rem;padding:1rem 1.15rem;background:var(--surface);border-left:4px solid var(--accent);border-radius:10px}
 .asl-hero p{margin:0;font-size:1.15rem;line-height:1.45;max-width:62ch}
@@ -270,39 +271,7 @@ _EXTRAS: dict[str, str] = {
 .asl-code{background:#f4f4f5;border-radius:8px}
 .asl-quote{border-left:4px solid var(--accent);padding:.2rem 0 .2rem 1rem}
 """,
-    "bold": """
-.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem}
-.asl-hero{background:#1d4ed8;color:#fff;border-left:0;border-radius:12px}
-.asl-hero a{color:#fff}
-.asl-title h1{font-size:2.7rem}
-.asl-title .dek,.asl-title a{color:#e0e7ff}
-.asl-badge{background:#fff;color:#1a1230}
-.asl-stat{background:#1d4ed8;color:#fff;border-radius:14px}
-.asl-stat .label,.asl-stat .note{color:#f8fafc}
-.asl-stat.tone-green{background:#047857}
-.asl-stat.tone-amber{background:#b45309}
-.asl-stat.tone-violet,.asl-stat.tone-accent{background:#6d28d9}
-.asl-stat.tone-red{background:#b42318}
-.asl-callout{color:#fff;border-radius:12px;padding:1rem}
-.asl-callout.note{background:#1d4ed8}
-.asl-callout.warn{background:#b45309}
-.asl-callout.success{background:#047857}
-.asl-callout.danger{background:#b42318}
-.asl-table th{background:#1e1b4b;color:#fff}
-.asl-code{background:#1e1b4b;color:#e0e7ff;border-radius:12px}
-.asl-code .lang{color:#c4b5fd}
-.asl-hero-band{background:#1b1464;color:#fff;border-radius:16px;padding:1rem;margin:0 0 1.2rem}
-.asl-hero-band .asl-hero,.asl-hero-band .asl-callout{background:none;border:0;margin:0 0 .75rem;padding:0}
-.asl-hero-band a{color:#fff}
-.asl-risks{list-style:none;padding:0;display:grid;gap:.65rem}
-.asl-risks li{margin:0;padding:.7rem .85rem;border-radius:12px;color:#fff}
-.asl-risks .risk-title{display:block;margin:0 0 .2rem}
-.asl-risks .tone-red{background:#b42318}.asl-risks .tone-amber{background:#b45309}.asl-risks .tone-green{background:#047857}.asl-risks .tone-blue{background:#1d4ed8}
-.panel .dots{display:flex;gap:.3rem;margin:0 0 .5rem}
-.panel .dots span{width:.5rem;height:.5rem;border-radius:9px;background:#c4b5fd;display:inline-block}
-.asl-quote{background:#5b2dbe;color:#fff;padding:1rem 1.2rem;border-radius:12px}
-.asl-section.variant-card{background:#fff;padding:1rem}
-""",
+    "bold": """.asl-title{background-image:linear-gradient(135deg,#1b1464,#5b2dbe);color:#fff;margin:0 auto 1.25rem;padding:2rem 1.25rem}.asl-hero{background:#1d4ed8;color:#fff;border-left:0;border-radius:12px}.asl-hero a{color:#fff}.asl-title h1{font-size:2.7rem}.asl-title .dek,.asl-title a{color:#e0e7ff}.asl-badge{background:#fff;color:#1a1230}.asl-stat{background:#1d4ed8;color:#fff;border-radius:14px}.asl-stat .label,.asl-stat .note{color:#f8fafc}.asl-stat.tone-green{background:#047857}.asl-stat.tone-amber{background:#b45309}.asl-stat.tone-violet,.asl-stat.tone-accent{background:#6d28d9}.asl-stat.tone-red{background:#b42318}.asl-callout{color:#fff;border-radius:12px;padding:1rem}.asl-callout.note{background:#1d4ed8}.asl-callout.warn{background:#b45309}.asl-callout.success{background:#047857}.asl-callout.danger{background:#b42318}.asl-table th{background:#1e1b4b;color:#fff}.asl-code{background:#1e1b4b;color:#e0e7ff;border-radius:12px}.asl-code .lang{color:#c4b5fd}.asl-hero-band{background:#1b1464;color:#fff;border-radius:16px;padding:1rem;margin:0 0 1.2rem}.asl-hero-band .asl-hero,.asl-hero-band .asl-callout{background:none;border:0;margin:0 0 .75rem;padding:0}.asl-hero-band a{color:#fff}.asl-risks{list-style:none;padding:0;display:grid;gap:.65rem}.asl-risks li{margin:0;padding:.7rem .85rem;border-radius:12px;color:#fff}.asl-risks .risk-title{display:block;margin:0 0 .2rem}.asl-risks .tone-red{background:#b42318}.asl-risks .tone-amber{background:#b45309}.asl-risks .tone-green{background:#047857}.asl-risks .tone-blue{background:#1d4ed8}.panel .dots{display:flex;gap:.3rem;margin:0 0 .5rem}.panel .dots span{width:.5rem;height:.5rem;border-radius:9px;background:#c4b5fd;display:inline-block}.asl-quote{background:#5b2dbe;color:#fff;padding:1rem 1.2rem;border-radius:12px}.asl-section.variant-card{background:#fff;padding:1rem}""",
     "editorial": """
 .asl-title h1{font-size:3rem;font-weight:500;letter-spacing:-0.02em}
 .asl-hero{background:transparent;border:0;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent);border-radius:0;padding:.8rem 0;font-style:italic}
