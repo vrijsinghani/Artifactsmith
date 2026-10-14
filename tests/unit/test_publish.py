@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -410,3 +411,165 @@ def test_publish_idempotent_replay(svc: Service) -> None:
             html="<html><body><p>other</p></body></html>",
             idempotency_key="k1",
         )
+
+
+@pytest.mark.asyncio
+async def test_publish_version_changes_format_and_keeps_slug(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Watch",
+        slug="watch-fmt",
+        html="<html><body><p>version one</p></body></html>",
+    )
+    await svc._run_job(str(first["job_id"]))
+    aid = str(first["artifact_id"])
+    second = svc.publish(
+        principal,
+        artifact_id=aid,
+        base_version=1,
+        format="markdown",
+        markdown="# Two\n\nversion two\n",
+    )
+    assert second["version"] == 2
+    assert svc.get_artifact(principal, aid)["format"] == "html"
+    await svc._run_job(str(second["job_id"]))
+    assert no_model["n"] == 0
+    art = svc.get_artifact(principal, aid)
+    assert art["id"] == aid
+    assert art["slug"] == "watch-fmt"
+    assert art["format"] == "markdown"
+    new, _, name = svc.read_file(aid, 2, None)
+    old, _, old_name = svc.read_file(aid, 1, None)
+    assert name == "document.md"
+    assert b"version two" in new
+    assert old_name == "index.html"
+    assert b"version one" in old
+    v1 = svc.db.one("SELECT format FROM versions WHERE artifact_id=? AND version=?", aid, 1)
+    assert v1 is not None
+    assert v1["format"] == "html"
+    assert str(svc.export(principal, aid, 1)["file"]).endswith(".html")
+    assert str(svc.export(principal, aid)["file"]).endswith(".md")
+
+
+@pytest.mark.asyncio
+async def test_status_wait_reports_the_new_format(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Watch",
+        slug="watch-status-fmt",
+        html="<html><body><p>version one</p></body></html>",
+    )
+    await svc._run_job(str(first["job_id"]))
+    aid = str(first["artifact_id"])
+    second = svc.publish(
+        principal,
+        artifact_id=aid,
+        base_version=1,
+        format="markdown",
+        markdown="# Two\n\nversion two\n",
+    )
+    gate = asyncio.Event()
+    real_get = svc.get_artifact
+
+    def gated(who: dict[str, object], artifact_id: str) -> dict[str, object]:
+        row = real_get(who, artifact_id)
+        gate.set()
+        return row
+
+    svc.get_artifact = gated  # type: ignore[method-assign]
+
+    async def finish() -> None:
+        await gate.wait()
+        await svc._run_job(str(second["job_id"]))
+
+    task = asyncio.create_task(finish())
+    try:
+        st = await svc.status(principal, job_id=str(second["job_id"]), wait=90)
+    finally:
+        svc.get_artifact = real_get  # type: ignore[method-assign]
+        await task
+    assert no_model["n"] == 0
+    assert st["status"] == "done"
+    assert st["format"] == "markdown"
+    assert st["primary_file"] == "document.md"
+
+
+@pytest.mark.asyncio
+async def test_publish_markdown_version_can_become_html(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Notes",
+        slug="notes-fmt",
+        format="markdown",
+        markdown="# One\n\nversion one\n",
+    )
+    await svc._run_job(str(first["job_id"]))
+    aid = str(first["artifact_id"])
+    second = svc.publish(
+        principal,
+        artifact_id=aid,
+        base_version=1,
+        format="html",
+        html="<html><body><p>version two</p></body></html>",
+    )
+    await svc._run_job(str(second["job_id"]))
+    assert no_model["n"] == 0
+    art = svc.get_artifact(principal, aid)
+    assert art["slug"] == "notes-fmt"
+    assert art["format"] == "html"
+    new, _, name = svc.read_file(aid, 2, None)
+    old, _, old_name = svc.read_file(aid, 1, None)
+    assert name == "index.html"
+    assert b"version two" in new
+    assert old_name == "document.md"
+    assert b"version one" in old
+    v1 = svc.db.one("SELECT format FROM versions WHERE artifact_id=? AND version=?", aid, 1)
+    assert v1 is not None
+    assert v1["format"] == "markdown"
+
+
+def test_publish_rejects_unknown_format(svc: Service) -> None:
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="Watch",
+        slug="watch-bad-fmt",
+        html="<html><body><p>version one</p></body></html>",
+    )
+    with pytest.raises(AMError, match="format must be one of"):
+        svc.publish(
+            principal,
+            artifact_id=str(created["artifact_id"]),
+            base_version=1,
+            format="rtf",
+            markdown="# no\n",
+        )
+    count = svc.db.one("SELECT COUNT(*) AS n FROM versions WHERE artifact_id=?", created["artifact_id"])
+    assert count is not None
+    assert count["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_format_change_keeps_artifact_format(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Watch",
+        slug="watch-fail-fmt",
+        html="<html><body><p>version one</p></body></html>",
+    )
+    await svc._run_job(str(first["job_id"]))
+    aid = str(first["artifact_id"])
+    bad = svc.publish(
+        principal,
+        artifact_id=aid,
+        base_version=1,
+        format="markdown",
+        markdown="# Secret\n\n" + _secret() + "\n",
+    )
+    assert "possible secret" in await _job_error(svc, bad)
+    assert no_model["n"] == 0
+    assert svc.get_artifact(principal, aid)["format"] == "html"

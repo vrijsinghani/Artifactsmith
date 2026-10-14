@@ -118,6 +118,7 @@ def publish_new(
             style=chosen,
             actor=principal["name"],
             t=t,
+            format=fmt,
         )
         insert_job(c, jid=jid, aid=aid, version=newv, client=principal["id"], t=t)
         idem_store(svc, c, principal, idempotency_key, fingerprint, result, t)

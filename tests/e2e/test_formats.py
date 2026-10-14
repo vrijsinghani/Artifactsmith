@@ -62,6 +62,14 @@ async def main() -> int:
                 check(body.startswith(MAGIC[fmt]), f"{fmt}: magic {MAGIC[fmt]!r}")
                 if fmt == "markdown":
                     check(b"HARBOR-17" in body, "markdown contains fact")
+                    shared = await call(s, "share", {"artifact_id": created["artifact_id"]})
+                    page = httpx.get(shared["url"], timeout=20)
+                    check(page.status_code == 200, "markdown share opens")
+                    check("text/html" in page.headers.get("content-type", ""), "markdown share is html")
+                    check(b"HARBOR-17" in page.content, "markdown share contains fact")
+                    raw = httpx.get(shared["url"] + "?raw=1", timeout=20)
+                    check(raw.content.startswith(b"# "), "markdown raw download")
+                    check(b"HARBOR-17" in raw.content, "markdown raw contains fact")
     print("FORMAT SMOKE PASSED")
     return 0
 

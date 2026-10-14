@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from artifactsmith.service import Service
+from artifactsmith.service import AMError, Service
 from artifactsmith.store import Store
 
 PAGE = """<!DOCTYPE html>
@@ -96,3 +96,60 @@ async def test_edit_history_and_versions_stay_full_documents(monkeypatch: pytest
     assert "18" in stored
     assert "South is the backup." in stored
     assert stored.lstrip().lower().startswith("<!doctype html")
+
+
+@pytest.mark.asyncio
+async def test_edit_can_change_format_without_patching_the_old_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("artifactsmith.service.Store", _FakeStore)
+    svc = Service()
+    calls: list[str] = []
+
+    async def fake_call(model: str, system: str, user: str, timeout: float = 300) -> str:
+        calls.append(system)
+        if "===PATCH===" in system:
+            return _patch("<h1>Store report</h1>", "<h1>Patched</h1>")
+        if "===FILE: index.html===" in system:
+            return _full(PAGE)
+        return (
+            "===ASSUMPTIONS===\n- none\n===SUMMARY===\nMarkdown version.\n"
+            "===FILE: content.md===\n# Pilot\n\nThe code is HARBOR-17.\n===END===\n"
+        )
+
+    monkeypatch.setattr("artifactsmith.builder.llm.call", fake_call)
+    principal = {"id": "tok_1", "name": "agent", "workspace": "alpha", "perms": {"create", "read", "edit", "export"}}
+    created = svc.create(
+        principal,
+        slug="stores-md",
+        display_name="Stores",
+        verbatim_request="Show the store counts.",
+        format="html",
+    )
+    await svc._run_job(created["job_id"])
+    with pytest.raises(AMError, match="format must be one of"):
+        svc.edit(
+            principal,
+            artifact_id=created["artifact_id"],
+            base_version=1,
+            verbatim_request="Switch this page to markdown.",
+            format="rtf",
+        )
+    edited = svc.edit(
+        principal,
+        artifact_id=created["artifact_id"],
+        base_version=1,
+        verbatim_request="Switch this page to markdown.",
+        format="markdown",
+    )
+    await svc._run_job(edited["job_id"])
+    assert all("===PATCH===" not in system for system in calls)
+    art = svc.db.one("SELECT format, slug FROM artifacts WHERE id=?", created["artifact_id"])
+    assert art is not None
+    assert art["format"] == "markdown"
+    assert art["slug"] == "stores-md"
+    v1 = svc.db.one("SELECT format FROM versions WHERE artifact_id=? AND version=?", created["artifact_id"], 1)
+    assert v1 is not None
+    assert v1["format"] == "html"
+    stored = svc.store.get(Store.prefix("alpha", created["artifact_id"], 2) + "document.md")[0]
+    assert b"HARBOR-17" in stored
+    assert b"<h1" not in stored.lower()
+    assert str(svc.export(principal, created["artifact_id"], 1)["file"]).endswith(".html")

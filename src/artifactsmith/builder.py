@@ -899,6 +899,7 @@ async def run_build(
     format: str = "html",
     style: str = DEFAULT_STYLE,
     mode: str = "full",
+    patch: bool = True,
 ) -> BuildResult:
     fmt = (format or "html").lower().strip()
     if fmt not in SUPPORTED_FORMATS:
@@ -927,7 +928,7 @@ async def run_build(
     user = build_user_prompt(verbatim, display_name, base_source, base_version, history, source)
 
     notes: list[str] = []
-    if base_source is not None:
+    if base_source is not None and patch:
         patched = await _try_edit_patch(
             fmt=fmt,
             chosen=chosen,

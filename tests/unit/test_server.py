@@ -309,3 +309,164 @@ async def test_main_boots_and_shuts_down(svc, monkeypatch):
     await server.main()
     assert len(started) == 2
     assert server.SVC is None
+
+
+def _seed_primary(
+    svc: Service,
+    *,
+    aid: str,
+    filename: str,
+    body: bytes,
+    content_type: str,
+    fmt: str,
+) -> str:
+    svc.db.exec(
+        "INSERT INTO artifacts (id,workspace,slug,display_name,kind,format,created_by,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        aid,
+        "alpha",
+        aid,
+        "Pilot",
+        "web_static",
+        fmt,
+        "agent",
+        time.time(),
+        time.time(),
+    )
+    svc.db.exec(
+        "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
+        "sha256,primary_file,files_json,assumptions_json,summary,size,source_key,style,format,created_by,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        aid,
+        1,
+        None,
+        "show",
+        "done",
+        "job_" + aid,
+        "m",
+        hashlib.sha256(body).hexdigest(),
+        filename,
+        json.dumps([{"name": filename, "content_type": content_type}]),
+        "[]",
+        "ok",
+        len(body),
+        None,
+        "house",
+        fmt,
+        "agent",
+        time.time(),
+    )
+    svc.store.put(FakeStore.prefix("alpha", aid, 1) + filename, body, content_type)
+    sid = "s" + aid[-12:]
+    svc.db.exec(
+        "INSERT INTO shares VALUES (?,?,?,?,?,?,?,NULL)",
+        sid,
+        aid,
+        1,
+        hashlib.sha256(body).hexdigest(),
+        "agent",
+        time.time(),
+        time.time() + 86400,
+    )
+    return sid
+
+
+def test_markdown_share_is_html_and_raw_markdown_stays_downloadable(svc: Service):
+    body = b"# Pilot\n\nThe code is HARBOR-17.\n"
+    sid = _seed_primary(
+        svc,
+        aid="art_markdown_1",
+        filename="document.md",
+        body=body,
+        content_type="text/markdown; charset=utf-8",
+        fmt="markdown",
+    )
+    client = TestClient(server.preview_app)
+    page = client.get(f"/s/{sid}/")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert "HARBOR-17" in page.text
+    assert "<html" in page.text.lower()
+    assert "# Pilot" not in page.text
+    _assert_page_csp(page.headers.get("content-security-policy", ""))
+    raw = client.get(f"/s/{sid}/?raw=1")
+    assert raw.status_code == 200
+    assert raw.headers["content-type"].startswith("text/markdown")
+    assert raw.content == body
+    download = client.get(f"/s/{sid}/document.md")
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("text/markdown")
+    assert download.content == body
+    assert "attachment" in download.headers.get("content-disposition", "")
+
+
+def test_markdown_share_strips_script(svc: Service):
+    body = b"# Pilot\n\nThe code is HARBOR-17.\n\n<script>alert(1)</script>\n"
+    sid = _seed_primary(
+        svc,
+        aid="art_markdown_js",
+        filename="document.md",
+        body=body,
+        content_type="text/markdown",
+        fmt="markdown",
+    )
+    page = TestClient(server.preview_app).get(f"/s/{sid}/")
+    assert page.status_code == 200
+    assert "HARBOR-17" in page.text
+    assert "<script" not in page.text.lower()
+
+
+def test_markdown_share_rejects_host_outside_allow_list(svc: Service, monkeypatch: pytest.MonkeyPatch):
+    from artifactsmith.config import CFG
+
+    monkeypatch.setattr(CFG, "allowed_link_domains", ["example.com"])
+    body = b"# Pilot\n\nSee [go](https://evil.example/x).\n"
+    sid = _seed_primary(
+        svc,
+        aid="art_markdown_link",
+        filename="document.md",
+        body=body,
+        content_type="text/markdown",
+        fmt="markdown",
+    )
+    page = TestClient(server.preview_app).get(f"/s/{sid}/")
+    assert page.status_code == 404
+    assert "evil.example" not in page.text
+
+
+def test_markdown_share_hash_mismatch_is_404(svc: Service):
+    body = b"# Pilot\n\nThe code is HARBOR-17.\n"
+    sid = _seed_primary(
+        svc,
+        aid="art_markdown_bad",
+        filename="document.md",
+        body=body,
+        content_type="text/markdown",
+        fmt="markdown",
+    )
+    svc.store.put(
+        FakeStore.prefix("alpha", "art_markdown_bad", 1) + "document.md", b"# Other\n\nreplaced\n", "text/markdown"
+    )
+    client = TestClient(server.preview_app)
+    page = client.get(f"/s/{sid}/")
+    assert page.status_code == 404
+    assert "replaced" not in page.text
+    assert "HARBOR-17" not in page.text
+    assert client.get(f"/s/{sid}/?raw=1").status_code == 404
+    assert client.get(f"/s/{sid}/document.md").status_code == 404
+
+
+def test_pdf_share_is_not_rendered_as_markdown(svc: Service):
+    body = b"%PDF-1.4 fake"
+    sid = _seed_primary(
+        svc,
+        aid="art_pdf_share1",
+        filename="document.pdf",
+        body=body,
+        content_type="application/pdf",
+        fmt="pdf",
+    )
+    page = TestClient(server.preview_app).get(f"/s/{sid}/")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("application/pdf")
+    assert page.content == body

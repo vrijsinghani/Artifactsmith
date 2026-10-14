@@ -230,7 +230,7 @@ New artifact: pass `display_name` or `slug`, plus the page.
 - `markdown`: finished Markdown. Required when `format` is `markdown`, `pdf`, `docx`, or `xlsx`.
 - You may also pass the other field. It is checked for secrets and private links and is not rendered.
 
-New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` stays the one stored on the artifact.
+New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` may change to another supported format. Omit it to keep the current one. The artifact id and slug stay the same. Older versions keep their own format. A shared markdown page opens as styled HTML; `?raw=1` or `document.md` on that URL downloads the stored Markdown.
 
 `summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. `style` is recorded and does not restyle the page you submitted.
 

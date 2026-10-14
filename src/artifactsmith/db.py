@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS versions (
   publish_json TEXT,
   style TEXT,
   mode TEXT,
+  format TEXT,
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   PRIMARY KEY (artifact_id, version)
@@ -125,6 +126,14 @@ class DB:
             self.conn.execute("ALTER TABLE versions ADD COLUMN publish_json TEXT")
         if "mode" not in ver_cols:
             self.conn.execute("ALTER TABLE versions ADD COLUMN mode TEXT")
+        if "format" not in ver_cols:
+            self.conn.execute("ALTER TABLE versions ADD COLUMN format TEXT")
+        # Format was fixed on the artifact, so that value is each existing version's format.
+        self.conn.execute(
+            "UPDATE versions SET format = ("
+            "SELECT artifacts.format FROM artifacts WHERE artifacts.id = versions.artifact_id"
+            ") WHERE format IS NULL"
+        )
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

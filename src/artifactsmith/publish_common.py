@@ -159,10 +159,11 @@ def insert_version(
     style: str,
     actor: str,
     t: float,
+    format: str,
 ) -> None:
     c.execute(
         "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-        "source_key,publish_json,style,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "source_key,publish_json,style,format,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             aid,
             version,
@@ -174,6 +175,7 @@ def insert_version(
             None,
             payload,
             style,
+            format,
             actor,
             t,
         ),

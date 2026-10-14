@@ -22,6 +22,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
 from .config import CFG
+from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
+from .renderers import MIME, SOURCE_NAME
 from .service import AMError, Service, unsign
 
 SVC: Service | None = None
@@ -193,6 +195,7 @@ def edit(
     model: str | None = None,
     style: str | None = None,
     idempotency_key: str | None = None,
+    format: str | None = None,
 ) -> dict[str, Any]:
     """Build a new version from base_version (the latest done version) using the user's exact change request.
     Returns a conflict if base_version is stale. Inspect, then edit from the latest.
@@ -203,6 +206,11 @@ def edit(
     style (optional) is house, bold, editorial, playful, terminal, or swiss. Omit it to keep the
     style the artifact was last built with. It applies to HTML only; other formats accept it and
     ignore it.
+
+    format (optional) is html, markdown, pdf, docx, or xlsx. Omit it to keep the artifact's current
+    format. A different format builds this version in that format. When the version is done, the
+    artifact's format updates. The artifact id and slug stay the same. Older versions keep the format
+    they were built with.
 
     Ends as needs_input with a missing message if the change needs facts that were not supplied."""
     return _run(
@@ -217,6 +225,7 @@ def edit(
         model=model,
         idempotency_key=idempotency_key,
         style=style,
+        format=format,
     )
 
 
@@ -244,7 +253,9 @@ def publish(
     checked for secrets and private links and is not rendered.
 
     New artifact: pass display_name or slug (same rules as create). New version of an existing artifact:
-    pass artifact_id and base_version (the latest done version). format stays the one stored on the artifact.
+    pass artifact_id and base_version (the latest done version). format may change to another supported
+    format (html, markdown, pdf, docx, or xlsx). Omit it to keep the current format. The artifact id
+    and slug stay the same. Older versions keep the format they were published with.
 
     The page runs the same safety pipeline as model output: size caps, secret scan, private-link checks,
     the sanitizer, the renderer for format (including PDF, DOCX, and XLSX), and the final sweep. A rejected
@@ -461,17 +472,50 @@ def _serve(data: bytes, ctype: str, fname: str, attachment: bool) -> Response:
     return Response(data, media_type=ctype, headers=headers)
 
 
+def _not_found() -> PlainTextResponse:
+    return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
+
+
+async def _open_page(
+    *,
+    aid: str,
+    version: int,
+    sha: str | None,
+    raw: bool,
+    attachment: bool,
+) -> Response:
+    try:
+        data, ct, name, title, style = await asyncio.to_thread(_svc().read_primary_view, aid, version)
+    except AMError:
+        return _not_found()
+    if sha is not None and hashlib.sha256(data).hexdigest() != sha:
+        return _not_found()
+    if raw:
+        return _serve(data, ct, name, attachment=attachment)
+    if is_markdown_primary(name, ct):
+        try:
+            html = await asyncio.to_thread(markdown_share_html, data, title=title, style=style)
+        except MarkdownViewError:
+            logging.getLogger("artifactsmith").warning("markdown view refused artifact=%s version=%s", aid, version)
+            return _not_found()
+        return _serve(html, MIME["html"], SOURCE_NAME["html"], attachment=False)
+    return _serve(data, ct, name, attachment=False)
+
+
 async def preview(request: Request) -> Response:
     tok = request.path_params["token"]
     sl = _svc().short_lookup(tok)
-    p = {"a": sl["artifact_id"], "v": sl["version"]} if sl else None
-    if not p:
+    if not sl:
         return PlainTextResponse("link expired or invalid", status_code=404, headers={"Cache-Control": "no-store"})
-    try:
-        data, ct, name = await asyncio.to_thread(_svc().read_file, p["a"], int(p["v"]), None)
-    except AMError:
-        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
-    return _serve(data, ct, name, attachment=False)
+    download = request.url.path.endswith("/" + SOURCE_NAME["markdown"])
+    raw = download or request.query_params.get("raw") == "1"
+    return await _open_page(
+        aid=sl["artifact_id"],
+        version=int(sl["version"]),
+        sha=None,
+        raw=raw,
+        attachment=download,
+    )
 
 
 async def download(request: Request) -> Response:
@@ -481,30 +525,34 @@ async def download(request: Request) -> Response:
     try:
         data, ct, _ = await asyncio.to_thread(_svc().read_file, p["a"], int(p["v"]), p["f"])
     except AMError:
-        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
+        return _not_found()
     return _serve(data, ct, p.get("n") or p["f"], attachment=True)
 
 
 async def shared(request: Request) -> Response:
     s = _svc().share_lookup(request.path_params["sid"])
     if not s:
-        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
-    try:
-        data, ct, name = await asyncio.to_thread(_svc().read_file, s["artifact_id"], s["version"], None)
-    except AMError:
-        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
-    if hashlib.sha256(data).hexdigest() != s["sha256"]:
-        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
-    return _serve(data, ct, name, attachment=False)
+        return _not_found()
+    download = request.url.path.endswith("/" + SOURCE_NAME["markdown"])
+    raw = download or request.query_params.get("raw") == "1"
+    return await _open_page(
+        aid=s["artifact_id"],
+        version=int(s["version"]),
+        sha=s["sha256"],
+        raw=raw,
+        attachment=download,
+    )
 
 
 preview_app = Starlette(
     routes=[
         Route("/p/{token}", preview),
         Route("/p/{token}/", preview),
+        Route("/p/{token}/document.md", preview),
         Route("/dl/{token}", download),
         Route("/s/{sid}", shared),
         Route("/s/{sid}/", shared),
+        Route("/s/{sid}/document.md", shared),
         Route("/healthz", healthz),
     ]
 )

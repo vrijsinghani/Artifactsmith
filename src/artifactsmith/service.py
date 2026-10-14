@@ -116,6 +116,25 @@ def unsign(token: str) -> dict[str, Any] | None:
         return None
 
 
+def requested_format(current: str | None, requested: str | None) -> str:
+    """Blank request keeps the artifact format. Any other value must be a supported format."""
+    if requested is None or not str(requested).strip():
+        fmt = str(current or "html").lower().strip()
+    else:
+        fmt = str(requested).lower().strip()
+    if fmt not in SUPPORTED_FORMATS:
+        raise AMError(f"format must be one of {sorted(SUPPORTED_FORMATS)}")
+    return fmt
+
+
+def version_format(v: dict[str, Any], a: dict[str, Any]) -> str:
+    """Format of this version. A blank column falls back only for rows written before the column existed."""
+    raw = v.get("format")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return str(a.get("format") or "html")
+
+
 class Service:
     # Far-future stamp used when AM_SHARE_TTL_DAYS=0 ("until revoked"). Still a real timestamp so queries work.
     NEVER_EXPIRES = 4102444800.0  # 2100-01-01 UTC
@@ -411,8 +430,22 @@ class Service:
                 )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,style,mode,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (aid, newv, None, verbatim_request, "queued", jid, model, skey, style, mode, principal["name"], t),
+                "source_key,style,mode,format,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    aid,
+                    newv,
+                    None,
+                    verbatim_request,
+                    "queued",
+                    jid,
+                    model,
+                    skey,
+                    style,
+                    mode,
+                    format,
+                    principal["name"],
+                    t,
+                ),
             )
             c.execute(
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
@@ -441,6 +474,7 @@ class Service:
         source_files: list[dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
         style: str | None = None,
+        format: str | None = None,
     ) -> dict[str, Any]:
         self.require(principal, "edit")
         a = self.get_artifact(principal, artifact_id)
@@ -461,6 +495,7 @@ class Service:
             style = parse_style(style)
         except StyleError as e:
             raise AMError(str(e)) from e
+        fmt = requested_format(str(a.get("format") or ""), format)
         bundle = self._source(source_content, source_files)
         fingerprint = self._request_fingerprint(
             {
@@ -472,6 +507,7 @@ class Service:
                 "source_content": source_content,
                 "source_files": source_files,
                 "style": style,
+                "format": fmt,
             }
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
@@ -517,7 +553,7 @@ class Service:
             )
             c.execute(
                 "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
-                "source_key,style,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "source_key,style,format,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     a["id"],
                     newv,
@@ -528,6 +564,7 @@ class Service:
                     model,
                     skey,
                     style,
+                    fmt,
                     principal["name"],
                     t,
                 ),
@@ -669,7 +706,7 @@ class Service:
 
     def _source_name(self, a: dict[str, Any], v: dict[str, Any]) -> str:
         files = [f["name"] for f in jloads(v["files_json"], [])]
-        src = builder.source_name(a["kind"], a["format"])
+        src = builder.source_name(a["kind"], version_format(v, a))
         return src if src in files else v["primary_file"]
 
     async def _run_job(self, jid: str) -> None:
@@ -736,13 +773,14 @@ class Service:
         progress: Any,
     ) -> None:
         """Load sources, build, render, and upload under the caller's deadline."""
+        fmt = version_format(v, a)
         if v.get("publish_json"):
             from .publishing import load_publish_payload
 
             payload = load_publish_payload(v["publish_json"])
             try:
                 res = await builder.publish_page(
-                    fmt=a["format"] or "html",
+                    fmt=fmt,
                     display_name=a["display_name"],
                     html=payload["html"],
                     markdown=payload["markdown"],
@@ -755,10 +793,12 @@ class Service:
                 raise AMError(str(exc)) from exc
         else:
             base_source = None
+            base_fmt = fmt
             if v["base_version"]:
                 bv = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", a["id"], v["base_version"])
                 if not bv:
                     raise AMError("base version vanished")
+                base_fmt = version_format(bv, a)
                 key = Store.prefix(a["workspace"], a["id"], bv["version"]) + self._source_name(a, bv)
                 data, _ = await asyncio.to_thread(self.store.get, key)
                 base_source = data.decode("utf-8", errors="replace")
@@ -779,7 +819,7 @@ class Service:
                 raw, _ = await asyncio.to_thread(self.store.get, v["source_key"])
                 source = json.loads(raw)
             build_mode = v.get("mode") or "full"
-            if (a.get("format") or "html") != "html" or base_source is not None:
+            if fmt != "html" or base_source is not None:
                 build_mode = "full"
             res = await builder.run_build(
                 kind=a["kind"],
@@ -793,9 +833,10 @@ class Service:
                 progress=progress,
                 source=source,
                 render_timeout=CFG.render_timeout_s,
-                format=a["format"] or "html",
+                format=fmt,
                 style=v.get("style") or DEFAULT_STYLE,
                 mode=build_mode,
+                patch=base_fmt == fmt,
             )
         total = sum(len(b) for b in res.files.values())
         if total > CFG.max_output_bytes:
@@ -822,7 +863,7 @@ class Service:
             "slug": a["slug"],
             "display_name": a["display_name"],
             "kind": a["kind"],
-            "format": a["format"],
+            "format": fmt,
             "version": v["version"],
             "base_version": v["base_version"],
             "verbatim_request": v["verbatim_request"],
@@ -859,7 +900,7 @@ class Service:
                 ),
             )
             c.execute("UPDATE jobs SET status='done', progress='done', finished_at=? WHERE id=?", (now(), jid))
-            c.execute("UPDATE artifacts SET updated_at=? WHERE id=?", (now(), a["id"]))
+            c.execute("UPDATE artifacts SET format=?, updated_at=? WHERE id=?", (fmt, now(), a["id"]))
         self.progress.pop(jid, None)
         self.audit_by_client(j["client"], "build_done", artifact_id=a["id"], version=v["version"], sha256=primary_sha)
 
@@ -971,6 +1012,8 @@ class Service:
             if v["status"] in ("done", "failed", "needs_input") or now() >= deadline:
                 break
             await asyncio.sleep(0.5)
+        # The done transaction may have changed artifacts.format while this call waited.
+        a = self.get_artifact(principal, a["id"])
         out = self.card(a, v)
         out["share"] = self._share_state(a["id"], version)
         return out
@@ -1051,6 +1094,7 @@ class Service:
                 "sha256": x["sha256"],
                 "style": x.get("style") or DEFAULT_STYLE,
                 "mode": x.get("mode") or "full",
+                "format": version_format(x, a),
             }
             for x in vs
         ]
@@ -1108,7 +1152,7 @@ class Service:
         a = self.get_artifact(principal, artifact_id)
         v = self._done_version(a, version)
         primary = v["primary_file"]
-        ext = EXTENSION.get(a["format"] or "html", "html")
+        ext = EXTENSION.get(version_format(v, a), "html")
         as_name = f"{a['slug']}-v{v['version']:03d}.{ext}"
         self.audit(principal, "export", artifact_id=a["id"], version=v["version"])
         return {
@@ -1272,6 +1316,14 @@ class Service:
 
     # ---------------- object access for HTTP routes ----------------
     def read_file(self, aid: str, version: int, fname: str | None) -> tuple[bytes, str, str]:
+        data, ct, name, _title, _style = self._read_stored(aid, version, fname)
+        return data, ct, name
+
+    def read_primary_view(self, aid: str, version: int) -> tuple[bytes, str, str, str, str]:
+        """Stored primary plus the title and style already loaded with that row."""
+        return self._read_stored(aid, version, None)
+
+    def _read_stored(self, aid: str, version: int, fname: str | None) -> tuple[bytes, str, str, str, str]:
         a = self.db.one("SELECT * FROM artifacts WHERE id=?", aid)
         v = (
             self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=? AND status='done'", aid, version)
@@ -1281,11 +1333,13 @@ class Service:
         if not a or not v:
             raise AMError("not found")
         names = {f["name"]: f for f in jloads(v["files_json"], [])}
-        fname = fname or v["primary_file"]
-        if fname not in names:
+        chosen = fname or v["primary_file"]
+        if chosen not in names:
             raise AMError("not found")
-        data, ct = self.store.get(Store.prefix(a["workspace"], aid, version) + fname)
-        return data, names[fname]["content_type"] or ct, fname
+        data, ct = self.store.get(Store.prefix(a["workspace"], aid, version) + chosen)
+        title = str(a.get("display_name") or "Page")
+        style = str(v.get("style") or DEFAULT_STYLE)
+        return data, names[chosen]["content_type"] or ct, chosen, title, style
 
     def share_lookup(self, sid: str) -> dict[str, Any] | None:
         return self.db.one("SELECT * FROM shares WHERE id=? AND revoked_at IS NULL AND expires_at>?", sid, now())

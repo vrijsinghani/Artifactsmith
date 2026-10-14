@@ -1,6 +1,35 @@
+import sqlite3
+
 import pytest
 
 from artifactsmith.db import DB, jloads
+
+
+def test_migrate_copies_artifact_format_onto_versions(tmp_path):
+    path = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE artifacts (
+          id TEXT PRIMARY KEY,
+          format TEXT NOT NULL
+        );
+        CREATE TABLE versions (
+          artifact_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          PRIMARY KEY (artifact_id, version)
+        );
+        INSERT INTO artifacts VALUES ('art_old', 'markdown');
+        INSERT INTO versions VALUES ('art_old', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    db = DB(path)
+    row = db.one("SELECT format FROM versions WHERE artifact_id=?", "art_old")
+    assert row is not None
+    assert row["format"] == "markdown"
+    db.close()
 
 
 def test_one_all_exec(tmp_path):
