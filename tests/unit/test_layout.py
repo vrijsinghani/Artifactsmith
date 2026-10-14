@@ -1028,10 +1028,45 @@ def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
         "Emulation.setDeviceMetricsOverride",
         {"width": width, "height": 1400, "deviceScaleFactor": 1, "mobile": width < 500},
     )
-    result = call(
-        "Runtime.evaluate",
-        {"expression": _CELL_SPLITS, "awaitPromise": True, "returnByValue": True},
-    )
+    # json/new returns before navigation finishes. A snap Chromium then destroys
+    # the first execution context. Wait until the file document is loaded.
+    deadline = time.time() + 8
+    result: dict[str, object] | None = None
+    while result is None:
+        try:
+            probe = call(
+                "Runtime.evaluate",
+                {
+                    "expression": (
+                        "document.readyState==='complete' && document.body "
+                        "&& document.body.innerHTML.length>50 ? 'ready' : 'wait'"
+                    ),
+                    "returnByValue": True,
+                },
+            )
+        except AssertionError as exc:
+            if "destroyed" not in str(exc) or time.time() > deadline:
+                raise
+            time.sleep(0.05)
+            continue
+        probe_payload = probe["result"]
+        probe_inner = probe_payload["result"] if isinstance(probe_payload, dict) else None
+        if isinstance(probe_inner, dict) and probe_inner.get("value") == "ready":
+            try:
+                result = call(
+                    "Runtime.evaluate",
+                    {"expression": _CELL_SPLITS, "awaitPromise": True, "returnByValue": True},
+                )
+            except AssertionError as exc:
+                if "destroyed" not in str(exc) or time.time() > deadline:
+                    raise
+                time.sleep(0.05)
+                continue
+        elif time.time() > deadline:
+            raise AssertionError("page did not finish loading")
+        else:
+            time.sleep(0.05)
+    assert result is not None
     payload = result["result"]
     assert isinstance(payload, dict)
     inner = payload["result"]
