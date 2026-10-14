@@ -1276,8 +1276,7 @@ class Service:
                 return None
             return int(row["version"]), sha
         latest = self.db.one(
-            "SELECT version, sha256 FROM versions WHERE artifact_id=? AND status='done' "
-            "ORDER BY version DESC LIMIT 1",
+            "SELECT version, sha256 FROM versions WHERE artifact_id=? AND status='done' ORDER BY version DESC LIMIT 1",
             row["artifact_id"],
         )
         if not latest or not latest.get("sha256"):
