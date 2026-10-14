@@ -277,7 +277,7 @@ Arguments:
 - `artifact_id` (required): which artifact to revoke.
 - `version` (optional): revoke one version. Omit it, or pass `0`, to revoke every version.
 
-Returns `artifact_id`, `revoked_links` (how many links were revoked), and `state` (`"not_shared"`). The old URL returns 404 immediately.
+Returns `artifact_id`, `revoked_links` (how many links were revoked), and `state`. `state` is `"shared"` when a public link is still live, with `url` and `follows` (`"latest"` or `"pinned"`). It is `"not_shared"` only when no public link remains. Revoking one pin leaves the follow-latest link up. A revoked URL returns 404 immediately.
 
 ```json
 { "artifact_id": "art_example" }

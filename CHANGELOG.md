@@ -15,6 +15,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- `unshare` with a version reports the share that is still live. `state` is `shared`, with `url` and `follows`, while the follow-latest link remains, and `not_shared` only when no public link remains.
 - My pages login limits group IPv6 clients by `/64`. Each IPv4 address stays its own bucket. An IPv4-mapped IPv6 address counts as that IPv4 address.
 - My pages login limits use the client address from `X-Real-IP` or the rightmost `X-Forwarded-For` hop only when the connecting peer is in `AM_TRUSTED_PROXIES`, and a second limit applies to a hash of the token prefix. The catalog pages past 50. Times show in America/New_York, or a zone the viewer sets, with that zone named on the page.
 - A new version of a pdf, docx, or xlsx artifact keeps that format when `format` is omitted and the page is markdown. Format inference still applies to html and markdown artifacts.

@@ -440,7 +440,7 @@ def unshare(
 
     Permission: share.
     Arguments: artifact_id (required), version (optional). A version revokes only pinned links for that version. Omit it, or pass 0, to revoke every public link, including the one that follows the latest version.
-    Returns: artifact_id, revoked_links (count), state "not_shared".
+    Returns: artifact_id, revoked_links (count), and state. state is "shared" when a public link is still live (with url and follows), and "not_shared" only when none is.
     Example: unshare(artifact_id="art_example")"""
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)
 

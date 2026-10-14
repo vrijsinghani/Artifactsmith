@@ -355,13 +355,22 @@ def test_unshare_version_revokes_only_the_pin(svc: Service):
     principal = _share_principal()
     floating = svc.share(principal, aid)
     pinned = svc.share(principal, aid, version=1)
-    svc.unshare(principal, aid, version=1)
+    missed = svc.unshare(principal, aid, version=2)
+    assert missed["revoked_links"] == 0
+    assert missed["state"] == "shared"
+    assert missed["follows"] == "latest"
+    revoked = svc.unshare(principal, aid, version=1)
+    assert revoked["state"] == "shared"
+    assert revoked["follows"] == "latest"
+    assert revoked["url"] == floating["url"]
     client = TestClient(server.preview_app)
     float_sid = str(floating["url"]).rstrip("/").rsplit("/", 1)[-1]
     pin_sid = str(pinned["url"]).rstrip("/").rsplit("/", 1)[-1]
     assert client.get(f"/s/{float_sid}/").status_code == 200
     assert client.get(f"/s/{pin_sid}/").status_code == 404
-    svc.unshare(principal, aid)
+    cleared = svc.unshare(principal, aid)
+    assert cleared["state"] == "not_shared"
+    assert "url" not in cleared
     assert client.get(f"/s/{float_sid}/").status_code == 404
 
 

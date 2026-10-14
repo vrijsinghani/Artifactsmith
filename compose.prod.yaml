@@ -1,0 +1,10 @@
+# Production overlay. Layer it on the base file:
+#   docker compose --env-file .env -f compose.yaml -f compose.prod.yaml up -d --build
+#
+# Secrets, hostnames, and the bind address stay in .env. compose.yaml already
+# interpolates them. Do not put key material, tokens, or hostnames in this file.
+name: artifactsmith
+
+services:
+  server:
+    restart: unless-stopped

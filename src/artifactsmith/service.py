@@ -1234,6 +1234,22 @@ class Service:
             }
         return {"state": "not_shared"}
 
+    def _remaining_share(self, aid: str, version: int | None) -> dict[str, Any]:
+        """Share state after a revoke. Floating wins; otherwise any live pin."""
+        state = self._share_state(aid, int(version) if version else 0)
+        if state["state"] == "not_shared":
+            other = self.db.one(
+                "SELECT version FROM shares WHERE artifact_id=? AND pinned=1 AND revoked_at IS NULL "
+                "AND expires_at>? ORDER BY created_at DESC LIMIT 1",
+                aid,
+                now(),
+            )
+            if other:
+                state = self._share_state(aid, int(other["version"]))
+        if state["state"] != "shared":
+            return {"state": "not_shared"}
+        return {"state": "shared", "url": state["url"], "follows": state["follows"]}
+
     def list(
         self,
         principal: dict[str, Any],
@@ -1538,7 +1554,7 @@ class Service:
                     "UPDATE shares SET revoked_at=? WHERE artifact_id=? AND revoked_at IS NULL", (t, a["id"])
                 ).rowcount
         self.audit(principal, "unshare", artifact_id=a["id"], version=version, revoked=n)
-        return {"artifact_id": a["id"], "revoked_links": n, "state": "not_shared"}
+        return {"artifact_id": a["id"], "revoked_links": n, **self._remaining_share(a["id"], version)}
 
     # ---------------- delete ----------------
     def delete(self, principal: dict[str, Any], artifact_id: str, confirm_token: str | None = None) -> dict[str, Any]:

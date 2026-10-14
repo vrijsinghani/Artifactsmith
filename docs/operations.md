@@ -11,7 +11,24 @@ docker compose up -d --build
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
-There is no `compose.prod.yaml` in this repo. Production is `docker compose -f compose.yaml` with the reverse-proxy settings below.
+Production layers `compose.prod.yaml` on `compose.yaml`:
+
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.prod.yaml up -d --build
+```
+
+Secrets, hostnames, and bind addresses come from `.env`. `compose.prod.yaml` has no values of its own. The live production copy of that file was not available when this overlay was added; if the running file has more than the server restart policy, replace the committed file with a sanitized copy (still no secret values).
+
+### Rollback past the floating-share release
+
+`8dc0bfe` adds `pinned` to `shares`. The previous image inserts with `INSERT INTO shares VALUES (?,?,?,?,?,?,?,NULL)`. SQLite rejects that short positional insert once the column exists, and changing the current named insert does not change the image you roll back to. Stop the server, drop the column, then start the previous image:
+
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.prod.yaml run --rm --no-deps server \
+  python -c 'import sqlite3; c=sqlite3.connect("/data/state.sqlite"); c.execute("ALTER TABLE shares DROP COLUMN pinned"); c.commit()'
+```
+
+The database is `/data/state.sqlite` (`AM_DATA_DIR`, default `/data`). Run the `DROP COLUMN` before the previous image serves traffic. SQLite 3.35 or newer is required.
 
 `compose.yaml` reads LLM and object-store settings from `.env`. Every `docker compose` command needs those store keys set, including `docker compose down`. Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781` via `AM_BIND_ADDRESS`. Put a TLS reverse proxy in front if you expose them past the host. Exposing the ports without TLS puts bearer tokens and artifact content on the wire in cleartext.
 
