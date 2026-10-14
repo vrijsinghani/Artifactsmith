@@ -1089,7 +1089,13 @@ class Service:
             )
         return {"workspace": ws, "count": len(items), "artifacts": items}
 
-    def inspect(self, principal: dict[str, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
+    def inspect(
+        self,
+        principal: dict[str, Any],
+        artifact_id: str,
+        version: int | None = None,
+        include_content: bool = False,
+    ) -> dict[str, Any]:
         self.require(principal, "read")
         a = self.get_artifact(principal, artifact_id)
         vs = self.db.all("SELECT * FROM versions WHERE artifact_id=? ORDER BY version", a["id"])
@@ -1143,7 +1149,47 @@ class Service:
                     out["manifest_error"] = "store_read_failed"
                 out["card"] = self.card(a, v)
             out["share"] = self._share_state(a["id"], int(target))
+            if include_content and v["status"] == "done":
+                self._attach_inspected_content(out, a, v)
         return out
+
+    def _attach_inspected_content(self, out: dict[str, Any], a: dict[str, Any], v: dict[str, Any]) -> None:
+        """Read the target version's text after check_access. Never the binary primary."""
+        from .renderers.safety import CONTENT_MAX_CHARS
+
+        binary = version_format(v, a) in {"pdf", "docx", "xlsx"}
+        name = "content.md" if binary else str(v.get("primary_file") or "")
+        if binary:
+            names = {item.get("name") for item in jloads(v.get("files_json"), [])}
+            if "content.md" not in names:
+                out["content"] = {"file": "content.md", "primary_binary": True}
+                return
+        if not name:
+            return
+        key = Store.prefix(a["workspace"], a["id"], int(v["version"])) + name
+        try:
+            data, _ct = self.store.get(key)
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "inspect content read failed artifact=%s version=%s: %s: %s",
+                a["id"],
+                v["version"],
+                type(e).__name__,
+                e,
+            )
+            out["content_error"] = "store_read_failed"
+            return
+        content: dict[str, Any] = {"file": name, "size_bytes": len(data)}
+        if binary:
+            content["primary_binary"] = True
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            out["content"] = content
+            return
+        if len(text) <= CONTENT_MAX_CHARS:
+            content["text"] = text
+        out["content"] = content
 
     def _done_version(self, a: dict[str, Any], version: int | None) -> dict[str, Any]:
         if version:

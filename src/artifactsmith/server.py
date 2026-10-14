@@ -330,9 +330,21 @@ def list_artifacts(
 
 
 @mcp.tool()
-def inspect(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
-    """Manifest, files, build log, request history, and share state. Defaults to the latest done version."""
-    return _run(_svc().inspect, _principal(ctx), artifact_id, version)
+def inspect(
+    ctx: Context[Any, Any, Any],
+    artifact_id: str,
+    version: int | None = None,
+    include_content: bool = False,
+) -> dict[str, Any]:
+    """Manifest, files, build log, request history, and share state. Defaults to the latest done version.
+
+    include_content is optional and defaults to false. When true, the target done version adds
+    content with file, size_bytes, and text when that text is within the publish character cap.
+    PDF, DOCX, and XLSX return content.md and set primary_binary; they do not return the binary.
+    Over the cap, size_bytes is set and text is omitted. A store failure sets content_error to
+    store_read_failed. The call still requires read permission on this workspace.
+    """
+    return _run(_svc().inspect, _principal(ctx), artifact_id, version, include_content)
 
 
 @mcp.tool()

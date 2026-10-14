@@ -647,6 +647,119 @@ async def test_start_workers_requeues_mid_build(svc, monkeypatch):
     assert "re-queued" in (job["progress"] or "")
 
 
+def _seed_done(svc, slug, *, primary, files, fmt="html", body=b"<p>harbor</p>"):
+    p = _principal()
+    created = svc.create(p, slug=slug, display_name="I", kind="web_static", verbatim_request="x", format=fmt)
+    aid = created["artifact_id"]
+    svc.db.exec(
+        "UPDATE versions SET status='done', primary_file=?, files_json=?, sha256='abc', size=? "
+        "WHERE artifact_id=? AND version=1",
+        primary,
+        files,
+        len(body),
+        aid,
+    )
+    if fmt != "html":
+        svc.db.exec("UPDATE artifacts SET format=? WHERE id=?", fmt, aid)
+        svc.db.exec("UPDATE versions SET format=? WHERE artifact_id=?", fmt, aid)
+    key = svc.store.prefix("alpha", aid, 1) + primary
+    svc.store.put(key, body, "application/octet-stream")
+    return p, aid
+
+
+def test_include_content_reads_text_and_stays_off_by_default(svc):
+    body = "<p>harbor</p>".encode()
+    p, aid = _seed_done(svc, "readback", primary="index.html", files='[{"name":"index.html"}]', body=body)
+    plain = svc.inspect(p, aid)
+    assert "content" not in plain
+    assert "content_error" not in plain
+    opted = svc.inspect(p, aid, include_content=True)
+    assert opted["content"]["file"] == "index.html"
+    assert opted["content"]["text"] == "<p>harbor</p>"
+    assert opted["content"]["size_bytes"] == len(body)
+
+
+def test_include_content_other_workspace_does_not_read(svc, monkeypatch):
+    p, aid = _seed_done(svc, "secret-page", primary="index.html", files='[{"name":"index.html"}]')
+
+    def boom(_key):
+        raise AssertionError("content read crossed workspaces")
+
+    monkeypatch.setattr(svc.store, "get", boom)
+    beta = _principal(name="beta", workspace="beta", pid="tok_2")
+    with pytest.raises(AMError, match="forbidden"):
+        svc.inspect(beta, aid, include_content=True)
+
+
+def test_include_content_cap_is_characters(svc, monkeypatch):
+    monkeypatch.setattr("artifactsmith.renderers.safety.CONTENT_MAX_CHARS", 2)
+    p, aid = _seed_done(svc, "capped", primary="index.html", files='[{"name":"index.html"}]', body="页页".encode())
+    at_cap = svc.inspect(p, aid, include_content=True)
+    assert at_cap["content"]["text"] == "页页"
+    assert at_cap["content"]["size_bytes"] == len("页页".encode())
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "index.html", "页页页".encode(), "text/html")
+    over = svc.inspect(p, aid, include_content=True)
+    assert "text" not in over["content"]
+    assert over["content"]["size_bytes"] == len("页页页".encode())
+    exact = "ab"
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "index.html", exact.encode(), "text/html")
+    assert svc.inspect(p, aid, include_content=True)["content"]["text"] == exact
+
+
+def test_include_content_binary_uses_companion(svc):
+    p, aid = _seed_done(
+        svc,
+        "sheet",
+        primary="document.pdf",
+        files='[{"name":"document.pdf"},{"name":"content.md"}]',
+        fmt="pdf",
+        body=b"%PDF-1.4 not text",
+    )
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "content.md", b"# harbor\n", "text/markdown")
+    out = svc.inspect(p, aid, include_content=True)
+    assert out["content"]["primary_binary"] is True
+    assert out["content"]["file"] == "content.md"
+    assert out["content"]["text"] == "# harbor\n"
+    assert b"%PDF" not in str(out["content"]).encode()
+
+
+def test_include_content_missing_companion_and_not_done(svc):
+    p, aid = _seed_done(
+        svc,
+        "bare-pdf",
+        primary="document.pdf",
+        files='[{"name":"document.pdf"}]',
+        fmt="pdf",
+        body=b"%PDF",
+    )
+    missing = svc.inspect(p, aid, include_content=True)
+    assert missing["content"] == {"file": "content.md", "primary_binary": True}
+    assert "text" not in missing["content"]
+    assert "content_error" not in missing
+    queued = svc.create(p, slug="queued-page", display_name="Q", kind="web_static", verbatim_request="x")
+    pending = svc.inspect(p, queued["artifact_id"], version=1, include_content=True)
+    assert "content" not in pending
+    assert "content_error" not in pending
+
+
+def test_include_content_store_failure(svc, monkeypatch):
+    p, aid = _seed_done(svc, "boom-read", primary="index.html", files='[{"name":"index.html"}]')
+    real_get = svc.store.get
+
+    def get(key):
+        if key.endswith("index.html"):
+            raise RuntimeError("secret bucket path /data/internal leaked")
+        return real_get(key)
+
+    monkeypatch.setattr(svc.store, "get", get)
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "manifest.json", b'{"ok":true}', "application/json")
+    out = svc.inspect(p, aid, include_content=True)
+    assert out["content_error"] == "store_read_failed"
+    assert "content" not in out
+    assert "secret" not in str(out)
+    assert out["manifest"]["ok"] is True
+
+
 def test_inspect_scrubs_store_errors(svc, monkeypatch):
     p = _principal()
     created = svc.create(p, slug="insp", display_name="I", kind="web_static", verbatim_request="x")

@@ -180,7 +180,7 @@ PDF goes through WeasyPrint, which needs Pango and Cairo. The Docker image does 
 | `edit` | `edit` | New version from the latest done version. Refuses a stale `base_version`. |
 | `status` | `read` | Poll, or `wait` (0 to 90 seconds), until done, failed, or needs_input. |
 | `list_artifacts` | `read` | Catalog for the token's workspace. |
-| `inspect` | `read` | Manifest, history, share state. |
+| `inspect` | `read` | Manifest, history, share state. Optional `include_content` returns the stored text of that version, capped at the publish character limit. |
 | `export` | `export` | Download link for the rendered file, valid 15 minutes. |
 | `share` | `share` | Public link for one exact version. |
 | `unshare` | `share` | Revoke the public link immediately. |
