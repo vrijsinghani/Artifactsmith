@@ -3,6 +3,7 @@ Secrets are read from files and never logged. Invalid settings fail closed at lo
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import secrets
 import tempfile
@@ -106,6 +107,24 @@ def _setting_bool(name: str, default: bool) -> bool:
     raise ConfigError(f"{name} must be true/false (or 1/0/on/off/yes/no), got {raw!r}")
 
 
+def _trusted_proxies() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Peers allowed to supply the client address. Empty means ignore forwarded headers."""
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for token in _setting("AM_TRUSTED_PROXIES", "").split(","):
+        item = token.strip()
+        if not item:
+            continue
+        try:
+            if "/" in item:
+                nets.append(ipaddress.ip_network(item, strict=False))
+            else:
+                addr = ipaddress.ip_address(item)
+                nets.append(ipaddress.ip_network(f"{addr}/{addr.max_prefixlen}"))
+        except ValueError as exc:
+            raise ConfigError(f"AM_TRUSTED_PROXIES has an invalid entry {item!r}") from exc
+    return tuple(nets)
+
+
 def _default_allowed_hosts() -> list[str]:
     raw = _setting("AM_ALLOWED_HOSTS", "")
     if raw.strip():
@@ -173,11 +192,16 @@ class Config:
         default_factory=lambda: _setting_int("AM_SESSION_TTL_S", 12 * 3600, minimum=60, maximum=14 * 86400)
     )
     login_limit: int = field(default_factory=lambda: _setting_int("AM_LOGIN_LIMIT", 8, minimum=1, maximum=100))
+    login_prefix_limit: int = field(
+        default_factory=lambda: _setting_int("AM_LOGIN_PREFIX_LIMIT", 8, minimum=1, maximum=100)
+    )
     login_window_s: int = field(
         default_factory=lambda: _setting_int("AM_LOGIN_WINDOW_S", 900, minimum=60, maximum=86400)
     )
     csrf_ttl_s: int = field(default_factory=lambda: _setting_int("AM_CSRF_TTL_S", 1800, minimum=60, maximum=86400))
     cookie_secure: bool = field(default_factory=_cookie_secure)
+    # Reverse proxies whose X-Real-IP / X-Forwarded-For may name the browser. Empty ignores those headers.
+    trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = field(default_factory=_trusted_proxies)
 
     @property
     def db_path(self) -> Path:

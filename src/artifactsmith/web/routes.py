@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -13,7 +14,9 @@ from starlette.types import Receive, Scope, Send
 
 from ..config import CFG
 from ..service import AMError, Service
-from .catalog import STATUSES, list_pages, page_detail
+from .catalog import STATUSES, list_pages, page_detail, parse_page
+from .client_addr import client_ip
+from .clock import TZ_COOKIE, default_zone, zone_from_name
 from .pages import (
     new_nonce,
     render_detail,
@@ -30,13 +33,13 @@ from .session import (
     attempt_login,
     clear_csrf_cookie,
     clear_session_cookie,
-    client_ip,
     end_session,
     issue_csrf,
     open_session,
     same_origin,
     set_csrf_cookie,
     set_session_cookie,
+    set_tz_cookie,
     tokens_match,
 )
 
@@ -59,6 +62,25 @@ def _text_field(form: Any, name: str) -> str:
 
 def _not_ready() -> PlainTextResponse:
     return PlainTextResponse("not ready", status_code=503, headers=security_headers(new_nonce()))
+
+
+def _viewer_zone(request: Request) -> tuple[ZoneInfo, str | None]:
+    """Zone to render, and a cookie value when ``tz`` is a real zone name."""
+    chosen = request.query_params.get("tz")
+    if chosen is not None:
+        zone = zone_from_name(chosen)
+        if zone is not None:
+            return zone, zone.key
+    saved = zone_from_name(request.cookies.get(TZ_COOKIE, ""))
+    if saved is not None:
+        return saved, None
+    return default_zone(), None
+
+
+def _remember_zone(response: Response, zone_name: str | None) -> Response:
+    if zone_name:
+        set_tz_cookie(response, zone_name)
+    return response
 
 
 def _login_redirect() -> Response:
@@ -149,10 +171,16 @@ def build_pages(get_svc: Callable[[], Service]) -> HostGuard:
             nonce = new_nonce()
             return _html(render_message(nonce, "My pages", "Unknown status."), nonce, status=400)
         query = request.query_params.get("q", "")[:200]
+        page = parse_page(request.query_params.get("page", "1"))
+        if page is None:
+            nonce = new_nonce()
+            return _html(render_message(nonce, "My pages", "Unknown page."), nonce, status=400)
         workspace = str(opened["principal"]["workspace"])
-        rows = list_pages(svc.db, workspace, query, status)
+        rows, has_next = list_pages(svc.db, workspace, query, status, page)
+        zone, store = _viewer_zone(request)
         nonce = new_nonce()
-        return _html(render_list(nonce, workspace, rows, query, status, str(opened["csrf"])), nonce)
+        body = render_list(nonce, workspace, rows, query, status, str(opened["csrf"]), page, has_next, zone)
+        return _remember_zone(_html(body, nonce), store)
 
     async def detail(request: Request) -> Response:
         svc = current()
@@ -166,7 +194,9 @@ def build_pages(get_svc: Callable[[], Service]) -> HostGuard:
         nonce = new_nonce()
         if page is None:
             return _html(render_not_found(nonce), nonce, status=404)
-        return _html(render_detail(nonce, workspace, page, str(opened["csrf"])), nonce)
+        zone, store = _viewer_zone(request)
+        body = render_detail(nonce, workspace, page, str(opened["csrf"]), zone)
+        return _remember_zone(_html(body, nonce), store)
 
     async def logout(request: Request) -> Response:
         svc = current()

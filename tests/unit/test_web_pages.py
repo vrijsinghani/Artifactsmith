@@ -18,8 +18,7 @@ TOKEN = "asmb_test_token_value_ok"
 OTHER = "asmb_other_token_value_ok"
 
 
-@pytest.fixture
-def svc(monkeypatch, tmp_path):
+def open_pages_service(monkeypatch, tmp_path):
     monkeypatch.setattr("artifactsmith.service.Store", FakeStore)
     monkeypatch.setattr(server.CFG, "data_dir", tmp_path)
     monkeypatch.setattr(server.CFG, "secrets_dir", tmp_path / "secrets")
@@ -27,10 +26,18 @@ def svc(monkeypatch, tmp_path):
     monkeypatch.setattr(server.CFG, "cookie_secure", True)
     monkeypatch.setattr(server.CFG, "share_url", "http://127.0.0.1:8781")
     monkeypatch.setattr(server.CFG, "login_limit", 8)
+    monkeypatch.setattr(server.CFG, "login_prefix_limit", 8)
     monkeypatch.setattr(server.CFG, "login_window_s", 900)
+    monkeypatch.setattr(server.CFG, "trusted_proxies", ())
     (tmp_path / "secrets").mkdir(parents=True, exist_ok=True)
     service = Service()
     server.SVC = service
+    return service
+
+
+@pytest.fixture
+def svc(monkeypatch, tmp_path):
+    service = open_pages_service(monkeypatch, tmp_path)
     yield service
     server.SVC = None
 
@@ -64,8 +71,9 @@ def _artifact(
     error: str = "",
     started: float | None = None,
     finished: float | None = None,
+    updated: float | None = None,
 ) -> None:
-    now = time.time()
+    now = time.time() if updated is None else updated
     svc.db.exec(
         "INSERT INTO artifacts (id,workspace,slug,display_name,kind,format,created_by,created_at,updated_at) "
         "VALUES (?,?,?,?,?,?,?,?,?)",

@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS web_sessions (
 CREATE INDEX IF NOT EXISTS web_sessions_token ON web_sessions(token_id);
 CREATE TABLE IF NOT EXISTS login_attempts (
   ip TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'ip',
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts(ip, created_at);
@@ -145,6 +146,13 @@ class DB:
         share_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(shares)").fetchall()}
         if "pinned" not in share_cols:
             self.conn.execute("ALTER TABLE shares ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        attempt_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(login_attempts)").fetchall()}
+        if attempt_cols and "kind" not in attempt_cols:
+            self.conn.execute("ALTER TABLE login_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'ip'")
+        if attempt_cols:
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS login_attempts_kind ON login_attempts(kind, ip, created_at)"
+            )
         # Format was fixed on the artifact, so that value is each existing version's format.
         self.conn.execute(
             "UPDATE versions SET format = ("

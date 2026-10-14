@@ -19,12 +19,15 @@ from starlette.responses import Response
 
 from ..config import CFG
 from ..db import DB
+from .clock import TZ_COOKIE
 
 SESSION_COOKIE = "am_session"
 CSRF_COOKIE = "am_csrf"
 COOKIE_PATH = "/app"
 _TOKEN_MAX = 512
 _SESSION_MAX = 200
+_PREFIX_CHARS = 12
+_TZ_MAX_AGE = 365 * 86400
 
 
 @dataclass(frozen=True)
@@ -41,11 +44,12 @@ def tokens_match(left: str, right: str) -> bool:
     return secrets.compare_digest(left, right)
 
 
-def client_ip(request: Request) -> str:
-    """Peer address. The server does not trust X-Forwarded-For (proxy_headers is off)."""
-    client = request.client
-    host = client.host if client is not None else ""
-    return host or "unknown"
+def token_prefix_key(token: str) -> str | None:
+    """sha256 of a short prefix. Empty and over-long tokens are not a prefix bucket."""
+    text = token.strip()
+    if not text or len(text) > _TOKEN_MAX:
+        return None
+    return hashlib.sha256(text[:_PREFIX_CHARS].encode()).hexdigest()
 
 
 def same_origin(request: Request) -> bool:
@@ -91,25 +95,47 @@ def csrf_signature_ok(token: str) -> bool:
     return True
 
 
-def login_blocked(db: DB, ip: str) -> int:
-    """Seconds to wait when this IP is over the limit, else 0."""
+def _purge_attempts(db: DB) -> float:
     cutoff = time.time() - int(CFG.login_window_s)
     db.exec("DELETE FROM login_attempts WHERE created_at<?", cutoff)
-    count = db.one("SELECT COUNT(*) AS n FROM login_attempts WHERE ip=? AND created_at>=?", ip, cutoff)
+    return cutoff
+
+
+def _bucket_wait(db: DB, kind: str, key: str, limit: int, cutoff: float) -> int:
+    count = db.one(
+        "SELECT COUNT(*) AS n FROM login_attempts WHERE kind=? AND ip=? AND created_at>=?",
+        kind,
+        key,
+        cutoff,
+    )
     n = int(count["n"]) if count else 0
-    if n < int(CFG.login_limit):
+    if n < limit:
         return 0
-    oldest = db.one("SELECT MIN(created_at) AS t FROM login_attempts WHERE ip=? AND created_at>=?", ip, cutoff)
+    oldest = db.one(
+        "SELECT MIN(created_at) AS t FROM login_attempts WHERE kind=? AND ip=? AND created_at>=?",
+        kind,
+        key,
+        cutoff,
+    )
     start = float(oldest["t"]) if oldest and oldest["t"] is not None else time.time()
     return max(1, int(start + int(CFG.login_window_s) - time.time()) + 1)
 
 
-def _record_failure(db: DB, ip: str) -> None:
-    db.exec("INSERT INTO login_attempts (ip, created_at) VALUES (?,?)", ip, time.time())
+def login_blocked(db: DB, ip: str, prefix_key: str | None = None) -> int:
+    """Seconds to wait when the address or the token prefix is over its limit, else 0."""
+    cutoff = _purge_attempts(db)
+    wait = _bucket_wait(db, "ip", ip, int(CFG.login_limit), cutoff)
+    if prefix_key:
+        wait = max(wait, _bucket_wait(db, "prefix", prefix_key, int(CFG.login_prefix_limit), cutoff))
+    return wait
 
 
-def _clear_failures(db: DB, ip: str) -> None:
-    db.exec("DELETE FROM login_attempts WHERE ip=?", ip)
+def _record_failure(db: DB, kind: str, key: str) -> None:
+    db.exec("INSERT INTO login_attempts (ip, kind, created_at) VALUES (?,?,?)", key, kind, time.time())
+
+
+def _clear_failures(db: DB, kind: str, key: str) -> None:
+    db.exec("DELETE FROM login_attempts WHERE kind=? AND ip=?", kind, key)
 
 
 def principal_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -177,21 +203,30 @@ def open_session(db: DB, raw: str | None) -> dict[str, Any] | None:
     return {"principal": principal, "csrf": str(row["csrf"])}
 
 
+def _note_failure(db: DB, ip: str, prefix_key: str | None) -> None:
+    _record_failure(db, "ip", ip)
+    if prefix_key:
+        _record_failure(db, "prefix", prefix_key)
+
+
 def attempt_login(db: DB, ip: str, form_csrf: str, cookie_csrf: str, token: str, *, origin_ok: bool) -> LoginResult:
     if not origin_ok or not tokens_match(form_csrf, cookie_csrf) or not csrf_signature_ok(form_csrf):
         return LoginResult(403, "The form expired. Load the page again.")
-    wait = login_blocked(db, ip)
+    prefix_key = token_prefix_key(token)
+    wait = login_blocked(db, ip, prefix_key)
     if wait:
         return LoginResult(429, "Too many sign-in attempts. Try again later.", retry_after=wait)
     row = find_live_token(db, token.strip())
     principal = principal_from_row(row) if row else None
     if row is None or principal is None:
-        _record_failure(db, ip)
+        _note_failure(db, ip, prefix_key)
         return LoginResult(401, "That token is not valid.")
     if "read" not in principal["perms"]:
-        _record_failure(db, ip)
+        _note_failure(db, ip, prefix_key)
         return LoginResult(401, "That token cannot open My pages.")
-    _clear_failures(db, ip)
+    _clear_failures(db, "ip", ip)
+    if prefix_key:
+        _clear_failures(db, "prefix", prefix_key)
     return LoginResult(303, session_raw=start_session(db, str(row["id"])))
 
 
@@ -213,3 +248,7 @@ def set_csrf_cookie(response: Response, token: str) -> None:
 
 def clear_csrf_cookie(response: Response) -> None:
     response.delete_cookie(CSRF_COOKIE, **cookie_kwargs())
+
+
+def set_tz_cookie(response: Response, zone_name: str) -> None:
+    response.set_cookie(TZ_COOKIE, zone_name, max_age=_TZ_MAX_AGE, **cookie_kwargs())

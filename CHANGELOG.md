@@ -13,6 +13,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- My pages login limits use the client address from `X-Real-IP` or the rightmost `X-Forwarded-For` hop only when the connecting peer is in `AM_TRUSTED_PROXIES`, and a second limit applies to a hash of the token prefix. The catalog pages past 50. Times show in America/New_York, or a zone the viewer sets, with that zone named on the page.
 - A new version of a pdf, docx, or xlsx artifact keeps that format when `format` is omitted and the page is markdown. Format inference still applies to html and markdown artifacts.
 - The bare-HTML warning says `little CSS` when a style block is present and `no CSS` when the page has none.
 - `publish` infers `format` when it is omitted. Markdown and no HTML is markdown and is styled on open. HTML alone stays HTML. Both fields on a new artifact keep HTML as the page. Both fields on a new version keep the artifact's format.

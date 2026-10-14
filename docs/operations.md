@@ -116,7 +116,7 @@ The token value does not change. Each add or remove appends one audit line (`tok
 
 A revoked hash fails the next API call and the next My pages request. There is no grace window. Sign-out deletes that browser session. Revoking a token does not expire already-issued `/p/` preview links; call `revoke_previews` for that.
 
-My pages is `http://127.0.0.1:8780/app/` (the API origin). Paste the token from `token add`. The browser stores an HttpOnly SameSite=Strict cookie on path `/app` and the address bar never contains the token. Set `AM_API_URL` to `https://…` so the cookie is Secure, or set `AM_COOKIE_SECURE=true` when TLS terminates at a proxy. Login attempts are limited per connecting IP (`AM_LOGIN_LIMIT`, `AM_LOGIN_WINDOW_S`). The preview port stays cookieless.
+My pages is `http://127.0.0.1:8780/app/` (the API origin). Paste the token from `token add`. The browser stores an HttpOnly SameSite=Strict cookie on path `/app` and the address bar never contains the token. Set `AM_API_URL` to `https://…` so the cookie is Secure, or set `AM_COOKIE_SECURE=true` when TLS terminates at a proxy. Failed sign-ins are limited per client address (`AM_LOGIN_LIMIT`, `AM_LOGIN_WINDOW_S`) and per hashed token prefix (`AM_LOGIN_PREFIX_LIMIT`). The address is the TCP peer unless that peer is listed in `AM_TRUSTED_PROXIES` (comma-separated IPs or CIDRs). A trusted peer may name the browser with `X-Real-IP`, or with the rightmost `X-Forwarded-For` hop. For the SWAG proxy on this network set `AM_TRUSTED_PROXIES=192.168.30.160`. Leave the setting empty anywhere else so a client cannot pick its own limit bucket. The catalog pages 50 at a time. Times are America/New_York unless the viewer sets a zone; the label names the zone. The preview port stays cookieless.
 
 Private `/p/` preview URLs are database-backed capabilities (short ids in SQLite), not HMAC-signed. Replacing `AM_SECRETS_DIR/signing.key` invalidates `/dl/` download links only. `/p/` links stay usable until their expiry unless you call `revoke_previews(artifact_id)` (or delete the artifact). Public `/s/` links are also not HMAC-signed; they stay valid until `unshare` or TTL.
 
@@ -126,7 +126,7 @@ Separate API and preview ports create separate browser origins. The preview app 
 
 1. Read `CHANGELOG.md`.
 2. Rebuild the image: `docker compose up -d --build`.
-3. SQLite schema uses `CREATE TABLE IF NOT EXISTS` plus a small column migrator (`deleting_at` on artifacts). Do not assume every future column add is automatic.
+3. SQLite schema uses `CREATE TABLE IF NOT EXISTS` plus a small column migrator (`deleting_at` on artifacts, `kind` on `login_attempts`). Do not assume every future column add is automatic.
 4. Run `python -m tests.e2e.test_end_to_end` against a staging stack before moving clients.
 
 The compose storage image is `rustfs/rustfs:1.0.1`, pinned by digest.

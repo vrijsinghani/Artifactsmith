@@ -8,13 +8,13 @@ from typing import Any
 
 from ..config import CFG
 from ..db import DB
-from ..service import iso
 from ..styles import DEFAULT_STYLE
 
 STATUSES = ("queued", "building", "done", "failed", "needs_input", "cancelled")
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 _QUERY_MAX = 200
-_LIST_LIMIT = 50
+PAGE_SIZE = 50
+MAX_PAGE = 200
 
 
 def valid_artifact_id(artifact_id: str) -> bool:
@@ -26,7 +26,16 @@ def like_contains(query: str) -> str:
     return f"%{escaped}%"
 
 
-def list_pages(db: DB, workspace: str, query: str, status: str) -> list[dict[str, Any]]:
+def parse_page(raw: str) -> int | None:
+    if not raw.isdigit():
+        return None
+    page = int(raw)
+    if page < 1 or page > MAX_PAGE:
+        return None
+    return page
+
+
+def list_pages(db: DB, workspace: str, query: str, status: str, page: int) -> tuple[list[dict[str, Any]], bool]:
     sql = (
         "SELECT a.*, v.version AS latest_version, v.status AS latest_status, v.style AS latest_style, "
         "v.format AS latest_format FROM artifacts a "
@@ -43,12 +52,11 @@ def list_pages(db: DB, workspace: str, query: str, status: str) -> list[dict[str
     if status:
         sql += " AND v.status=?"
         args.append(status)
-    sql += " ORDER BY a.updated_at DESC LIMIT ?"
-    args.append(_LIST_LIMIT)
-    rows = []
-    for art in db.all(sql, *args):
-        rows.append(_card(db, art))
-    return rows
+    sql += " ORDER BY a.updated_at DESC LIMIT ? OFFSET ?"
+    args.append(PAGE_SIZE + 1)
+    args.append((page - 1) * PAGE_SIZE)
+    found = [_card(db, art) for art in db.all(sql, *args)]
+    return found[:PAGE_SIZE], len(found) > PAGE_SIZE
 
 
 def page_detail(db: DB, workspace: str, artifact_id: str) -> dict[str, Any] | None:
@@ -77,7 +85,7 @@ def page_detail(db: DB, workspace: str, artifact_id: str) -> dict[str, Any] | No
                 "status": str(ver["status"]),
                 "format": str(ver.get("format") or art["format"]),
                 "style": str(ver.get("style") or DEFAULT_STYLE),
-                "created_at": iso(ver["created_at"]) or "",
+                "created_at": float(ver["created_at"]),
                 "job_status": str(job["status"]) if job else "",
                 "duration": duration_label(job),
                 "check": check_name(str(job["error"]) if job and job.get("error") else ""),
@@ -85,10 +93,11 @@ def page_detail(db: DB, workspace: str, artifact_id: str) -> dict[str, Any] | No
             }
         )
     return {
+        "artifact_id": str(art["id"]),
         "title": str(art["display_name"]),
         "slug": str(art["slug"]),
         "format": str(art["format"]),
-        "updated_at": iso(art["updated_at"]) or "",
+        "updated_at": float(art["updated_at"]),
         "share_url": public_share_url(db, str(art["id"])),
         "versions": history,
     }
@@ -116,7 +125,7 @@ def _card(db: DB, art: dict[str, Any]) -> dict[str, Any]:
         "style": str(art.get("latest_style") or DEFAULT_STYLE),
         "latest_version": int(version) if version is not None else None,
         "status": str(art.get("latest_status") or ""),
-        "updated_at": iso(art["updated_at"]) or "",
+        "updated_at": float(art["updated_at"]),
         "share_url": public_share_url(db, str(art["id"])),
     }
 

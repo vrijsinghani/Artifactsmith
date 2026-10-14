@@ -5,8 +5,11 @@ from __future__ import annotations
 import secrets
 from html import escape
 from typing import Any
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from .catalog import STATUSES
+from .clock import format_when
 
 _CSS = """
 :root{--bg:#ffffff;--ink:#1c1917;--muted:#3f3f46;--accent:#0b5cab;--surface:#f3f6fb;--line:#d5deea;--pos:#0d6b3d;--neg:#b42318}
@@ -30,6 +33,8 @@ input,select,button{font:inherit;width:100%;padding:.55rem .7rem;border-radius:8
 button.primary{background:var(--accent);color:#fff;border:0;font-weight:600;margin-top:.8rem}
 .error{color:var(--neg);font-weight:600}
 .back{display:inline-block;margin-bottom:.6rem}
+.pager{display:flex;gap:.5rem;margin:.5rem 0 1rem}
+.pager a{flex:1;text-align:center;padding:.55rem .7rem;border:1px solid var(--line);border-radius:8px;text-decoration:none}
 """
 
 
@@ -110,6 +115,42 @@ def _status_options(current: str) -> str:
     return "".join(options)
 
 
+def _list_href(query: str, status: str, page: int) -> str:
+    params: list[tuple[str, str]] = []
+    if query:
+        params.append(("q", query))
+    if status:
+        params.append(("status", status))
+    if page > 1:
+        params.append(("page", str(page)))
+    if not params:
+        return "/app/"
+    return "/app/?" + urlencode(params)
+
+
+def _zone_form(action: str, zone: ZoneInfo, hidden: list[tuple[str, str]]) -> str:
+    fields = "".join(f'<input type=hidden name={esc(name)} value="{esc(value)}">' for name, value in hidden if value)
+    return (
+        f'<form method=get action="{esc(action)}">'
+        f"{fields}"
+        "<label for=tz>Time zone</label>"
+        f'<input id=tz name=tz value="{esc(zone.key)}" maxlength=64 autocapitalize=none spellcheck=false>'
+        "<button type=submit>Set zone</button></form>"
+        f"<p class=muted>Times shown in {esc(zone.key)}</p>"
+    )
+
+
+def _pager(query: str, status: str, page: int, has_next: bool) -> str:
+    links = []
+    if page > 1:
+        links.append(f'<a href="{esc(_list_href(query, status, page - 1))}">Previous</a>')
+    if has_next:
+        links.append(f'<a href="{esc(_list_href(query, status, page + 1))}">Next</a>')
+    if not links:
+        return ""
+    return "<nav class=pager>" + "".join(links) + "</nav>"
+
+
 def _header(workspace: str, csrf: str) -> str:
     return (
         "<header><h1>My pages</h1>"
@@ -127,6 +168,9 @@ def render_list(
     query: str,
     status: str,
     csrf: str,
+    page: int,
+    has_next: bool,
+    zone: ZoneInfo,
 ) -> str:
     cards = []
     for row in rows:
@@ -141,7 +185,7 @@ def render_list(
                     ("Style", esc(row["style"])),
                     ("Version", esc(version)),
                     ("Status", esc(row["status"] or "—")),
-                    ("Updated", esc(row["updated_at"] or "—")),
+                    ("Updated", esc(format_when(row["updated_at"], zone) or "—")),
                     ("Share", _share(str(row["share_url"]))),
                 ]
             )
@@ -161,21 +205,24 @@ def render_list(
         + "<label for=status>Status</label>"
         + f"<select id=status name=status>{_status_options(status)}</select>"
         + "<button class=primary type=submit>Filter</button></form>"
+        + _zone_form("/app/", zone, [("q", query), ("status", status), ("page", str(page) if page > 1 else "")])
         + listing
+        + _pager(query, status, page, has_next)
     )
     return _shell("My pages", body, nonce)
 
 
-def render_detail(nonce: str, workspace: str, page: dict[str, Any], csrf: str) -> str:
+def render_detail(nonce: str, workspace: str, page: dict[str, Any], csrf: str, zone: ZoneInfo) -> str:
     blocks = [
         '<a class=back href="/app/">All pages</a>',
         _header(workspace, csrf),
         f"<h2>{esc(page['title'])}</h2>",
+        _zone_form(f"/app/a/{page['artifact_id']}", zone, []),
         _meta(
             [
                 ("Slug", esc(page["slug"])),
                 ("Format", esc(page["format"])),
-                ("Updated", esc(page["updated_at"] or "—")),
+                ("Updated", esc(format_when(page["updated_at"], zone) or "—")),
                 ("Share", _share(str(page["share_url"]))),
             ]
         ),
@@ -192,7 +239,7 @@ def render_detail(nonce: str, workspace: str, page: dict[str, Any], csrf: str) -
                     ("Status", esc(ver["status"])),
                     ("Format", esc(ver["format"])),
                     ("Style", esc(ver["style"])),
-                    ("Created", esc(ver["created_at"] or "—")),
+                    ("Created", esc(format_when(ver["created_at"], zone) or "—")),
                     ("Job", esc(ver["job_status"] or "—")),
                     ("Duration", esc(ver["duration"] or "—")),
                     ("Check", esc(ver["check"] or "—")),
