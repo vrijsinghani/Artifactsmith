@@ -193,8 +193,8 @@ def test_named_placeholders_pass(text: str) -> None:
         "Bearer asmb_.",
         "Bearer asmb_,",
         "Bearer asmb_....",
-        "Bearer asmb_...9f3a1c7e5b2d8a40",
-        "Bearer asmb_" + _ELLIPSIS + "9f3a1c7e5b2d8a40",
+        "Bearer asmb_..." + _H16,
+        "Bearer asmb_" + _ELLIPSIS + _H16,
         "Bearer asmb_" + ("\uff0e" * 3),
     ],
 )

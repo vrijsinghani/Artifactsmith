@@ -173,10 +173,10 @@ def _bearer_is_placeholder(text: str, match: re.Match[str]) -> bool:
         return True
     if token != "asmb_":
         return False
-    rest = text[match.end() :]
-    if not rest.startswith("\u2026"):
+    end = match.end()
+    if not text.startswith("\u2026", end):
         return False
-    after = rest[1:2]
+    after = text[end + 1 : end + 2]
     return not after or after not in _TOKEN68
 
 
