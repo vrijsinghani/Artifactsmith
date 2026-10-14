@@ -3,17 +3,18 @@
 When you run ArtifactSmith you get two HTTP ports, a SQLite database, an object store, and a background worker. Agents connect over MCP. People open previews and share links in a browser.
 
 ```
-your agent  --MCP/HTTP-->  API :8780 (bearer)  --> SQLite (metadata)
+your agent  --MCP/HTTP-->  API :8780 (bearer, and /app/ session)  --> SQLite (metadata)
                                                --> object store (bytes)
                                                --> LLM (text only)
+your browser -- /app/  --> API :8780 (session cookie, path /app)
 your browser            Preview :8781 (no cookies) --> object store
 ```
 
 ## Process
 
-`artifactsmith serve` starts the MCP API (FastMCP streamable HTTP) behind bearer auth, a cookieless preview and share app on a second port, and `AM_MAX_BUILDS` worker tasks that pull jobs from an in-process queue.
+`artifactsmith serve` starts the MCP API (FastMCP streamable HTTP) behind bearer auth, a read-only My pages catalog at `/app/` on that same port, a cookieless preview and share app on a second port, and `AM_MAX_BUILDS` worker tasks that pull jobs from an in-process queue.
 
-SQLite holds artifacts, versions, jobs, tokens, and shares. The S3-compatible object store holds rendered files and the input `source.json`. On restart, unfinished jobs go back on the queue. Done versions stay as they are.
+SQLite holds artifacts, versions, jobs, tokens, shares, and My pages sessions. The S3-compatible object store holds rendered files and the input `source.json`. On restart, unfinished jobs go back on the queue. Done versions stay as they are. A session row stores the hash of the cookie and the token id, not the token.
 
 ## Build pipeline
 
@@ -27,7 +28,7 @@ HTML uses the house-style system prompt and stores `index.html`. `mode=fast` (or
 
 | Module | Role |
 | ------ | ---- |
-| `server` | MCP tools, bearer auth, preview routes |
+| `server` | MCP tools, bearer auth, My pages routes, preview routes |
 | `service` | Create, publish, edit, share, delete, worker, cards |
 | `builder` | Prompt, parse, sanitize, dispatch renderer |
 | `patch` | Apply an edit's find/replace blocks to the base file |
@@ -40,9 +41,9 @@ A fake chat model for local and CI end-to-end tests lives under `tests/support/`
 
 ## Trust boundaries
 
-The API origin authenticates every call except `/healthz`.
+The API origin authenticates MCP calls except `/healthz`. `/app/` uses a separate session cookie scoped to that path. The cookie is not sent to `/mcp`.
 
-The preview origin serves bytes named by a signed short link or an unrevoked share id.
+The preview origin serves bytes named by a signed short link or an unrevoked share id. It does not serve `/app/` and it does not set cookies.
 
 Compose keeps the object store on the internal network and does not publish its ports on the host.
 

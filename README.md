@@ -38,6 +38,7 @@ The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAUL
 Host ports bind to `127.0.0.1`:
 
 - `http://127.0.0.1:8780/mcp` is the MCP API (bearer token required)
+- `http://127.0.0.1:8780/app/` is My pages (paste the same token; the browser gets a session cookie)
 - `http://127.0.0.1:8781/` is the cookieless preview and share origin (`/p/…`, `/s/…`)
 
 ### Use the published image
@@ -330,7 +331,8 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_HOST` | `127.0.0.1` | Listen address for `artifactsmith serve`. Compose/image set `0.0.0.0` in-container. |
 | `AM_BIND_ADDRESS` | `127.0.0.1` | Host publish bind for ports `8780` and `8781` in `compose.yaml`. |
 | `AM_API_PORT` / `AM_PREVIEW_PORT` | `8780` / `8781` | Listen ports. |
-| `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. Empty `AM_SHARE_URL` uses `AM_PREVIEW_URL`. |
+| `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. Empty `AM_SHARE_URL` uses `AM_PREVIEW_URL`. An `https://` API URL marks the My pages cookie Secure. |
+| `AM_COOKIE_SECURE` | follows `AM_API_URL` | `true` or `false` forces the My pages cookie Secure flag. Leave it unset on local HTTP. |
 | `AM_ALLOWED_HOSTS` | `127.0.0.1:<api_port>,localhost:<api_port>` | Comma-separated Host values for MCP DNS-rebinding protection (on by default). |
 | `AM_ALLOWED_ORIGINS` | empty | Comma-separated Origin values for MCP DNS-rebinding protection. |
 | `AM_DATA_DIR` / `AM_SECRETS_DIR` | `/data` / `/secrets` | SQLite and the HMAC signing key. |
@@ -346,6 +348,8 @@ Permissions are `create`, `read`, `edit`, `publish`, `export`, `share`, and `del
 Builds stay private until you call `share`. That creates a public `/s/…` URL that follows the latest done version. Pass `version` or `pin` to freeze one version on its own URL. `unshare` makes it return 404. `unshare` with a version revokes only that pin.
 
 Preview and share pages run on their own port, send no cookies, and set CSP `script-src 'none'` with `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`.
+
+My pages (`/app/` on the API origin) is a read-only catalog for the token's workspace. Sign-in pastes a token into a form. The response sets an HttpOnly, SameSite=Strict session cookie on path `/app` and does not put the token in the URL. The cookie is Secure when `AM_API_URL` is `https` (or when `AM_COOKIE_SECURE=true`). Each request loads the token again, so a revoke drops the session immediately. Another workspace's artifact id is a 404. The preview origin does not serve `/app/`.
 
 Scripts are stripped. Public http(s) links to global hosts are kept (with `rel="noopener noreferrer nofollow"` and `target="_blank"` in HTML). In-page `#` anchors stay on the page. Host checks use urllib plus a WHATWG-style approximation; they guarantee accepted links do not reach private hosts, not that every accepted link is browser-valid. Protocol-relative `//host` citations are upgraded to `https://` only when the host is public; private or dangerous `//` destinations are neutralized, not upgraded. Private, loopback, and link-local hosts fail the build, as do `javascript:`, `vbscript:`, `data:`, and `file:`. A remote image URL becomes a clickable link to that URL (alt text as the label) in every format — nothing loads the image on open. CSS `url()`, fonts, and iframes stay local. Secrets fail the build. Size and time caps apply.
 

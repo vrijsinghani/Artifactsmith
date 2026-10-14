@@ -114,7 +114,9 @@ artifactsmith token perms --name agent --remove publish
 
 The token value does not change. Each add or remove appends one audit line (`token_perm_add` or `token_perm_remove`) with the token id, name, workspace, permission, and the resulting set. Listing permissions does not. If `--name` matches more than one token, pass `--id`.
 
-A revoked hash fails the next request. There is no grace window. Revoking a token does not expire already-issued `/p/` preview links; call `revoke_previews` for that.
+A revoked hash fails the next API call and the next My pages request. There is no grace window. Sign-out deletes that browser session. Revoking a token does not expire already-issued `/p/` preview links; call `revoke_previews` for that.
+
+My pages is `http://127.0.0.1:8780/app/` (the API origin). Paste the token from `token add`. The browser stores an HttpOnly SameSite=Strict cookie on path `/app` and the address bar never contains the token. Set `AM_API_URL` to `https://…` so the cookie is Secure, or set `AM_COOKIE_SECURE=true` when TLS terminates at a proxy. Login attempts are limited per connecting IP (`AM_LOGIN_LIMIT`, `AM_LOGIN_WINDOW_S`). The preview port stays cookieless.
 
 Private `/p/` preview URLs are database-backed capabilities (short ids in SQLite), not HMAC-signed. Replacing `AM_SECRETS_DIR/signing.key` invalidates `/dl/` download links only. `/p/` links stay usable until their expiry unless you call `revoke_previews(artifact_id)` (or delete the artifact). Public `/s/` links are also not HMAC-signed; they stay valid until `unshare` or TTL.
 

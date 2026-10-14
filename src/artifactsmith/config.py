@@ -83,6 +83,18 @@ def _setting_styles(name: str) -> frozenset[str]:
     return frozenset(names)
 
 
+def _cookie_secure() -> bool:
+    """Secure cookies when the public API URL is https, unless AM_COOKIE_SECURE is set.
+
+    Browsers drop a Secure cookie on http://127.0.0.1, which is the local quickstart.
+    A TLS reverse proxy sets AM_API_URL to https and the session cookie becomes Secure.
+    """
+    raw = _setting("AM_COOKIE_SECURE", "")
+    if raw == "":
+        return _setting("AM_API_URL", "http://127.0.0.1:8780").lower().startswith("https://")
+    return _setting_bool("AM_COOKIE_SECURE", False)
+
+
 def _setting_bool(name: str, default: bool) -> bool:
     raw = _setting(name, "").lower()
     if raw == "":
@@ -156,6 +168,16 @@ class Config:
     allowed_origins: list[str] = field(
         default_factory=lambda: [h.strip() for h in _setting("AM_ALLOWED_ORIGINS", "").split(",") if h.strip()]
     )
+    # Browser session for /app/. The cookie is Secure when cookie_secure is true.
+    session_ttl_s: int = field(
+        default_factory=lambda: _setting_int("AM_SESSION_TTL_S", 12 * 3600, minimum=60, maximum=14 * 86400)
+    )
+    login_limit: int = field(default_factory=lambda: _setting_int("AM_LOGIN_LIMIT", 8, minimum=1, maximum=100))
+    login_window_s: int = field(
+        default_factory=lambda: _setting_int("AM_LOGIN_WINDOW_S", 900, minimum=60, maximum=86400)
+    )
+    csrf_ttl_s: int = field(default_factory=lambda: _setting_int("AM_CSRF_TTL_S", 1800, minimum=60, maximum=86400))
+    cookie_secure: bool = field(default_factory=_cookie_secure)
 
     @property
     def db_path(self) -> Path:

@@ -35,7 +35,8 @@ The configured LLM endpoint. Its output is untrusted.
 | Accidental publish | `create`, `edit`, and `publish` do not mint `/s/`. `share` is a separate call. |
 | Stale or swapped public page | A floating share serves the latest done version and checks that version's sha256 before render. A pinned share stays on one version and its sha256. `unshare` sets `revoked_at` immediately. |
 | Token theft | Tokens stored as SHA-256. The operator can revoke. Prefer `NAME_FILE` for secrets. |
-| XSS / drive-by JS | HTML passes an nh3 allowlist; CSS passes a tinycss2 allowlist. CSP `script-src 'none'` and `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`. Separate cookieless origin. |
+| XSS / drive-by JS | HTML passes an nh3 allowlist; CSS passes a tinycss2 allowlist. CSP `script-src 'none'` and `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`. Separate cookieless origin. My pages escapes catalog text, uses a style nonce, and sets `script-src 'none'`. |
+| My pages session theft | Cookie is HttpOnly, SameSite=Strict, and path `/app`. Secure when the public API URL is https. The server stores the cookie's hash. Login and sign-out forms carry a CSRF token. Failed logins are rate-limited per peer IP. |
 | SSRF / phone-home via output | Public http(s) `<a href>` citations allowed; private/loopback/link-local hosts rejected. Dangerous schemes stripped. Protocol-relative `//host` upgraded to `https://` only when the host is public; otherwise neutralized. Images, CSS `url()`, fonts, and iframes stay self-contained — no remote subresources. Renderers do not fetch (WeasyPrint deny-all fetcher). |
 | Secret leakage in pages | Secret-shaped strings fail the build. |
 | Oversize / hang | Field size caps, `AM_MAX_OUTPUT_BYTES`, render timeout, build timeout, per-token quota. |
@@ -46,7 +47,7 @@ The configured LLM endpoint. Its output is untrusted.
 
 ## Out of scope in this release
 
-Identity beyond bearer tokens.
+Identity accounts separate from bearer tokens. A hosted trial can later mint a token and call the same session helper; this release only pastes an existing token.
 
 ACLs inside one workspace.
 

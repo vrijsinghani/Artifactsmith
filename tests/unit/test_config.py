@@ -1,6 +1,14 @@
 import pytest
 
-from artifactsmith.config import Config, ConfigError, _read_file, _setting, _setting_bool, _setting_int
+from artifactsmith.config import (
+    Config,
+    ConfigError,
+    _cookie_secure,
+    _read_file,
+    _setting,
+    _setting_bool,
+    _setting_int,
+)
 from artifactsmith.renderers import EXTENSION, get_renderer, source_name
 
 
@@ -18,6 +26,18 @@ def test_get_renderer_rejects_unknown():
         assert "unsupported" in str(e)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_cookie_secure_follows_the_public_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AM_COOKIE_SECURE", raising=False)
+    monkeypatch.setenv("AM_API_URL", "https://artifacts.example.com")
+    assert _cookie_secure() is True
+    monkeypatch.setenv("AM_API_URL", "http://127.0.0.1:8780")
+    assert _cookie_secure() is False
+    monkeypatch.setenv("AM_COOKIE_SECURE", "true")
+    assert _cookie_secure() is True
+    monkeypatch.setenv("AM_COOKIE_SECURE", "false")
+    assert _cookie_secure() is False
 
 
 def test_edit_patch_timeout_defaults_to_45(monkeypatch: pytest.MonkeyPatch) -> None:

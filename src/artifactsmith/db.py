@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 CREATE INDEX IF NOT EXISTS jobs_client_time ON jobs(client, created_at);
 CREATE INDEX IF NOT EXISTS versions_artifact ON versions(artifact_id, version);
+CREATE TABLE IF NOT EXISTS web_sessions (
+  id_hash TEXT PRIMARY KEY,
+  token_id TEXT NOT NULL,
+  csrf TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS web_sessions_token ON web_sessions(token_id);
+CREATE TABLE IF NOT EXISTS login_attempts (
+  ip TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts(ip, created_at);
 """
 
 

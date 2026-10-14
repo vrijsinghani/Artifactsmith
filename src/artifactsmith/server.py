@@ -25,6 +25,7 @@ from .config import CFG
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .renderers import MIME, SOURCE_NAME
 from .service import AMError, Service, unsign
+from .web.routes import build_pages
 
 SVC: Service | None = None
 
@@ -478,6 +479,23 @@ class BearerAuth:
         return
 
 
+class ApiApp:
+    """MCP bearer API, plus the cookie session for /app/ on this same origin.
+
+    /app/ is not wrapped in BearerAuth. The preview origin never mounts it.
+    """
+
+    def __init__(self) -> None:
+        self.pages = build_pages(_svc)
+        self.api = BearerAuth(mcp.streamable_http_app())
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and (scope["path"] == "/app" or scope["path"].startswith("/app/")):
+            await self.pages(scope, receive, send)
+            return
+        await self.api(scope, receive, send)
+
+
 async def healthz(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "service": "artifactsmith", "version": __version__})
 
@@ -619,7 +637,7 @@ async def main() -> None:
     svc.store.ensure_bucket()
     # Bind the loop before accepting connections so early MCP enqueues are thread-safe.
     svc.bind_loop(asyncio.get_running_loop())
-    api_app = BearerAuth(mcp.streamable_http_app())
+    api_app = ApiApp()
     api = uvicorn.Server(
         uvicorn.Config(
             api_app, host=CFG.host, port=CFG.api_port, log_level="info", proxy_headers=False, server_header=False

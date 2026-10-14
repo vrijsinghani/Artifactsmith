@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- My pages at `/app/` on the API origin. Paste a token to get an HttpOnly, SameSite=Strict session cookie (Secure when the public API URL is https). The page lists that workspace only, with search and a status filter, and a read-only detail page for versions and build jobs.
 - `create` `mode=fast` renders a first HTML page from Markdown (`::: ` blocks) in the chosen style; `mode=full` stays the default (`AM_BUILD_MODE`).
 - `publish` stores a finished HTML or Markdown page without a model call, through the same safety checks, renderer, and version, share, and preview path as a build.
 
