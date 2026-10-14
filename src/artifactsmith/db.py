@@ -150,9 +150,7 @@ class DB:
         if attempt_cols and "kind" not in attempt_cols:
             self.conn.execute("ALTER TABLE login_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'ip'")
         if attempt_cols:
-            self.conn.execute(
-                "CREATE INDEX IF NOT EXISTS login_attempts_kind ON login_attempts(kind, ip, created_at)"
-            )
+            self.conn.execute("CREATE INDEX IF NOT EXISTS login_attempts_kind ON login_attempts(kind, ip, created_at)")
         # Format was fixed on the artifact, so that value is each existing version's format.
         self.conn.execute(
             "UPDATE versions SET format = ("
