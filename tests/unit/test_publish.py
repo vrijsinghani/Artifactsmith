@@ -927,6 +927,40 @@ async def test_publish_markdown_lists_heading_and_link(svc: Service, no_model: d
     assert "linkified_url" in status["safety_changes"]
 
 
+@pytest.mark.asyncio
+async def test_publish_markdown_lists_parenthetical_links_and_stripped_scripts(
+    svc: Service, no_model: dict[str, int]
+) -> None:
+    principal = _principal()
+    linked = svc.publish(
+        principal,
+        display_name="Harbor",
+        format="markdown",
+        markdown="See https://example.com/a(b) now.\n",
+    )
+    await svc._run_job(str(linked["job_id"]))
+    assert no_model["n"] == 0
+    text = svc.read_file(str(linked["artifact_id"]), 1, None)[0].decode()
+    assert "](<https://example.com/a(b)>" in text
+    link_status = await svc.status(principal, job_id=str(linked["job_id"]))
+    assert "linkified_url" in link_status["safety_changes"]
+    assert "added_heading" in link_status["safety_changes"]
+    scripted = svc.publish(
+        principal,
+        display_name="T",
+        slug="script-md",
+        format="markdown",
+        markdown="Hello <script>alert(1)</script>\n",
+    )
+    await svc._run_job(str(scripted["job_id"]))
+    stored = svc.read_file(str(scripted["artifact_id"]), 1, None)[0].decode()
+    assert "<script>" not in stored
+    assert "Hello" in stored
+    script_status = await svc.status(principal, job_id=str(scripted["job_id"]))
+    assert "stripped_markup" in script_status["safety_changes"]
+    assert "added_heading" in script_status["safety_changes"]
+
+
 def test_publish_note_is_on_inspect_and_rejected_before_a_row(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
     principal = _principal()
     html = "<html><body><p>ok</p></body></html>"

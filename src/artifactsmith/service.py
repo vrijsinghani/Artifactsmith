@@ -1024,6 +1024,8 @@ class Service:
             recorded = await asyncio.to_thread(self._manifest, a, v)
             if isinstance(recorded, dict) and "safety_changes" in recorded:
                 out["safety_changes"] = recorded["safety_changes"]
+            elif recorded is None:
+                out["manifest_error"] = "store_read_failed"
         return out
 
     def _manifest(self, a: dict[str, Any], v: dict[str, Any]) -> dict[str, Any] | None:

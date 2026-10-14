@@ -768,6 +768,36 @@ def test_inspect_omits_safety_changes_without_the_manifest_key(svc):
     assert out["manifest"]["ok"] is True
 
 
+@pytest.mark.asyncio
+async def test_status_names_a_failed_publish_manifest_read(svc, monkeypatch):
+    p, aid = _seed_done(svc, "pub-manifest", primary="index.html", files='[{"name":"index.html"}]')
+    svc.db.exec("UPDATE versions SET model='published' WHERE artifact_id=? AND version=1", aid)
+    row = svc.db.one("SELECT job_id FROM versions WHERE artifact_id=? AND version=1", aid)
+    real_get = svc.store.get
+
+    def get(key):
+        if str(key).endswith("manifest.json"):
+            raise RuntimeError("secret bucket path")
+        return real_get(key)
+
+    monkeypatch.setattr(svc.store, "get", get)
+    out = await svc.status(p, job_id=str(row["job_id"]))
+    assert out["manifest_error"] == "store_read_failed"
+    assert "safety_changes" not in out
+    assert "secret" not in str(out)
+
+
+@pytest.mark.asyncio
+async def test_status_omits_safety_changes_when_the_key_is_absent(svc):
+    p, aid = _seed_done(svc, "pub-old-manifest", primary="index.html", files='[{"name":"index.html"}]')
+    svc.db.exec("UPDATE versions SET model='published' WHERE artifact_id=? AND version=1", aid)
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "manifest.json", b'{"ok": true}', "application/json")
+    row = svc.db.one("SELECT job_id FROM versions WHERE artifact_id=? AND version=1", aid)
+    out = await svc.status(p, job_id=str(row["job_id"]))
+    assert "safety_changes" not in out
+    assert "manifest_error" not in out
+
+
 def test_inspect_scrubs_store_errors(svc, monkeypatch):
     p = _principal()
     created = svc.create(p, slug="insp", display_name="I", kind="web_static", verbatim_request="x")

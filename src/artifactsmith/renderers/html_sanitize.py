@@ -257,7 +257,8 @@ def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str
     if len(body.encode("utf-8")) > MAX_HTML_BYTES:
         raise HtmlSanitizeError("page too large")
     title_m = _TITLE_RE.search(body)
-    raw_title = unescape(title_m.group(1)).strip() if title_m else ""
+    submitted_title = title_m.group(1).strip() if title_m else ""
+    raw_title = unescape(submitted_title).strip() if submitted_title else ""
     # clean_text encodes spaces as &#32;. Unescape once, then escape once, so a
     # space stays a space and markup is a single entity.
     cleaned_title = nh3.clean_text(raw_title).strip() if raw_title else ""
@@ -313,7 +314,9 @@ def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str
     cleaned = hardened
 
     if changes is not None:
-        if title and title != raw_title:
+        # Compare to the submitted title text, not the unescaped copy. An
+        # already-escaped title such as AT&amp;T matches after the round trip.
+        if title and title != submitted_title:
             changes.append("escaped_title")
         lowered = body.lower()
         if "<!doctype html>" not in lowered:

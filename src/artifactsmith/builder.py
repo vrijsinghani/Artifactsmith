@@ -27,7 +27,7 @@ from .patch import (
 )
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
 from .renderers.html_sanitize import SAFETY_CHANGE_ORDER, HtmlSanitizeError, sanitize_html_document
-from .renderers.safety import check_content, check_fields, sanitize_text
+from .renderers.safety import check_content, check_fields, sanitize_text, strip_scripts
 from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_bounded
 from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
 
@@ -569,7 +569,7 @@ def sanitize_html(body: str, *, linkify: bool = True, changes: list[str] | None 
 
 def _markdown_gained_links(before: str, after: str) -> bool:
     def count(text: str) -> int:
-        return text.count("](http://") + text.count("](https://")
+        return text.count("](http://") + text.count("](https://") + text.count("](<http://") + text.count("](<https://")
 
     return count(after) > count(before)
 
@@ -676,8 +676,12 @@ async def render_checked_body(
         else:
             before = body
             body = sanitize_text(body)
-            if safety_changes is not None and _markdown_gained_links(before, body):
-                safety_changes.append("linkified_url")
+            if safety_changes is not None:
+                gained = _markdown_gained_links(before, body)
+                if strip_scripts(before) != before or (body != before and not gained):
+                    safety_changes.append("stripped_markup")
+                if gained:
+                    safety_changes.append("linkified_url")
     except HtmlSanitizeError as exc:
         raise BuildError(str(exc)) from exc
     problems = check_content(

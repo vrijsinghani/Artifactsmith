@@ -97,6 +97,19 @@ def test_title_markup_is_escaped_once():
     assert "&amp;lt;" not in out
 
 
+def test_escaped_title_compares_to_the_submitted_title_text():
+    already = "<html><head><title>AT&amp;T</title></head><body><p>ok</p></body></html>"
+    same: list[str] = []
+    kept = sanitize_html(already, linkify=False, changes=same)
+    assert "<title>AT&amp;T</title>" in kept
+    assert "escaped_title" not in same
+    entity = "<html><head><title>Hello&#32;World</title></head><body><p>ok</p></body></html>"
+    changed: list[str] = []
+    rewritten = sanitize_html(entity, linkify=False, changes=changed)
+    assert "<title>Hello World</title>" in rewritten
+    assert "escaped_title" in changed
+
+
 def test_style_breakout_via_html_entities_is_removed():
     """Entity-encoded </style><img onerror> must not become live markup after sanitize."""
     raw = (
