@@ -29,6 +29,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - A shared or previewed markdown artifact opens as sanitized, house-styled HTML. The stored Markdown stays at `?raw=1` and `document.md`. Existing markdown artifacts render on open; their stored bytes and share hash are unchanged.
 - `publish` and `edit` may set a different supported `format` on a new version. The artifact id and slug stay the same. When that version finishes, the artifact's format updates. Older versions keep their own format. An unknown format is rejected.
 - Bearer checks let `Bearer asmb_...` and `Bearer asmb_…` through, and still flag a bare `asmb_`, extra dots, or a token that continues after the ellipsis.
+- A failed content check stores the check name and drops copied attribute values, hosts, and raw URLs. Any other build failure still stores only the exception class.
 - A finished HTML document, or a request to publish HTML unchanged, stays on the full build when mode is omitted. Fast mode's HTML refusal tells the caller to use publish or mode=full.
 - Only a request to publish that HTML as-is skips fast mode. Mentioning HTML beside "unchanged" or "do not add" stays fast. A fast HTML refusal says to publish HTML as-is with the publish tool or mode=full.
 - Automatic charts skip approximate cost columns such as "~$310" and "Est. cost" when a real money column is present, and do not chart an estimate column on its own.

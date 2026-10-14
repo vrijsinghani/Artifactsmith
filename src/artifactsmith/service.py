@@ -201,6 +201,29 @@ def shortid(n: int = 12) -> str:
     return "".join(secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(n))
 
 
+_CHECK_PREFIX = "builder output failed checks twice: "
+_HTML_ATTR = "blocked or authority-confused HTML "
+_DROP_HOST = ("private or local link host", "link host not on allow-list")
+
+
+def _job_check_error(message: str) -> str:
+    """Keep the check name. Drop attribute values, hosts, and raw URLs."""
+    if not message.startswith(_CHECK_PREFIX):
+        return "build failed: BuildError"
+    parts: list[str] = []
+    for raw in message[len(_CHECK_PREFIX) :].split("; "):
+        problem = raw.strip()
+        if not problem:
+            continue
+        if problem.startswith(_HTML_ATTR):
+            name = problem[len(_HTML_ATTR) :].split(":", 1)[0].strip()
+            parts.append(_HTML_ATTR + name)
+            continue
+        label = next((item for item in _DROP_HOST if problem.startswith(item + ":")), "")
+        parts.append(label or problem)
+    return _CHECK_PREFIX + "; ".join(parts)
+
+
 # ---------- signed short-lived tokens for private preview / download ----------
 def sign(payload: dict[str, Any], ttl_s: int) -> str:
     payload = dict(payload, exp=int(now() + ttl_s))
@@ -903,6 +926,8 @@ class Service:
             self._needs_input(jid, str(e))
         except AMError as e:
             self._fail(jid, str(e))
+        except builder.BuildError as exc:
+            self._fail(jid, _job_check_error(str(exc)))
         except Exception as e:  # noqa: BLE001
             log.exception("build failed job=%s", jid)
             # Do not leak LLM/renderer/store internals to clients.

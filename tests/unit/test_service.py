@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from artifactsmith.builder import BuildResult, NeedsInput
+from artifactsmith.builder import BuildError, BuildResult, NeedsInput
 from artifactsmith.config import CFG
 from artifactsmith.service import ALL_PERMS, AMError, Service, iso, now, rid, shortid, sign, unsign
 
@@ -575,6 +575,72 @@ async def test_run_job_fail_timeout_and_oversize(svc, monkeypatch):
     big = svc.create(p, slug="huge", display_name="Huge", kind="web_static", verbatim_request="x")
     await svc._run_job(big["job_id"])
     assert "exceeds cap" in (svc.db.one("SELECT error FROM jobs WHERE id=?", big["job_id"])["error"] or "")
+
+
+@pytest.mark.asyncio
+async def test_edit_failure_names_the_check_without_source(svc, monkeypatch):
+    async def ok(**kw):
+        return BuildResult(
+            files={"index.html": b"<html><body>ok</body></html>"},
+            primary="index.html",
+            assumptions=[],
+            summary="built",
+            model="gpt-test",
+        )
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", ok)
+    p = _principal()
+    created = svc.create(p, slug="checked", display_name="Checked", kind="web_static", verbatim_request="x")
+    await svc._run_job(created["job_id"])
+
+    token = "sk-" + ("a" * 24)
+    userinfo = "userinfo-value"
+    ghp = "ghp_" + ("a" * 36)
+    host_label = "host-label-value"
+    cases = [
+        (
+            BuildError("builder output failed checks twice: possible secret (generic_bearer)"),
+            "possible secret (generic_bearer)",
+            [token],
+        ),
+        (
+            BuildError(
+                "builder output failed checks twice: blocked or authority-confused HTML href: "
+                f"https://user:{userinfo}@evil.example/path"
+            ),
+            "blocked or authority-confused HTML href",
+            [userinfo],
+        ),
+        (
+            BuildError(f"builder output failed checks twice: private or local link host: {ghp}"),
+            "private or local link host",
+            [ghp],
+        ),
+        (
+            BuildError(f"builder output failed checks twice: private or local link host: {host_label}"),
+            "private or local link host",
+            [host_label],
+        ),
+        (BuildError("page too large"), "build failed: BuildError", ["page too large"]),
+        (RuntimeError("renderer exploded"), "build failed: RuntimeError", ["renderer exploded"]),
+    ]
+    for exc, expected, absent in cases:
+
+        async def boom(exc=exc, **kw):
+            raise exc
+
+        monkeypatch.setattr("artifactsmith.service.builder.run_build", boom)
+        edited = svc.edit(
+            p,
+            artifact_id=created["artifact_id"],
+            base_version=1,
+            verbatim_request=f"try {type(exc).__name__} {expected}",
+        )
+        await svc._run_job(edited["job_id"])
+        error = svc.db.one("SELECT error FROM jobs WHERE id=?", edited["job_id"])["error"] or ""
+        assert expected in error
+        for secret in absent:
+            assert secret not in error
 
 
 def test_cross_workspace_forbidden(svc):
