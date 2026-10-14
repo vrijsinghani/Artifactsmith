@@ -5,8 +5,18 @@ from __future__ import annotations
 from typing import Any
 
 from .builder import PUBLISHED_MODEL
-from .publish_common import dump_payload, idem_hit, idem_store, insert_job, insert_version, require_body, style_or_error
-from .service import AMError, Service, now, requested_format, rid
+from .publish_common import (
+    dump_payload,
+    idem_hit,
+    idem_store,
+    inferred_publish_format,
+    insert_job,
+    insert_version,
+    require_body,
+    style_or_error,
+    unstyled_html_warning,
+)
+from .service import AMError, Service, now, rid
 from .styles import DEFAULT_STYLE
 
 
@@ -33,7 +43,12 @@ def publish_version(
         raise AMError("artifact is being deleted")
     if artifact["kind"] != "web_static":
         raise AMError("only kind=web_static is available in this build")
-    fmt = requested_format(str(artifact.get("format") or ""), format)
+    fmt = inferred_publish_format(
+        format,
+        html,
+        markdown,
+        current=str(artifact.get("format") or ""),
+    )
     require_body(fmt, html, markdown)
     if display_name is not None and display_name.strip() and display_name.strip() != artifact["display_name"]:
         raise AMError("display_name is fixed on the artifact")
@@ -90,6 +105,9 @@ def publish_version(
             "status": "queued",
             "style": chosen,
         }
+        warning = unstyled_html_warning(fmt, html)
+        if warning:
+            result["warning"] = warning
         idem_store(svc, c, principal, idempotency_key, fingerprint, result, t)
     svc.audit(
         principal,
