@@ -645,6 +645,7 @@ async def test_publish_warns_when_html_has_little_css(svc: Service) -> None:
     principal = _principal()
     bare = svc.publish(principal, display_name="Bare", slug="bare-html", html=_BARE)
     assert "warning" in bare
+    assert "has no CSS" in str(bare["warning"])
     assert "format=markdown" in str(bare["warning"])
     little = svc.publish(
         principal,
@@ -652,7 +653,8 @@ async def test_publish_warns_when_html_has_little_css(svc: Service) -> None:
         slug="little-html",
         html="<html><head><style>b{color:red}</style></head><body><p>Hi</p></body></html>",
     )
-    assert "warning" in little
+    assert "has little CSS" in str(little["warning"])
+    assert "has no CSS" not in str(little["warning"])
     styled = svc.publish(principal, display_name="Styled", slug="styled-html", html=_STYLED)
     assert "warning" not in styled
     markdown = svc.publish(
@@ -808,6 +810,37 @@ def test_publish_explicit_format_still_requires_its_body(svc: Service) -> None:
         svc.publish(principal, display_name="Forced", markdown="# only", format="html")
     with pytest.raises(AMError, match="markdown is required when format is pdf"):
         svc.publish(principal, display_name="Forced", format="pdf")
+
+
+@pytest.mark.asyncio
+async def test_publish_version_keeps_pdf_when_only_markdown_is_given(svc: Service) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Sheet",
+        slug="keep-pdf",
+        format="pdf",
+        markdown="# one\n",
+    )
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        markdown="# two\n",
+    )
+    assert _version_format(svc, str(first["artifact_id"]), 2) == "pdf"
+    await svc._run_job(str(second["job_id"]))
+    assert svc.get_artifact(principal, str(first["artifact_id"]))["format"] == "pdf"
+
+
+def test_inferred_format_keeps_docx_and_xlsx() -> None:
+    from artifactsmith.publish_common import inferred_publish_format
+
+    for fmt in ("docx", "xlsx"):
+        assert inferred_publish_format(None, None, "# two\n", current=fmt) == fmt
+    assert inferred_publish_format(None, None, "# two\n", current="html") == "markdown"
+    assert inferred_publish_format("markdown", None, "# two\n", current="pdf") == "markdown"
 
 
 def test_publish_whitespace_html_counts_as_markdown_only(svc: Service) -> None:

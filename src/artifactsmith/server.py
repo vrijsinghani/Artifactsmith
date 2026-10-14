@@ -270,10 +270,11 @@ def publish(
     secrets and private links and is not rendered. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
     New artifact: pass display_name or slug (same rules as create). New version of an existing artifact:
-    pass artifact_id and base_version (the latest done version). Omit format and markdown with no html
-    is markdown; html with no markdown is html; both fields keep the artifact's format. Pass format to
-    choose html, markdown, pdf, docx, or xlsx. The artifact id and slug stay the same. Older versions
-    keep the format they were published with.
+    pass artifact_id and base_version (the latest done version). Omit format on an html or markdown
+    artifact and markdown with no html is markdown; html with no markdown is html; both fields keep
+    the artifact's format. A pdf, docx, or xlsx artifact keeps that format when format is omitted and
+    the new page is markdown. Pass format to choose html, markdown, pdf, docx, or xlsx. The artifact
+    id and slug stay the same. Older versions keep the format they were published with.
 
     The page runs the same safety pipeline as model output: size caps, secret scan, private-link checks,
     the sanitizer, the renderer for format (including PDF, DOCX, and XLSX), and the final sweep. A rejected

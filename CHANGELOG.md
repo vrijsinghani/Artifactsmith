@@ -12,6 +12,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- A new version of a pdf, docx, or xlsx artifact keeps that format when `format` is omitted and the page is markdown. Format inference still applies to html and markdown artifacts.
+- The bare-HTML warning says `little CSS` when a style block is present and `no CSS` when the page has none.
 - `publish` infers `format` when it is omitted. Markdown and no HTML is markdown and is styled on open. HTML alone stays HTML. Both fields on a new artifact keep HTML as the page. Both fields on a new version keep the artifact's format.
 - Publish Markdown with `format=markdown` to get a styled page (`style` defaults to house and is applied when the page is opened). Raw HTML is shown exactly as given. HTML with little or no CSS returns `warning`.
 - An existing public `/s/` link serves the latest done version of that artifact. Passing `version` or `pin` keeps a separate link on one version. The page is still 404 when the served file does not match its recorded sha256.

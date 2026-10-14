@@ -15,11 +15,12 @@ from .styles import StyleError, parse_style
 # Shown in version history. Not sent to a model.
 PUBLISH_VERBATIM = "Published a finished page."
 
-UNSTYLED_HTML_WARNING = (
-    "This HTML has no CSS, so the page will look unstyled. "
+_WARNING_TAIL = (
+    "so the page will look unstyled. "
     "For ArtifactSmith styling, publish Markdown with format=markdown (style defaults to house). "
     "Raw HTML is shown exactly as given."
 )
+_INFER_FORMATS = frozenset({"html", "markdown"})
 _STYLE_BLOCK = re.compile(r"<style\b[^>]*>(.*?)</style>", re.I | re.S)
 _STYLE_ATTR = re.compile(r"""\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
 _CSS_ENOUGH = 24
@@ -32,9 +33,11 @@ def unstyled_html_warning(fmt: str, html: str | None) -> str | None:
     css = "".join(match.group(1) or "" for match in _STYLE_BLOCK.finditer(html or ""))
     for match in _STYLE_ATTR.finditer(html or ""):
         css += match.group(1) or match.group(2) or ""
-    if len(re.sub(r"\s+", "", css)) >= _CSS_ENOUGH:
+    compact = re.sub(r"\s+", "", css)
+    if len(compact) >= _CSS_ENOUGH:
         return None
-    return UNSTYLED_HTML_WARNING
+    kind = "little" if compact else "no"
+    return f"This HTML has {kind} CSS, {_WARNING_TAIL}"
 
 
 def load_publish_payload(raw: str) -> dict[str, Any]:
@@ -120,7 +123,9 @@ def inferred_publish_format(
 ) -> str:
     """Pick a publish format when the caller leaves format blank.
 
-    A non-blank request wins. Markdown with no HTML is markdown. HTML with no
+    A non-blank request wins. Markdown with no HTML is markdown only when the
+    artifact is html or markdown, or when the artifact is new. A pdf, docx, or
+    xlsx artifact that receives only markdown keeps its format. HTML with no
     Markdown is html. Both bodies, or neither, keep the artifact format on a
     version and stay html on a new artifact.
     """
@@ -128,7 +133,10 @@ def inferred_publish_format(
         return requested_format(current, requested)
     has_html = bool((html or "").strip())
     has_md = bool((markdown or "").strip())
+    kept = str(current or "").strip().lower()
     if has_md and not has_html:
+        if kept and kept not in _INFER_FORMATS:
+            return requested_format(current, None)
         return "markdown"
     if has_html and not has_md:
         return "html"
