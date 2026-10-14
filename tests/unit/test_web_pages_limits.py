@@ -15,7 +15,7 @@ import artifactsmith.server as server
 from artifactsmith.config import ConfigError, _trusted_proxies
 from artifactsmith.db import DB
 from artifactsmith.service import Service
-from artifactsmith.web.client_addr import client_ip
+from artifactsmith.web.client_addr import client_ip, limit_key
 
 _PROXY = ipaddress.ip_network("192.168.30.160/32")
 WHEN = datetime(2026, 1, 15, 18, 0, tzinfo=UTC).timestamp()
@@ -50,6 +50,52 @@ def test_untrusted_peer_ignores_forwarded_headers(monkeypatch: pytest.MonkeyPatc
     assert client_ip(forwarded) == "203.0.113.10"
     missing = _request("192.168.30.160", {"x-real-ip": "not-an-ip"})
     assert client_ip(missing) == "192.168.30.160"
+
+
+def test_ipv6_limit_key_groups_a_64_and_keeps_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server.CFG, "trusted_proxies", (_PROXY,))
+    one = _request("192.168.30.160", {"x-real-ip": "2001:db8:1:2:aaaa::1"})
+    two = _request("192.168.30.160", {"x-real-ip": "2001:db8:1:2:bbbb::2"})
+    other = _request("192.168.30.160", {"x-real-ip": "2001:db8:1:3::1"})
+    assert client_ip(one) == client_ip(two) == "2001:db8:1:2::/64"
+    assert client_ip(other) == "2001:db8:1:3::/64"
+    assert "aaaa" not in client_ip(one)
+    mapped = _request("192.168.30.160", {"x-real-ip": "::ffff:203.0.113.9"})
+    assert client_ip(mapped) == "203.0.113.9"
+    left = _request("192.168.30.160", {"x-real-ip": "198.51.100.4"})
+    right = _request("192.168.30.160", {"x-real-ip": "198.51.100.5"})
+    assert client_ip(left) == "198.51.100.4"
+    assert client_ip(right) == "198.51.100.5"
+    peer = _request("2001:db8:1:2:aaaa::9", {"x-real-ip": "198.51.100.4"})
+    assert client_ip(peer) == "2001:db8:1:2::/64"
+    assert limit_key("not-an-ip") == "not-an-ip"
+
+
+def test_ipv6_prefix_shares_one_login_bucket(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server.CFG, "login_limit", 2)
+    monkeypatch.setattr(server.CFG, "trusted_proxies", (_PROXY,))
+    client = _proxy_client()
+    codes = []
+    for n, addr in enumerate(("2001:db8:1:2:aaaa::1", "2001:db8:1:2:bbbb::2", "2001:db8:1:2:cccc::3")):
+        page = client.get("/app/login")
+        response = client.post(
+            "/app/login",
+            data={"csrf": _csrf(page.text), "token": f"v6tok{n}-value-ok"},
+            headers={"X-Real-IP": addr},
+            follow_redirects=False,
+        )
+        codes.append(response.status_code)
+    assert codes == [401, 401, 429]
+    stored = str(svc.db.all("SELECT ip, kind FROM login_attempts"))
+    assert "aaaa" not in stored
+    assert "2001:db8:1:2::/64" in stored
+    fresh = client.post(
+        "/app/login",
+        data={"csrf": _csrf(client.get("/app/login").text), "token": "v6other-value-ok"},
+        headers={"X-Real-IP": "2001:db8:9:9::1"},
+        follow_redirects=False,
+    )
+    assert fresh.status_code == 401
 
 
 def test_trusted_proxy_setting_rejects_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
