@@ -1020,8 +1020,8 @@ class Service:
         a = self.get_artifact(principal, a["id"])
         out = self.card(a, v)
         out["share"] = self._share_state(a["id"], version)
-        if v["status"] == "done":
-            recorded = self._manifest(a, v)
+        if v["status"] == "done" and v.get("model") == builder.PUBLISHED_MODEL:
+            recorded = await asyncio.to_thread(self._manifest, a, v)
             if isinstance(recorded, dict) and "safety_changes" in recorded:
                 out["safety_changes"] = recorded["safety_changes"]
         return out
@@ -1186,11 +1186,12 @@ class Service:
         """Read the target version's text after check_access. Never the binary primary."""
         from .renderers.safety import CONTENT_MAX_CHARS
 
-        binary = version_format(v, a) in {"pdf", "docx", "xlsx"}
-        name = "content.md" if binary else str(v.get("primary_file") or "")
+        fmt = version_format(v, a)
+        binary = fmt in {"pdf", "docx", "xlsx"}
+        name = builder.source_name(a["kind"], fmt) if binary else str(v.get("primary_file") or "")
         if binary:
             names = {item.get("name") for item in jloads(v.get("files_json"), [])}
-            if "content.md" not in names:
+            if name not in names:
                 out["content"] = {"file": "content.md", "primary_binary": True}
                 return
         if not name:

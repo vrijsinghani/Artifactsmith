@@ -8,7 +8,7 @@ bytes must be safe without those defenses.
 from __future__ import annotations
 
 import re
-from html import escape, unescape
+from html import unescape
 
 import nh3
 
@@ -18,6 +18,19 @@ from .svg_sanitize import SVG_CLEAN_CONTENT, SVG_TAGS, filter_svg_attribute, san
 from .svg_tree import remove_elements_with_content
 
 MAX_HTML_BYTES = 2_000_000
+SAFETY_CHANGE_ORDER = (
+    "stripped_markup",
+    "rewrote_image",
+    "hardened_anchor",
+    "escaped_title",
+    "added_csp",
+    "added_charset",
+    "added_viewport",
+    "added_doctype",
+    "linkified_url",
+    "added_heading",
+    "normalized_document",
+)
 
 
 class HtmlSanitizeError(ValueError):
@@ -248,7 +261,9 @@ def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str
     # clean_text encodes spaces as &#32;. Unescape once, then escape once, so a
     # space stays a space and markup is a single entity.
     cleaned_title = nh3.clean_text(raw_title).strip() if raw_title else ""
-    title = escape(unescape(cleaned_title), quote=False) if cleaned_title else ""
+    from .links import _html_label
+
+    title = _html_label(cleaned_title) if cleaned_title else ""
     # Do not unescape style contents before sanitizing (entity-encoded tags stay inert).
     css = sanitize_css("\n".join(_STYLE_RE.findall(body)))
     if _has_breakout(css):
@@ -335,17 +350,5 @@ def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str
     if changes is not None:
         if doc != body and not changes:
             changes.append("normalized_document")
-        order = (
-            "stripped_markup",
-            "rewrote_image",
-            "hardened_anchor",
-            "escaped_title",
-            "added_csp",
-            "added_charset",
-            "added_viewport",
-            "added_doctype",
-            "linkified_url",
-            "normalized_document",
-        )
-        changes[:] = [name for name in order if name in changes]
+        changes[:] = [name for name in SAFETY_CHANGE_ORDER if name in changes]
     return doc

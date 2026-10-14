@@ -26,7 +26,7 @@ from .patch import (
     parse_patch_reply,
 )
 from .renderers import MIME, SUPPORTED_FORMATS, get_renderer, source_name
-from .renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
+from .renderers.html_sanitize import SAFETY_CHANGE_ORDER, HtmlSanitizeError, sanitize_html_document
 from .renderers.safety import check_content, check_fields, sanitize_text
 from .renderers.subprocess_render import RenderTimeout, RenderTooLarge, render_bounded
 from .styles import DEFAULT_STYLE, html_system_prompt, parse_style
@@ -777,31 +777,13 @@ async def publish_page(
         linkify=False,
         safety_changes=changes,
     )
-    text_name = "index.html" if kind == "html" else "document.md" if kind == "markdown" else "content.md"
-    stored = result.files.get(text_name, b"").decode("utf-8", errors="replace")
-    if (
-        kind != "html"
-        and display_name
-        and stored.lstrip().startswith(f"# {display_name}")
-        and not body.lstrip().startswith("#")
-    ):
-        changes.append("added_heading")
-    if stored != body and not changes:
-        changes.append("normalized_document")
-    order = (
-        "stripped_markup",
-        "rewrote_image",
-        "hardened_anchor",
-        "escaped_title",
-        "added_csp",
-        "added_charset",
-        "added_viewport",
-        "added_doctype",
-        "linkified_url",
-        "added_heading",
-        "normalized_document",
-    )
-    result.safety_changes = [name for name in order if name in changes]
+    if kind != "html":
+        stored = result.files.get(source_name("", kind), b"").decode("utf-8", errors="replace")
+        if display_name and stored.lstrip().startswith(f"# {display_name}") and not body.lstrip().startswith("#"):
+            changes.append("added_heading")
+        if stored != body and not changes:
+            changes.append("normalized_document")
+        result.safety_changes = [name for name in SAFETY_CHANGE_ORDER if name in changes]
     return result
 
 
