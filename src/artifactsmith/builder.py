@@ -184,6 +184,7 @@ class BuildResult:
     model: str
     raw_chars: int = 0
     notes: list[str] = field(default_factory=list)
+    safety_changes: list[str] = field(default_factory=list)
 
 
 class BuildError(RuntimeError):
@@ -561,9 +562,16 @@ def parse_output(text: str, fmt: str | None = None) -> tuple[list[str], str, str
     raise BuildError("builder output has no FILE section")
 
 
-def sanitize_html(body: str) -> str:
+def sanitize_html(body: str, *, linkify: bool = True, changes: list[str] | None = None) -> str:
     """Allowlist HTML via nh3 and sanitize author CSS; no scripts or remote fetches."""
-    return sanitize_html_document(body)
+    return sanitize_html_document(body, linkify=linkify, changes=changes)
+
+
+def _markdown_gained_links(before: str, after: str) -> bool:
+    def count(text: str) -> int:
+        return text.count("](http://") + text.count("](https://")
+
+    return count(after) > count(before)
 
 
 def check_source(body: str) -> list[str]:
@@ -635,6 +643,8 @@ async def render_checked_body(
     raw_chars: int,
     notes: list[str],
     progress: Callable[[str], None],
+    linkify: bool = True,
+    safety_changes: list[str] | None = None,
 ) -> BuildResult:
     """Run the output safety pipeline and renderer. Does not call the model.
 
@@ -661,7 +671,13 @@ async def render_checked_body(
     if hard:
         raise RetryableCheck(hard)
     try:
-        body = sanitize_html(body) if fmt == "html" else sanitize_text(body)
+        if fmt == "html":
+            body = sanitize_html(body, linkify=linkify, changes=safety_changes)
+        else:
+            before = body
+            body = sanitize_text(body)
+            if safety_changes is not None and _markdown_gained_links(before, body):
+                safety_changes.append("linkified_url")
     except HtmlSanitizeError as exc:
         raise BuildError(str(exc)) from exc
     problems = check_content(
@@ -699,6 +715,7 @@ async def render_checked_body(
         model=model,
         raw_chars=raw_chars,
         notes=notes,
+        safety_changes=list(safety_changes or []),
     )
 
 
@@ -745,7 +762,8 @@ async def publish_page(
             raise RetryableCheck(extra_problems)
     report = progress or (lambda _msg: None)
     report("checking published page")
-    return await render_checked_body(
+    changes: list[str] = []
+    result = await render_checked_body(
         fmt=kind,
         display_name=display_name,
         body=body,
@@ -756,7 +774,35 @@ async def publish_page(
         raw_chars=len(body),
         notes=[],
         progress=report,
+        linkify=False,
+        safety_changes=changes,
     )
+    text_name = "index.html" if kind == "html" else "document.md" if kind == "markdown" else "content.md"
+    stored = result.files.get(text_name, b"").decode("utf-8", errors="replace")
+    if (
+        kind != "html"
+        and display_name
+        and stored.lstrip().startswith(f"# {display_name}")
+        and not body.lstrip().startswith("#")
+    ):
+        changes.append("added_heading")
+    if stored != body and not changes:
+        changes.append("normalized_document")
+    order = (
+        "stripped_markup",
+        "rewrote_image",
+        "hardened_anchor",
+        "escaped_title",
+        "added_csp",
+        "added_charset",
+        "added_viewport",
+        "added_doctype",
+        "linkified_url",
+        "added_heading",
+        "normalized_document",
+    )
+    result.safety_changes = [name for name in order if name in changes]
+    return result
 
 
 @dataclass

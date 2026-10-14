@@ -853,3 +853,72 @@ def test_publish_whitespace_html_counts_as_markdown_only(svc: Service) -> None:
     )
     assert _version_format(svc, str(created["artifact_id"]), 1) == "markdown"
     assert "warning" not in created
+
+
+@pytest.mark.asyncio
+async def test_publish_html_keeps_title_and_lists_safety_changes(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    html = (
+        "<html><head><title>My Report</title></head><body>"
+        "<p>See https://example.com/doc</p>"
+        '<img src="https://example.com/a.png" alt="pic">'
+        '<a href="https://example.com/x">x</a>'
+        "</body></html>"
+    )
+    created = svc.publish(principal, display_name="My Report", html=html, summary="kept")
+    assert "safety_changes" not in created
+    await svc._run_job(str(created["job_id"]))
+    assert no_model["n"] == 0
+    stored, _, _name = svc.read_file(str(created["artifact_id"]), 1, None)
+    text = stored.decode()
+    assert "<title>My Report</title>" in text
+    assert "&#32;" not in text
+    assert 'href="https://example.com/doc"' not in text
+    assert "https://example.com/doc" in text
+    status = await svc.status(principal, job_id=str(created["job_id"]))
+    changes = status["safety_changes"]
+    assert "added_csp" in changes
+    assert "linkified_url" not in changes
+    assert "rewrote_image" in changes
+    assert "hardened_anchor" in changes
+    inspected = svc.inspect(principal, str(created["artifact_id"]))
+    assert inspected["safety_changes"] == changes
+    assert inspected["title"] == "My Report"
+    assert "content" not in inspected
+
+
+@pytest.mark.asyncio
+async def test_publish_escapes_markup_in_the_document_title(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="A < B",
+        html="<html><head><title>A < B</title></head><body><p>ok</p></body></html>",
+    )
+    await svc._run_job(str(created["job_id"]))
+    assert no_model["n"] == 0
+    stored, _, _name = svc.read_file(str(created["artifact_id"]), 1, None)
+    assert "<title>A &lt; B</title>" in stored.decode()
+    status = await svc.status(principal, job_id=str(created["job_id"]))
+    assert "escaped_title" in status["safety_changes"]
+
+
+@pytest.mark.asyncio
+async def test_publish_markdown_lists_heading_and_link(svc: Service, no_model: dict[str, int]) -> None:
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="Harbor",
+        format="markdown",
+        markdown="See https://example.com/doc for the note.\n",
+    )
+    await svc._run_job(str(created["job_id"]))
+    assert no_model["n"] == 0
+    stored, _, name = svc.read_file(str(created["artifact_id"]), 1, None)
+    assert name == "document.md"
+    text = stored.decode()
+    assert text.startswith("# Harbor\n")
+    assert "](https://example.com/doc)" in text
+    status = await svc.status(principal, job_id=str(created["job_id"]))
+    assert "added_heading" in status["safety_changes"]
+    assert "linkified_url" in status["safety_changes"]

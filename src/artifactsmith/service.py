@@ -880,6 +880,8 @@ class Service:
             "mode": v.get("mode") or "full",
             "notes": res.notes,
         }
+        if res.model == builder.PUBLISHED_MODEL:
+            manifest["safety_changes"] = list(res.safety_changes)
         await asyncio.to_thread(
             self.store.put, prefix + "manifest.json", json.dumps(manifest, indent=2).encode(), "application/json"
         )
@@ -1016,7 +1018,26 @@ class Service:
         a = self.get_artifact(principal, a["id"])
         out = self.card(a, v)
         out["share"] = self._share_state(a["id"], version)
+        if v["status"] == "done":
+            recorded = self._manifest(a, v)
+            if isinstance(recorded, dict) and "safety_changes" in recorded:
+                out["safety_changes"] = recorded["safety_changes"]
         return out
+
+    def _manifest(self, a: dict[str, Any], v: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            data, _ct = self.store.get(Store.prefix(a["workspace"], a["id"], int(v["version"])) + "manifest.json")
+            loaded = json.loads(data)
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "manifest read failed artifact=%s version=%s: %s: %s",
+                a["id"],
+                v["version"],
+                type(e).__name__,
+                e,
+            )
+            return None
+        return loaded if isinstance(loaded, dict) else None
 
     def _share_state(self, aid: str, version: int) -> dict[str, Any]:
         floating = self.db.one(
@@ -1148,6 +1169,9 @@ class Service:
                     )
                     out["manifest_error"] = "store_read_failed"
                 out["card"] = self.card(a, v)
+                recorded = out.get("manifest")
+                if isinstance(recorded, dict) and "safety_changes" in recorded:
+                    out["safety_changes"] = recorded["safety_changes"]
             out["share"] = self._share_state(a["id"], int(target))
             if include_content and v["status"] == "done":
                 self._attach_inspected_content(out, a, v)

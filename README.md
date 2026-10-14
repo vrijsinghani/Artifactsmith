@@ -235,7 +235,7 @@ New version: pass `artifact_id` and `base_version` (the latest done version) plu
 
 `summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. On markdown, `style` changes the opened page (`house` by default). On HTML, `style` is recorded and the submitted page is not restyled. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
-Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
+Returns `artifact_id`, `version`, and `job_id`. Call `status` until `done` or `failed`. A rejected page is `failed`, and `error` names the check that failed. When the job is done, `status` and `inspect` include `safety_changes`, the list of safety edits that changed the submitted page. HTML publish does not turn a bare URL into a link. `publish` does not create a share link. It counts toward the per-token build quota and needs the `publish` permission.
 
 ### `export`
 

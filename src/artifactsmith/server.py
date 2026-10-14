@@ -255,8 +255,10 @@ def publish(
     style: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    """Store a page with no model call. Returns artifact_id, version, and job_id immediately.
-    Then call status(job_id, wait=90).
+    """Store a page you have already finished. Use this when you already have the finished page.
+    No model call. Returns artifact_id, version, and job_id immediately. Then call status(job_id, wait=90).
+    When the job is done, status and inspect list safety_changes for each safety edit that changed the page.
+    HTML publish does not turn bare URLs into links. The document title is stored as given and escaped in the page.
 
     Want a styled page? Pass Markdown and it is styled automatically. Omit format when you pass
     markdown and no html. style is house, bold, editorial, playful, terminal, or swiss (default house)

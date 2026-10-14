@@ -668,7 +668,7 @@ def _seed_done(svc, slug, *, primary, files, fmt="html", body=b"<p>harbor</p>"):
 
 
 def test_include_content_reads_text_and_stays_off_by_default(svc):
-    body = "<p>harbor</p>".encode()
+    body = b"<p>harbor</p>"
     p, aid = _seed_done(svc, "readback", primary="index.html", files='[{"name":"index.html"}]', body=body)
     plain = svc.inspect(p, aid)
     assert "content" not in plain
@@ -757,6 +757,14 @@ def test_include_content_store_failure(svc, monkeypatch):
     assert out["content_error"] == "store_read_failed"
     assert "content" not in out
     assert "secret" not in str(out)
+    assert out["manifest"]["ok"] is True
+
+
+def test_inspect_omits_safety_changes_without_the_manifest_key(svc):
+    p, aid = _seed_done(svc, "old-pub", primary="index.html", files='[{"name":"index.html"}]')
+    svc.store.put(svc.store.prefix("alpha", aid, 1) + "manifest.json", b'{"ok": true}', "application/json")
+    out = svc.inspect(p, aid)
+    assert "safety_changes" not in out
     assert out["manifest"]["ok"] is True
 
 
