@@ -329,7 +329,7 @@ def test_publish_permission_quota_and_input(svc: Service, monkeypatch: pytest.Mo
         svc.publish(denied, display_name="No", html="<html><body><p>x</p></body></html>")
     principal = _principal()
     with pytest.raises(AMError, match="html is required"):
-        svc.publish(principal, display_name="No", markdown="# only markdown")
+        svc.publish(principal, display_name="No")
     with pytest.raises(AMError, match="markdown is required when format is pdf"):
         svc.publish(principal, display_name="No", format="pdf")
     monkeypatch.setattr(CFG, "builds_per_hour", 1)
@@ -679,3 +679,144 @@ async def test_publish_warns_when_html_has_little_css(svc: Service) -> None:
         html=_STYLED,
     )
     assert "warning" not in kept
+
+
+def _version_format(svc: Service, artifact_id: str, version: int) -> str:
+    row = svc.db.one(
+        "SELECT format FROM versions WHERE artifact_id=? AND version=?",
+        artifact_id,
+        version,
+    )
+    assert row is not None
+    return str(row["format"])
+
+
+@pytest.mark.asyncio
+async def test_publish_infers_markdown_when_format_is_omitted(svc: Service, no_model: dict[str, int]) -> None:
+    from artifactsmith.markdown_view import markdown_share_html
+
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="Inferred",
+        slug="inferred-md",
+        markdown="# Harbor\n\nThe code is HARBOR-17.\n",
+    )
+    assert created["style"] == "house"
+    assert "warning" not in created
+    assert _version_format(svc, str(created["artifact_id"]), 1) == "markdown"
+    await svc._run_job(str(created["job_id"]))
+    stored, _ct, name, title, style = svc.read_primary_view(str(created["artifact_id"]), 1)
+    assert name == "document.md"
+    assert style == "house"
+    assert b"<html" not in stored.lower()
+    opened = markdown_share_html(stored, title=title, style=style).decode()
+    assert _HOUSE in opened
+    assert _BOLD not in opened
+    assert svc.get_artifact(principal, str(created["artifact_id"]))["format"] == "markdown"
+    assert no_model["n"] == 0
+
+
+def test_publish_infers_html_when_only_html_is_given(svc: Service) -> None:
+    created = svc.publish(_principal(), display_name="Bare only", slug="bare-only", html=_BARE)
+    assert _version_format(svc, str(created["artifact_id"]), 1) == "html"
+    assert "warning" in created
+
+
+@pytest.mark.asyncio
+async def test_publish_keeps_html_primary_when_both_bodies_are_given(svc: Service) -> None:
+    created = svc.publish(
+        _principal(),
+        display_name="Both",
+        slug="both-bodies",
+        html=_BARE,
+        markdown="# companion only\n",
+    )
+    assert _version_format(svc, str(created["artifact_id"]), 1) == "html"
+    assert "warning" in created
+    await svc._run_job(str(created["job_id"]))
+    _data, _ct, name, _title, _style = svc.read_primary_view(str(created["artifact_id"]), 1)
+    assert name == "index.html"
+
+
+@pytest.mark.asyncio
+async def test_publish_version_keeps_format_when_both_bodies_are_given(svc: Service) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Stay",
+        slug="stay-md",
+        format="markdown",
+        markdown="# one\n",
+    )
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        html=_BARE,
+        markdown="# two\n",
+    )
+    assert _version_format(svc, str(first["artifact_id"]), 2) == "markdown"
+    await svc._run_job(str(second["job_id"]))
+    assert svc.get_artifact(principal, str(first["artifact_id"]))["format"] == "markdown"
+
+
+@pytest.mark.asyncio
+async def test_publish_version_infers_markdown_from_markdown_only(svc: Service) -> None:
+    principal = _principal()
+    first = svc.publish(principal, display_name="Was html", slug="was-html", html=_STYLED)
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        markdown="# now markdown\n",
+    )
+    assert "warning" not in second
+    assert _version_format(svc, str(first["artifact_id"]), 2) == "markdown"
+    await svc._run_job(str(second["job_id"]))
+    _data, _ct, name, _title, _style = svc.read_primary_view(str(first["artifact_id"]), 2)
+    assert name == "document.md"
+    assert svc.get_artifact(principal, str(first["artifact_id"]))["format"] == "markdown"
+
+
+@pytest.mark.asyncio
+async def test_publish_version_infers_html_from_html_only(svc: Service) -> None:
+    principal = _principal()
+    first = svc.publish(
+        principal,
+        display_name="Was md",
+        slug="was-md",
+        format="markdown",
+        markdown="# one\n",
+    )
+    await svc._run_job(str(first["job_id"]))
+    second = svc.publish(
+        principal,
+        artifact_id=str(first["artifact_id"]),
+        base_version=1,
+        html=_BARE,
+    )
+    assert "warning" in second
+    assert _version_format(svc, str(first["artifact_id"]), 2) == "html"
+
+
+def test_publish_explicit_format_still_requires_its_body(svc: Service) -> None:
+    principal = _principal()
+    with pytest.raises(AMError, match="html is required"):
+        svc.publish(principal, display_name="Forced", markdown="# only", format="html")
+    with pytest.raises(AMError, match="markdown is required when format is pdf"):
+        svc.publish(principal, display_name="Forced", format="pdf")
+
+
+def test_publish_whitespace_html_counts_as_markdown_only(svc: Service) -> None:
+    created = svc.publish(
+        _principal(),
+        display_name="Spaces",
+        slug="spaces-md",
+        html="  \n\t",
+        markdown="# real\n",
+    )
+    assert _version_format(svc, str(created["artifact_id"]), 1) == "markdown"
+    assert "warning" not in created

@@ -22,6 +22,7 @@ def test_tool_copy_opens_with_the_styled_page_choice():
         assert "format=markdown" in text, name
         assert "exactly as given" in text, name
     assert "warning" in texts["publish"]
+    assert "styled automatically" in texts["publish"]
     assert "source_content" in texts["create"]
     assert "does not restyle the page you submitted" not in texts["publish"]
     assert "does not restyle the page you submitted" not in texts["readme"]

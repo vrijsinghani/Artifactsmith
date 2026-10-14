@@ -9,13 +9,14 @@ from .publish_common import (
     dump_payload,
     idem_hit,
     idem_store,
+    inferred_publish_format,
     insert_job,
     insert_version,
     require_body,
     style_or_error,
     unstyled_html_warning,
 )
-from .service import AMError, Service, now, requested_format, rid
+from .service import AMError, Service, now, rid
 from .styles import DEFAULT_STYLE
 
 
@@ -42,7 +43,12 @@ def publish_version(
         raise AMError("artifact is being deleted")
     if artifact["kind"] != "web_static":
         raise AMError("only kind=web_static is available in this build")
-    fmt = requested_format(str(artifact.get("format") or ""), format)
+    fmt = inferred_publish_format(
+        format,
+        html,
+        markdown,
+        current=str(artifact.get("format") or ""),
+    )
     require_body(fmt, html, markdown)
     if display_name is not None and display_name.strip() and display_name.strip() != artifact["display_name"]:
         raise AMError("display_name is fixed on the artifact")

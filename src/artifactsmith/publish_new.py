@@ -10,13 +10,13 @@ from .publish_common import (
     dump_payload,
     idem_hit,
     idem_store,
+    inferred_publish_format,
     insert_job,
     insert_version,
     require_body,
     style_or_error,
     unstyled_html_warning,
 )
-from .renderers import SUPPORTED_FORMATS
 from .service import SLUG_RE, WS_RE, AMError, Service, now, rid, slugify
 
 _EXISTS = "publish a new version with artifact_id and base_version"
@@ -41,9 +41,7 @@ def publish_new(
     if not WS_RE.match(ws or ""):
         raise AMError("invalid workspace name")
     svc.check_access(principal, ws)
-    fmt = (format or "html").lower().strip()
-    if fmt not in SUPPORTED_FORMATS:
-        raise AMError(f"format must be one of {sorted(SUPPORTED_FORMATS)}")
+    fmt = inferred_publish_format(format, html, markdown)
     require_body(fmt, html, markdown)
     chosen = style_or_error(style, default=CFG.default_style)
     title = (display_name or "").strip()

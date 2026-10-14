@@ -9,7 +9,7 @@ from typing import Any
 from .builder import PUBLISHED_MODEL
 from .renderers import safety
 from .renderers.safety import CONTENT_MAX_CHARS
-from .service import AMError, Service
+from .service import AMError, Service, requested_format
 from .styles import StyleError, parse_style
 
 # Shown in version history. Not sent to a model.
@@ -109,6 +109,32 @@ def assumption_list(value: list[str] | None) -> list[str]:
     if len(out) > 20:
         raise AMError("assumptions: at most 20 entries")
     return out
+
+
+def inferred_publish_format(
+    requested: str | None,
+    html: str | None,
+    markdown: str | None,
+    *,
+    current: str | None = None,
+) -> str:
+    """Pick a publish format when the caller leaves format blank.
+
+    A non-blank request wins. Markdown with no HTML is markdown. HTML with no
+    Markdown is html. Both bodies, or neither, keep the artifact format on a
+    version and stay html on a new artifact.
+    """
+    if requested is not None and str(requested).strip():
+        return requested_format(current, requested)
+    has_html = bool((html or "").strip())
+    has_md = bool((markdown or "").strip())
+    if has_md and not has_html:
+        return "markdown"
+    if has_html and not has_md:
+        return "html"
+    if current is not None:
+        return requested_format(current, None)
+    return "html"
 
 
 def require_body(fmt: str, html: str | None, markdown: str | None) -> None:

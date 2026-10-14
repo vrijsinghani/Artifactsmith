@@ -121,7 +121,7 @@ Header: Authorization: Bearer asmb_…
 
 ## How it works
 
-Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link. Want a styled page? Publish Markdown with `format=markdown` (house style by default, applied when the page is opened), or call `create` with `source_content`. Raw HTML in `publish` is only for a page you designed yourself, and it is shown exactly as given.
+Agents talk to ArtifactSmith over MCP. They pass the user's request as `verbatim_request` and any research as `source_content` or `source_files`. `create` starts a private build and does not publish a share link. Want a styled page? Pass Markdown to `publish` and it is styled automatically (omit `format` when you pass markdown and no html; house style by default, applied when the page is opened). You can still pass `format=markdown`. Or call `create` with `source_content`. Raw HTML in `publish` is only for a page you designed yourself, and it is shown exactly as given.
 
 The server calls an OpenAI-compatible endpoint (up to two attempts when checks fail). The model writes content. A fixed renderer turns that into HTML, Markdown, PDF, DOCX, or XLSX. `publish` skips the model and runs the same checks and renderer. Call `status` (or `wait` up to 90 seconds) to get a private preview.
 
@@ -222,15 +222,15 @@ If a needed fact is missing from the request and the source, the job ends as `ne
 
 ### `publish` arguments
 
-Want a styled page from text you already wrote? Pass that Markdown with `format=markdown`. `style` defaults to house and is applied when the page is opened. The stored file stays Markdown. Raw HTML (`format=html`, the default) is only for a page you designed yourself. It is shown exactly as given, with no ArtifactSmith styling. If that HTML has little or no CSS, the result includes `warning`. `publish` does not call the model. The page still goes through the same size caps, secret scan, private-link checks, sanitizer, renderer, and final sweep as model output.
+Want a styled page from text you already wrote? Pass Markdown and it is styled automatically. Omit `format` when you pass markdown and no html. You can still pass `format=markdown`. `style` defaults to house and is applied when the page is opened. The stored file stays Markdown. On a new artifact, if you also pass html, html is the page unless you set `format`. Raw HTML is shown exactly as given, with no ArtifactSmith styling. If that HTML has little or no CSS, the result includes `warning`. Pass `format` for pdf, docx, or xlsx. `publish` does not call the model. The page still goes through the same size caps, secret scan, private-link checks, sanitizer, renderer, and final sweep as model output.
 
 New artifact: pass `display_name` or `slug`, plus the page.
 
-- `html`: complete HTML document. Required when `format` is `html` (the default).
-- `markdown`: finished Markdown. Required when `format` is `markdown`, `pdf`, `docx`, or `xlsx`.
+- `html`: complete HTML document. Required when `format` is `html`.
+- `markdown`: finished Markdown. Required when `format` is `markdown`, `pdf`, `docx`, or `xlsx`. When `format` is omitted and this is the only body, the format is markdown.
 - You may also pass the other field. It is checked for secrets and private links and is not rendered.
 
-New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. `format` may change to another supported format. Omit it to keep the current one. The artifact id and slug stay the same. Older versions keep their own format. A shared markdown page opens as styled HTML; `?raw=1` or `document.md` on that URL downloads the stored Markdown.
+New version: pass `artifact_id` and `base_version` (the latest done version) plus the new page. Omit `format` and markdown with no html is markdown; html with no markdown is html; both fields keep the artifact's format. Pass `format` to choose another supported format. The artifact id and slug stay the same. Older versions keep their own format. A shared markdown page opens as styled HTML; `?raw=1` or `document.md` on that URL downloads the stored Markdown.
 
 `summary` and `assumptions` are optional card fields (8000 characters each) and are scanned like model output. A longer summary or assumption is rejected when the call arrives, with `metadata exceeds N characters`, and nothing is stored. On markdown, `style` changes the opened page (`house` by default). On HTML, `style` is recorded and the submitted page is not restyled. PDF, DOCX, and XLSX do not use the HTML style sheet.
 
