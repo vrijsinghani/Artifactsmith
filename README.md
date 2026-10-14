@@ -343,7 +343,7 @@ Tokens are issued per workspace and stored as SHA-256 hashes. Knowing an artifac
 
 Permissions are `create`, `read`, `edit`, `publish`, `export`, `share`, and `delete`.
 
-Builds stay private until you call `share`. That creates a public `/s/…` URL. `unshare` makes it return 404.
+Builds stay private until you call `share`. That creates a public `/s/…` URL that follows the latest done version. Pass `version` or `pin` to freeze one version on its own URL. `unshare` makes it return 404. `unshare` with a version revokes only that pin.
 
 Preview and share pages run on their own port, send no cookies, and set CSP `script-src 'none'` with `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`.
 

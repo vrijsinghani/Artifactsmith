@@ -337,7 +337,12 @@ def share(
     artifact_id: Annotated[str, Field(description="Artifact to publish. Required.")],
     version: Annotated[
         int | None,
-        Field(description="Exact done version to publish. Optional; defaults to the latest done version."),
+        Field(
+            description=(
+                "Done version to pin. Optional. Omit it to follow the latest done version. "
+                "Passing a version freezes that version on its own link."
+            )
+        ),
     ] = None,
     ttl_days: Annotated[
         int | None,
@@ -349,15 +354,25 @@ def share(
             )
         ),
     ] = None,
+    pin: Annotated[
+        bool,
+        Field(
+            description=(
+                "Freeze one version. Optional. True with no version pins the latest done version now. "
+                "False with no version follows later versions."
+            )
+        ),
+    ] = False,
 ) -> dict[str, Any]:
-    """Publish a public link for one exact version. Anyone with the link can open it.
+    """Publish a public link. Anyone with the link can open it.
 
     Permission: share.
-    Arguments: artifact_id (required), version (optional; latest done version), ttl_days (optional; ignored when AM_SHARE_TTL_DAYS is 0).
-    Returns: state, url, version, expires_at, lifetime, reused. The link stays on that version.
+    Arguments: artifact_id (required), version (optional; passing it pins that version), ttl_days (optional; ignored when AM_SHARE_TTL_DAYS is 0), pin (optional).
+    Returns: state, url, version, follows ("latest" or "pinned"), expires_at, lifetime, reused.
+    Omit version to keep serving the latest done version on the same URL.
     Example: share(artifact_id="art_example")
     unshare revokes it immediately."""
-    return _run(_svc().share, _principal(ctx), artifact_id, version, ttl_days)
+    return _run(_svc().share, _principal(ctx), artifact_id, version, ttl_days, pin)
 
 
 @mcp.tool()
@@ -376,7 +391,7 @@ def unshare(
     """Revoke public share links. Takes effect immediately; the old URL returns 404.
 
     Permission: share.
-    Arguments: artifact_id (required), version (optional; omit it, or pass 0, to revoke every version).
+    Arguments: artifact_id (required), version (optional). A version revokes only pinned links for that version. Omit it, or pass 0, to revoke every public link, including the one that follows the latest version.
     Returns: artifact_id, revoked_links (count), state "not_shared".
     Example: unshare(artifact_id="art_example")"""
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)
@@ -533,12 +548,16 @@ async def shared(request: Request) -> Response:
     s = _svc().share_lookup(request.path_params["sid"])
     if not s:
         return _not_found()
+    target = await asyncio.to_thread(_svc().share_target, s)
+    if target is None:
+        return _not_found()
+    version, sha = target
     download = request.url.path.endswith("/" + SOURCE_NAME["markdown"])
     raw = download or request.query_params.get("raw") == "1"
     return await _open_page(
         aid=s["artifact_id"],
-        version=int(s["version"]),
-        sha=s["sha256"],
+        version=version,
+        sha=sha,
         raw=raw,
         attachment=download,
     )

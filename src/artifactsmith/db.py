@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS shares (
   created_by TEXT NOT NULL,
   created_at REAL NOT NULL,
   expires_at REAL NOT NULL,
-  revoked_at REAL
+  revoked_at REAL,
+  pinned INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS delete_tokens (
   token TEXT PRIMARY KEY,
@@ -128,6 +129,9 @@ class DB:
             self.conn.execute("ALTER TABLE versions ADD COLUMN mode TEXT")
         if "format" not in ver_cols:
             self.conn.execute("ALTER TABLE versions ADD COLUMN format TEXT")
+        share_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(shares)").fetchall()}
+        if "pinned" not in share_cols:
+            self.conn.execute("ALTER TABLE shares ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
         # Format was fixed on the artifact, so that value is each existing version's format.
         self.conn.execute(
             "UPDATE versions SET format = ("

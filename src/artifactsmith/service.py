@@ -1019,18 +1019,29 @@ class Service:
         return out
 
     def _share_state(self, aid: str, version: int) -> dict[str, Any]:
-        s = self.db.one(
-            "SELECT * FROM shares WHERE artifact_id=? AND version=? AND revoked_at IS NULL AND expires_at>? "
-            "ORDER BY created_at DESC LIMIT 1",
+        floating = self.db.one(
+            "SELECT * FROM shares WHERE artifact_id=? AND pinned=0 AND revoked_at IS NULL AND expires_at>? "
+            "ORDER BY expires_at DESC LIMIT 1",
             aid,
-            version,
             now(),
         )
+        pinned = None
+        if floating is None:
+            pinned = self.db.one(
+                "SELECT * FROM shares WHERE artifact_id=? AND version=? AND pinned=1 "
+                "AND revoked_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT 1",
+                aid,
+                version,
+                now(),
+            )
+        s = floating or pinned
         if s:
             until = s["expires_at"] >= self.NEVER_EXPIRES - 1
+            follows = "latest" if int(s["pinned"] or 0) == 0 else "pinned"
             return {
                 "state": "shared",
                 "url": self.share_url(s["id"]),
+                "follows": follows,
                 "expires_at": None if until else iso(s["expires_at"]),
                 "lifetime": "until revoked" if until else iso(s["expires_at"]),
                 "note": "public link; unshare revokes immediately",
@@ -1178,19 +1189,40 @@ class Service:
         return t + days * 86400
 
     def share(
-        self, principal: dict[str, Any], artifact_id: str, version: int | None = None, ttl_days: int | None = None
+        self,
+        principal: dict[str, Any],
+        artifact_id: str,
+        version: int | None = None,
+        ttl_days: int | None = None,
+        pin: bool = False,
     ) -> dict[str, Any]:
-        """Publish a public link for one exact version. create never does this. unshare revokes at once."""
+        """Publish a public link. Omit version to follow the latest done version.
+
+        create never does this. unshare revokes at once. Passing version, or pin,
+        freezes that one done version on its own link.
+        """
         self.require(principal, "share")
         a = self.get_artifact(principal, artifact_id)
+        pinned = bool(pin) or version is not None
         v = self._done_version(a, version)
-        s = self.db.one(
-            "SELECT * FROM shares WHERE artifact_id=? AND version=? AND revoked_at IS NULL AND expires_at>? "
-            "ORDER BY expires_at DESC LIMIT 1",
-            a["id"],
-            v["version"],
-            now() + 86400,
-        )
+        if not v.get("sha256"):
+            raise AMError("version has no sha256")
+        window = now() + 86400
+        if pinned:
+            s = self.db.one(
+                "SELECT * FROM shares WHERE artifact_id=? AND version=? AND pinned=1 "
+                "AND revoked_at IS NULL AND expires_at>? ORDER BY expires_at DESC LIMIT 1",
+                a["id"],
+                v["version"],
+                window,
+            )
+        else:
+            s = self.db.one(
+                "SELECT * FROM shares WHERE artifact_id=? AND pinned=0 AND revoked_at IS NULL AND expires_at>? "
+                "ORDER BY expires_at DESC LIMIT 1",
+                a["id"],
+                window,
+            )
         if s:
             sid, exp, reused = s["id"], s["expires_at"], True
         else:
@@ -1198,7 +1230,8 @@ class Service:
             t = now()
             exp = self._share_exp(t, ttl_days if ttl_days is not None else CFG.share_ttl_days)
             self.db.exec(
-                "INSERT INTO shares VALUES (?,?,?,?,?,?,?,NULL)",
+                "INSERT INTO shares (id, artifact_id, version, sha256, created_by, created_at, expires_at, "
+                "revoked_at, pinned) VALUES (?,?,?,?,?,?,?,NULL,?)",
                 sid,
                 a["id"],
                 v["version"],
@@ -1206,21 +1239,50 @@ class Service:
                 principal["name"],
                 t,
                 exp,
+                1 if pinned else 0,
             )
             reused = False
-            self.audit(principal, "share_public", artifact_id=a["id"], version=v["version"], share_id=sid)
+            self.audit(
+                principal,
+                "share_public",
+                artifact_id=a["id"],
+                version=v["version"],
+                share_id=sid,
+                pinned=pinned,
+            )
         until = exp >= self.NEVER_EXPIRES - 1
         return {
             "state": "shared",
             "scope": "public internet link (anyone with the link)",
             "artifact_id": a["id"],
             "version": v["version"],
+            "follows": "pinned" if pinned else "latest",
             "url": self.share_url(sid),
             "expires_at": None if until else iso(exp),
             "lifetime": "until revoked" if until else iso(exp),
             "reused": reused,
             "revoke": "unshare(artifact_id) takes effect immediately",
         }
+
+    def share_target(self, row: dict[str, Any]) -> tuple[int, str] | None:
+        """Version and recorded sha256 a public share id should serve. None is a 404.
+
+        A pin uses the hash stored on the share row. A floating link uses the
+        latest done version's hash, not the hash copied when the row was created.
+        """
+        if int(row.get("pinned") or 0):
+            sha = str(row.get("sha256") or "")
+            if not sha:
+                return None
+            return int(row["version"]), sha
+        latest = self.db.one(
+            "SELECT version, sha256 FROM versions WHERE artifact_id=? AND status='done' "
+            "ORDER BY version DESC LIMIT 1",
+            row["artifact_id"],
+        )
+        if not latest or not latest.get("sha256"):
+            return None
+        return int(latest["version"]), str(latest["sha256"])
 
     def unshare(self, principal: dict[str, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
         self.require(principal, "share")
@@ -1229,7 +1291,8 @@ class Service:
         with self.db.tx() as c:
             if version:
                 n = c.execute(
-                    "UPDATE shares SET revoked_at=? WHERE artifact_id=? AND version=? AND revoked_at IS NULL",
+                    "UPDATE shares SET revoked_at=? WHERE artifact_id=? AND version=? AND pinned=1 "
+                    "AND revoked_at IS NULL",
                     (t, a["id"], int(version)),
                 ).rowcount
             else:

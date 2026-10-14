@@ -254,12 +254,124 @@ def test_download_signed_ok(svc):
     assert not r.cookies
 
 
+def _share_principal() -> dict[str, object]:
+    return {"id": "tok_1", "name": "agent", "workspace": "alpha", "perms": {"share", "read"}}
+
+
+def _add_done_version(svc: Service, aid: str, version: int, page: bytes) -> None:
+    svc.db.exec(
+        "INSERT INTO versions (artifact_id,version,base_version,verbatim_request,status,job_id,model,"
+        "sha256,primary_file,files_json,assumptions_json,summary,size,source_key,created_by,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        aid,
+        version,
+        version - 1,
+        "show",
+        "done",
+        f"job_{version}",
+        "m",
+        hashlib.sha256(page).hexdigest(),
+        "index.html",
+        json.dumps([{"name": "index.html", "content_type": "text/html"}]),
+        "[]",
+        "ok",
+        len(page),
+        None,
+        "agent",
+        time.time(),
+    )
+    svc.store.put(FakeStore.prefix("alpha", aid, version) + "index.html", page, "text/html")
+
+
+def test_floating_share_serves_the_latest_done_version(svc: Service):
+    aid, _ver, _body = _seed_done_artifact(svc)
+    principal = _share_principal()
+    first = svc.share(principal, aid)
+    sid = str(first["url"]).rstrip("/").rsplit("/", 1)[-1]
+    later = b"<html><body>HARBOR-18</body></html>"
+    _add_done_version(svc, aid, 2, later)
+    client = TestClient(server.preview_app)
+    page = client.get(f"/s/{sid}/")
+    assert page.status_code == 200
+    assert "HARBOR-18" in page.text
+    assert "HARBOR-17" not in page.text
+    again = svc.share(principal, aid)
+    assert again["reused"] is True
+    assert again["url"] == first["url"]
+    assert again["follows"] == "latest"
+    assert again["version"] == 2
+    state = svc._share_state(aid, 2)
+    assert state["state"] == "shared"
+    assert sid in str(state["url"])
+    _assert_page_csp(page.headers.get("content-security-policy", ""))
+
+
+def test_pinned_share_stays_on_its_version(svc: Service):
+    aid, _ver, _body = _seed_done_artifact(svc)
+    principal = _share_principal()
+    floating = svc.share(principal, aid)
+    later = b"<html><body>HARBOR-18</body></html>"
+    _add_done_version(svc, aid, 2, later)
+    pinned = svc.share(principal, aid, version=1)
+    frozen = svc.share(principal, aid, pin=True)
+    client = TestClient(server.preview_app)
+    pin_sid = str(pinned["url"]).rstrip("/").rsplit("/", 1)[-1]
+    freeze_sid = str(frozen["url"]).rstrip("/").rsplit("/", 1)[-1]
+    float_sid = str(floating["url"]).rstrip("/").rsplit("/", 1)[-1]
+    assert pin_sid != float_sid
+    assert client.get(f"/s/{pin_sid}/").text.find("HARBOR-17") >= 0
+    assert "HARBOR-18" not in client.get(f"/s/{pin_sid}/").text
+    assert "HARBOR-18" in client.get(f"/s/{freeze_sid}/").text
+    third = b"<html><body>HARBOR-19</body></html>"
+    _add_done_version(svc, aid, 3, third)
+    assert "HARBOR-18" in client.get(f"/s/{freeze_sid}/").text
+    assert "HARBOR-19" not in client.get(f"/s/{freeze_sid}/").text
+    assert "HARBOR-19" in client.get(f"/s/{float_sid}/").text
+    assert pinned["follows"] == "pinned"
+
+
+def test_floating_share_hash_mismatch_is_404_and_stale_row_hash_is_not(svc: Service):
+    aid, _ver, _body = _seed_done_artifact(svc)
+    principal = _share_principal()
+    first = svc.share(principal, aid)
+    sid = str(first["url"]).rstrip("/").rsplit("/", 1)[-1]
+    later = b"<html><body>HARBOR-18</body></html>"
+    _add_done_version(svc, aid, 2, later)
+    client = TestClient(server.preview_app)
+    assert "HARBOR-18" in client.get(f"/s/{sid}/").text
+    svc.store.put(
+        FakeStore.prefix("alpha", aid, 2) + "index.html",
+        b"<html><body>replaced</body></html>",
+        "text/html",
+    )
+    for path in (f"/s/{sid}/", f"/s/{sid}/?raw=1", f"/s/{sid}/document.md"):
+        missed = client.get(path)
+        assert missed.status_code == 404
+        assert b"replaced" not in missed.content
+
+
+def test_unshare_version_revokes_only_the_pin(svc: Service):
+    aid, _ver, _body = _seed_done_artifact(svc)
+    principal = _share_principal()
+    floating = svc.share(principal, aid)
+    pinned = svc.share(principal, aid, version=1)
+    svc.unshare(principal, aid, version=1)
+    client = TestClient(server.preview_app)
+    float_sid = str(floating["url"]).rstrip("/").rsplit("/", 1)[-1]
+    pin_sid = str(pinned["url"]).rstrip("/").rsplit("/", 1)[-1]
+    assert client.get(f"/s/{float_sid}/").status_code == 200
+    assert client.get(f"/s/{pin_sid}/").status_code == 404
+    svc.unshare(principal, aid)
+    assert client.get(f"/s/{float_sid}/").status_code == 404
+
+
 def test_shared_link_ok_and_revoked(svc):
     aid, ver, body = _seed_done_artifact(svc)
     sha = hashlib.sha256(body.encode()).hexdigest()
     sid = "publicshareid01"
     svc.db.exec(
-        "INSERT INTO shares VALUES (?,?,?,?,?,?,?,NULL)",
+        "INSERT INTO shares (id, artifact_id, version, sha256, created_by, created_at, expires_at, revoked_at, pinned) "
+        "VALUES (?,?,?,?,?,?,?,NULL,0)",
         sid,
         aid,
         ver,
@@ -359,7 +471,8 @@ def _seed_primary(
     svc.store.put(FakeStore.prefix("alpha", aid, 1) + filename, body, content_type)
     sid = "s" + aid[-12:]
     svc.db.exec(
-        "INSERT INTO shares VALUES (?,?,?,?,?,?,?,NULL)",
+        "INSERT INTO shares (id, artifact_id, version, sha256, created_by, created_at, expires_at, revoked_at, pinned) "
+        "VALUES (?,?,?,?,?,?,?,NULL,0)",
         sid,
         aid,
         1,

@@ -11,6 +11,8 @@ docker compose up -d --build
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
+There is no `compose.prod.yaml` in this repo. Production is `docker compose -f compose.yaml` with the reverse-proxy settings below.
+
 `compose.yaml` reads LLM and object-store settings from `.env`. Every `docker compose` command needs those store keys set, including `docker compose down`. Host ports default to `127.0.0.1:8780` and `127.0.0.1:8781` via `AM_BIND_ADDRESS`. Put a TLS reverse proxy in front if you expose them past the host. Exposing the ports without TLS puts bearer tokens and artifact content on the wire in cleartext.
 
 ## Serving on your network or behind a proxy

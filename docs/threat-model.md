@@ -12,7 +12,7 @@ Database-backed private `/p/` preview ids and public `/s/` share ids.
 
 Object-store credentials.
 
-Public share URLs. Anyone with the link can read that exact version.
+Public share URLs. Anyone with a floating link can read the latest done version. Anyone with a pinned link can read that one version.
 
 ## Actors
 
@@ -33,7 +33,7 @@ The configured LLM endpoint. Its output is untrusted.
 | Cross-workspace read | Token workspace must match the artifact. Knowing an id is not access. |
 | Privilege abuse | Perms are create, read, edit, publish, export, share, delete. |
 | Accidental publish | `create`, `edit`, and `publish` do not mint `/s/`. `share` is a separate call. |
-| Stale public page | Shares pin version and sha256. `unshare` sets `revoked_at` immediately. |
+| Stale or swapped public page | A floating share serves the latest done version and checks that version's sha256 before render. A pinned share stays on one version and its sha256. `unshare` sets `revoked_at` immediately. |
 | Token theft | Tokens stored as SHA-256. The operator can revoke. Prefer `NAME_FILE` for secrets. |
 | XSS / drive-by JS | HTML passes an nh3 allowlist; CSS passes a tinycss2 allowlist. CSP `script-src 'none'` and `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`. Separate cookieless origin. |
 | SSRF / phone-home via output | Public http(s) `<a href>` citations allowed; private/loopback/link-local hosts rejected. Dangerous schemes stripped. Protocol-relative `//host` upgraded to `https://` only when the host is public; otherwise neutralized. Images, CSS `url()`, fonts, and iframes stay self-contained — no remote subresources. Renderers do not fetch (WeasyPrint deny-all fetcher). |
