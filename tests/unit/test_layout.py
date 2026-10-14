@@ -987,7 +987,20 @@ _CELL_SPLITS = r"""new Promise((resolve) => {
       }
     }
     const root = document.documentElement;
-    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, splits}));
+    const code = document.querySelector("pre.asl-code");
+    let codeBox = null;
+    if (code) {
+      const rect = code.getBoundingClientRect();
+      const line = code.querySelector("code");
+      codeBox = {
+        left: rect.left,
+        right: rect.right,
+        sw: code.scrollWidth,
+        cw: code.clientWidth,
+        ws: line ? getComputedStyle(line).whiteSpace : "",
+      };
+    }
+    resolve(JSON.stringify({sw: root.scrollWidth, cw: root.clientWidth, vw: window.innerWidth, splits, codeBox}));
   });
 })"""
 
@@ -1037,6 +1050,8 @@ def test_body_breaks_only_on_word_boundaries():
     css = stylesheet("bold")
     assert "overflow-wrap:break-word" in css
     assert "overflow-wrap:anywhere" not in css
+    assert ".asl-code{padding:.85rem 1rem;overflow-x:auto;max-width:100%;box-sizing:border-box}" in css
+    assert ".asl-code code{white-space:pre;" in css
     assert "minmax(0,1fr)" in css
     assert "clamp(1.15rem,5.2vw,1.8rem)" in css
     assert "clamp(1.15rem,5.2vw,2.3rem)" in css
@@ -1060,7 +1075,8 @@ def test_fast_pages_fit_a_phone_width():
     probe.bind(("127.0.0.1", 0))
     port = probe.getsockname()[1]
     probe.close()
-    with tempfile.TemporaryDirectory() as td:
+    # CI Chromium is a snap and cannot read /tmp. Home is visible to that snap.
+    with tempfile.TemporaryDirectory(dir=Path.home()) as td:
         profile = Path(td) / "profile"
         profile.mkdir()
         proc = subprocess.Popen(
@@ -1104,6 +1120,13 @@ def test_fast_pages_fit_a_phone_width():
                         for width in (360, 390, 1280):
                             metrics = _phone_metrics(sock, width)
                             assert metrics["sw"] <= metrics["cw"], (style, name, width, metrics)
+                            if style == "bold" and name == "phone" and width in (360, 390):
+                                box = metrics["codeBox"]
+                                assert isinstance(box, dict), (style, name, width, metrics)
+                                assert box["left"] >= -1, (style, width, box)
+                                assert box["right"] <= metrics["vw"] + 1, (style, width, box)
+                                assert box["ws"] == "pre", box
+                                assert box["sw"] > box["cw"], (style, width, box)
                             splits = metrics["splits"]
                             assert isinstance(splits, list)
                             fresh = {word for word in splits if isinstance(word, str)} - allowed
