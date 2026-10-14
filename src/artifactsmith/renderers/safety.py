@@ -159,9 +159,35 @@ def _secret_views(text: str) -> tuple[str, ...]:
     return (text, scan)
 
 
+_TOKEN68 = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~+/=")
+
+
+def _bearer_is_placeholder(text: str, match: re.Match[str]) -> bool:
+    """True for an obvious placeholder on this view, before punctuation is stripped.
+
+    ``asmb_...`` is exact. ``asmb_`` plus U+2026 is exact only when no token
+    character follows the ellipsis. A clean view does not clear another view.
+    """
+    token = match.group(1)
+    if token == "asmb_...":
+        return True
+    if token != "asmb_":
+        return False
+    rest = text[match.end() :]
+    if not rest.startswith("\u2026"):
+        return False
+    after = rest[1:2]
+    return not after or after not in _TOKEN68
+
+
 def _has_bearer_secret(text: str) -> bool:
     # A trailing "." or "," ends the sentence ("Bearer key."), not the token.
-    return any(not _BEARER_NOT_SECRET.match(m.group(1).rstrip(".,")) for m in _BEARER_RE.finditer(text))
+    for match in _BEARER_RE.finditer(text):
+        if _bearer_is_placeholder(text, match):
+            continue
+        if not _BEARER_NOT_SECRET.match(match.group(1).rstrip(".,")):
+            return True
+    return False
 
 
 def find_secrets(text: str) -> list[str]:

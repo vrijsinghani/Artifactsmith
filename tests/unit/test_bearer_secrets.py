@@ -166,3 +166,41 @@ def test_bearer_word_prefix_split_by_invisible(sep: str) -> None:
 )
 def test_other_secret_patterns_still_flag(label: str, text: str) -> None:
     _assert_label(text, label)
+
+
+_ELLIPSIS = "\u2026"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bearer <token>",
+        "Bearer asmb_" + _ELLIPSIS,
+        "Bearer asmb_...",
+        "Bearer YOUR_TOKEN",
+        "$AM_TOKEN",
+        "${AM_TOKEN}",
+    ],
+)
+def test_named_placeholders_pass(text: str) -> None:
+    _assert_clean(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bearer asmb_",
+        "Bearer asmb_.",
+        "Bearer asmb_,",
+        "Bearer asmb_....",
+        "Bearer asmb_...9f3a1c7e5b2d8a40",
+        "Bearer asmb_" + _ELLIPSIS + "9f3a1c7e5b2d8a40",
+        "Bearer asmb_" + ("\uff0e" * 3),
+    ],
+)
+def test_asmb_near_misses_still_flag(text: str) -> None:
+    _assert_bearer(text)
+
+
+def test_placeholder_does_not_hide_another_secret() -> None:
+    _assert_label("Bearer asmb_... ghp_" + ("a" * 36), "github_pat")
