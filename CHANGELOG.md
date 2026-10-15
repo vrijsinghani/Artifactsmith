@@ -15,6 +15,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- A realistic `asmb_` token fails the secret check with or without `Bearer`, including inside a code block or URL and when a zero-width character splits it. `asmb_...`, `asmb_…`, `Bearer <token>`, `YOUR_TOKEN`, `$AM_TOKEN`, and `${AM_TOKEN}` still pass.
+- A `needs_input:` content-check failure keeps that prefix and the check name, and drops hosts, raw URLs, and credentials from the stored job error.
+- Stylesheet newlines between rules are removed so the bold sheet has room under its 8192-byte cap. Selectors and declarations are unchanged.
 - `unshare` with a version reports the share that is still live. `state` is `shared`, with `url` and `follows`, while the follow-latest link remains, and `not_shared` only when no public link remains.
 - My pages login limits group IPv6 clients by `/64`. Each IPv4 address stays its own bucket. An IPv4-mapped IPv6 address counts as that IPv4 address.
 - My pages login limits use the client address from `X-Real-IP` or the rightmost `X-Forwarded-For` hop only when the connecting peer is in `AM_TRUSTED_PROXIES`, and a second limit applies to a hash of the token prefix. The catalog pages past 50. Times show in America/New_York, or a zone the viewer sets, with that zone named on the page.

@@ -206,8 +206,20 @@ _HTML_ATTR = "blocked or authority-confused HTML "
 _DROP_HOST = ("private or local link host", "link host not on allow-list")
 
 
-def _job_check_error(message: str) -> str:
+def _redact_problem(problem: str) -> str:
     """Keep the check name. Drop attribute values, hosts, and raw URLs."""
+    if problem.startswith(_HTML_ATTR):
+        name = problem[len(_HTML_ATTR) :].split(":", 1)[0].strip()
+        return _HTML_ATTR + name
+    label = next((item for item in _DROP_HOST if problem.startswith(item + ":")), "")
+    return label or problem
+
+
+def _job_check_error(message: str) -> str:
+    """Keep the check name. Drop attribute values, hosts, and raw URLs.
+
+    A ``needs_input:`` prefix is kept. The check after it is redacted the same way.
+    """
     if not message.startswith(_CHECK_PREFIX):
         return "build failed: BuildError"
     parts: list[str] = []
@@ -215,12 +227,11 @@ def _job_check_error(message: str) -> str:
         problem = raw.strip()
         if not problem:
             continue
-        if problem.startswith(_HTML_ATTR):
-            name = problem[len(_HTML_ATTR) :].split(":", 1)[0].strip()
-            parts.append(_HTML_ATTR + name)
-            continue
-        label = next((item for item in _DROP_HOST if problem.startswith(item + ":")), "")
-        parts.append(label or problem)
+        prefix = ""
+        if problem.startswith("needs_input:"):
+            prefix = "needs_input: "
+            problem = problem.split(":", 1)[1].strip()
+        parts.append(prefix + _redact_problem(problem))
     return _CHECK_PREFIX + "; ".join(parts)
 
 

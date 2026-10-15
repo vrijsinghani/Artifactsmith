@@ -365,10 +365,15 @@ def _root(palette: dict[str, str]) -> str:
 
 
 def stylesheet(style: str, extra: str = "") -> str:
-    """CSS for ``style``. ``extra`` is server-generated grid rules, still not model CSS."""
+    """CSS for ``style``. ``extra`` is server-generated grid rules, still not model CSS.
+
+    Newlines sit between rules, not inside values. Dropping them keeps bold
+    under the 8192-byte cap without changing selectors or declarations.
+    """
     palette = _PALETTES.get(style) or _PALETTES["house"]
     extra_block = _EXTRAS.get(style, "")
-    return _root(palette) + _BASE + extra_block + extra + _TAIL
+    css = _root(palette) + _BASE + extra_block + extra + _TAIL
+    return css.replace("\n", "")
 
 
 def grid_class(spec: str) -> str:

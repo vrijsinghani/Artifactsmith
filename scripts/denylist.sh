@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # Secret-shaped credentials that must never be committed.
-SECRET_RE='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(^|[^A-Za-z0-9_])sk-([A-Za-z0-9]{20,}|(proj|svcacct|admin)-([A-Za-z0-9_-]*[0-9][A-Za-z0-9_-]{19,}|[A-Za-z0-9_-]{19,}[0-9][A-Za-z0-9_-]*))'
+SECRET_RE='BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(^|[^A-Za-z0-9_])sk-([A-Za-z0-9]{20,}|(proj|svcacct|admin)-([A-Za-z0-9_-]*[0-9][A-Za-z0-9_-]{19,}|[A-Za-z0-9_-]{19,}[0-9][A-Za-z0-9_-]*))|(^|[^A-Za-z0-9_])asmb_[A-Za-z0-9_-]{43,}'
 
 # Generic private identifiers: absolute home paths, and env assignments whose
 # values look like real credentials (length floor avoids docs/test placeholders).

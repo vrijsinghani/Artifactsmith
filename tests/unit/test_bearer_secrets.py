@@ -204,3 +204,49 @@ def test_asmb_near_misses_still_flag(text: str) -> None:
 
 def test_placeholder_does_not_hide_another_secret() -> None:
     _assert_label("Bearer asmb_... ghp_" + ("a" * 36), "github_pat")
+
+
+# 43 urlsafe chars, the length of secrets.token_urlsafe(32). Pieces stay short
+# so a tracked file never holds a contiguous asmb_ token.
+_BODY43 = ("Ab3_" * 10) + "Xy9"
+
+
+def _asmb(body: str = _BODY43) -> str:
+    return "asmb_" + body
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _asmb(),
+        "Authorization: Bearer " + _asmb(),
+        "```\n" + _asmb() + "\n```",
+        "https://cdn.example/hook?token=" + _asmb(),
+    ],
+)
+def test_realistic_asmb_token_flags(text: str) -> None:
+    _assert_label(text, "artifactsmith_token")
+
+
+@pytest.mark.parametrize("sep", ["\u200b", "\u200d", "\u200c", "\ufeff"])
+def test_invisible_chars_do_not_hide_asmb_token(sep: str) -> None:
+    body = _BODY43
+    _assert_label("asmb_" + body[:21] + sep + body[21:], "artifactsmith_token")
+    _assert_label("as" + sep + "mb_" + body, "artifactsmith_token")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "asmb_...",
+        "asmb_" + _ELLIPSIS,
+        "Bearer <token>",
+        "YOUR_TOKEN",
+        "$AM_TOKEN",
+        "${AM_TOKEN}",
+        _asmb(_BODY43[:-1]),
+        "asmb_test_token_value_ok",
+    ],
+)
+def test_asmb_placeholders_and_short_bodies_pass(text: str) -> None:
+    _assert_clean(text)

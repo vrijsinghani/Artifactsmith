@@ -643,6 +643,50 @@ async def test_edit_failure_names_the_check_without_source(svc, monkeypatch):
             assert secret not in error
 
 
+@pytest.mark.asyncio
+async def test_needs_input_check_error_drops_hosts_and_credentials(svc, monkeypatch):
+    async def ok(**kw):
+        return BuildResult(
+            files={"index.html": b"<html><body>ok</body></html>"},
+            primary="index.html",
+            assumptions=[],
+            summary="built",
+            model="gpt-test",
+        )
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", ok)
+    p = _principal()
+    created = svc.create(p, slug="redact", display_name="Redact", kind="web_static", verbatim_request="x")
+    await svc._run_job(created["job_id"])
+
+    private_v4 = "10.1.2.3"
+    private_lan = "192.168.4.20"
+    local = "localhost"
+    secret_url = "https://user:pass@host/path"
+    message = (
+        "builder output failed checks twice: "
+        f"needs_input: private or local link host: {private_v4}; "
+        f"needs_input: private or local link host: {private_lan}; "
+        f"needs_input: private or local link host: {local}; "
+        f"needs_input: blocked or authority-confused HTML href: {secret_url}; "
+        f"needs_input: link host not on allow-list: {secret_url}"
+    )
+
+    async def boom(**kw):
+        raise BuildError(message)
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", boom)
+    edited = svc.edit(p, artifact_id=created["artifact_id"], base_version=1, verbatim_request="needs input leak")
+    await svc._run_job(edited["job_id"])
+    error = svc.db.one("SELECT error FROM jobs WHERE id=?", edited["job_id"])["error"] or ""
+    assert error.startswith("builder output failed checks twice: needs_input: ")
+    assert "needs_input: private or local link host" in error
+    assert "needs_input: blocked or authority-confused HTML href" in error
+    assert "needs_input: link host not on allow-list" in error
+    for secret in (private_v4, private_lan, local, "user:pass", secret_url):
+        assert secret not in error
+
+
 def test_cross_workspace_forbidden(svc):
     alpha = _principal()
     created = svc.create(alpha, slug="secret", display_name="S", kind="web_static", verbatim_request="x")

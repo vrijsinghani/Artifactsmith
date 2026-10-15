@@ -50,6 +50,13 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.X,
         ),
     ),
+    # CLI tokens are asmb_ + secrets.token_urlsafe(32): 43 urlsafe characters.
+    # Shorter fixtures and the ellipsis placeholders stay clean. A 43+ character
+    # identifier with this prefix fails the build. Runs on each secret view.
+    (
+        "artifactsmith_token",
+        re.compile(r"(?<![A-Za-z0-9_])asmb_[A-Za-z0-9_-]{43,}(?![A-Za-z0-9_-])"),
+    ),
 ]
 
 # generic_bearer is not a length floor: short hex and base64 are real tokens, and
