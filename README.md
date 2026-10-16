@@ -357,9 +357,9 @@ Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empt
 
 ## Hosted trial
 
-Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). The page shows the workspace token once and a client snippet that says `YOUR_TOKEN`. One verified address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). Opening the link does not spend it. The "Show my token" button shows the workspace token once, plus config for Claude Desktop, Cursor, and a generic MCP client. Each snippet says `YOUR_TOKEN`. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. One verified address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
 
-Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. Responses include `builds_remaining`. When the daily cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` and a small footer.
+Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` and an abuse footer that stays visible if the page hides footers. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
 
 ## Security
 

@@ -295,6 +295,7 @@ class Service:
         self.queue = self.internal_q
         self.progress: dict[str, str] = {}
         self._workers: list[asyncio.Task[None]] = []
+        self._retention_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._trial_running = 0
         self._sched_lock = asyncio.Lock()
@@ -392,16 +393,24 @@ class Service:
         if principal.get("trial"):
             if not CFG.trial_enabled:
                 raise AMError(trial.CLOSED)
-            total = c.execute("SELECT COUNT(*) n FROM jobs WHERE client=?", (principal["id"],)).fetchone()["n"]
+            # Reservations survive delete. Counting jobs would hand the builds back.
+            total = c.execute(
+                "SELECT COUNT(*) n FROM trial_reservations WHERE token_id=?",
+                (principal["id"],),
+            ).fetchone()["n"]
             if int(total) >= int(CFG.trial_build_limit):
                 raise AMError(trial.QUOTA_ERROR)
             hour_limit = int(CFG.trial_builds_per_hour)
+            n = c.execute(
+                "SELECT COUNT(*) n FROM trial_reservations WHERE token_id=? AND created_at>?",
+                (principal["id"], now() - 3600),
+            ).fetchone()["n"]
         else:
             hour_limit = int(CFG.builds_per_hour)
-        n = c.execute(
-            "SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?",
-            (principal["id"], now() - 3600),
-        ).fetchone()["n"]
+            n = c.execute(
+                "SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?",
+                (principal["id"], now() - 3600),
+            ).fetchone()["n"]
         if int(n) >= hour_limit:
             raise AMError(f"quota: {hour_limit} builds/hour reached")
 
@@ -409,12 +418,12 @@ class Service:
         if not principal.get("trial"):
             return
         try:
-            trial.reserve(c, jid, when)
+            trial.reserve(c, jid, when, str(principal["id"]))
         except trial.TrialLimit as exc:
             raise AMError(exc.message) from exc
 
     def _builds_remaining(self, principal: dict[str, Any]) -> int:
-        row = self.db.one("SELECT COUNT(*) AS n FROM jobs WHERE client=?", principal["id"])
+        row = self.db.one("SELECT COUNT(*) AS n FROM trial_reservations WHERE token_id=?", principal["id"])
         used = int(row["n"]) if row else 0
         return max(0, int(CFG.trial_build_limit) - used)
 
@@ -894,16 +903,33 @@ class Service:
             trial.purge_idle_trials(self.db, self.store)
         except Exception:  # noqa: BLE001 — retention must not stop the server
             log.exception("trial retention sweep failed")
+        self._retention_task = asyncio.create_task(self._retention_loop())
         for _ in range(CFG.max_concurrent_builds):
             self._workers.append(asyncio.create_task(self._worker()))
 
+    def _retention_interval_s(self) -> float:
+        return 3600.0
+
+    async def _retention_loop(self) -> None:
+        """Sweep idle trials on the hour. A failed sweep stays in this loop."""
+        while True:
+            await asyncio.sleep(self._retention_interval_s())
+            try:
+                await asyncio.to_thread(trial.purge_idle_trials, self.db, self.store)
+            except Exception:  # noqa: BLE001 — retention must not stop the server
+                log.exception("trial retention sweep failed")
+
     async def shutdown(self) -> None:
         """Cancel workers and close the database. Safe to call more than once."""
-        for task in list(self._workers):
+        pending = list(self._workers)
+        if self._retention_task is not None:
+            pending.append(self._retention_task)
+        for task in pending:
             task.cancel()
-        if self._workers:
-            await asyncio.gather(*self._workers, return_exceptions=True)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         self._workers.clear()
+        self._retention_task = None
         self.db.close()
 
     def _take(self, q: asyncio.Queue[str]) -> str | None:

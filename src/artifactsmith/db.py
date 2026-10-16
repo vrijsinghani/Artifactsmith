@@ -136,10 +136,12 @@ CREATE TABLE IF NOT EXISTS trial_signup_ips (
 CREATE INDEX IF NOT EXISTS trial_signup_ips_ip ON trial_signup_ips(ip, created_at);
 CREATE TABLE IF NOT EXISTS trial_reservations (
   job_id TEXT PRIMARY KEY,
+  token_id TEXT,
   day TEXT NOT NULL,
   reserved_micros INTEGER NOT NULL,
   actual_micros INTEGER,
-  settled_at REAL
+  settled_at REAL,
+  created_at REAL
 );
 CREATE TABLE IF NOT EXISTS trial_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,6 +198,15 @@ class DB:
             self.conn.execute("ALTER TABLE tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'internal'")
         if "email_hash" not in token_cols:
             self.conn.execute("ALTER TABLE tokens ADD COLUMN email_hash TEXT")
+        hold_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(trial_reservations)").fetchall()}
+        if hold_cols and "token_id" not in hold_cols:
+            self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN token_id TEXT")
+        if hold_cols and "created_at" not in hold_cols:
+            self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN created_at REAL")
+        if hold_cols:
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS trial_reservations_token ON trial_reservations(token_id, created_at)"
+            )
         # Format was fixed on the artifact, so that value is each existing version's format.
         self.conn.execute(
             "UPDATE versions SET format = ("

@@ -53,13 +53,21 @@ def token_prefix_key(token: str) -> str | None:
 
 
 def same_origin(request: Request) -> bool:
-    host = request.headers.get("host", "")
+    """True for a missing Origin, a matching Origin, or an opaque Origin from this site.
+
+    Chromium sends ``Origin: null`` for a same-document form when the page asked
+    not to send a referrer. That value is accepted only with ``Sec-Fetch-Site:
+    same-origin``. A real cross-site Origin still has to match Host.
+    """
+    host = request.headers.get("host", "").lower()
     origin = request.headers.get("origin")
     if origin:
-        return _origin_host(origin) == host.lower()
+        if origin.strip().lower() == "null":
+            return request.headers.get("sec-fetch-site", "").strip().lower() == "same-origin"
+        return _origin_host(origin) == host
     referer = request.headers.get("referer")
     if referer:
-        return _origin_host(referer) == host.lower()
+        return _origin_host(referer) == host
     return True
 
 

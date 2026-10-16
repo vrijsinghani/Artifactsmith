@@ -249,6 +249,54 @@ async def test_trial_responses_cap_and_missing_usage(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_failed_chat_keeps_known_usage_or_the_hold(monkeypatch):
+    def empty_but_billed(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "  "}}],
+                "usage": {"prompt_tokens": 9, "completion_tokens": 2},
+            },
+        )
+
+    _install_transport(monkeypatch, empty_but_billed)
+    usage = llm.begin_usage()
+    try:
+        with pytest.raises(llm.LLMError, match="empty model output"):
+            await llm.call_chat("m", "sys", "user")
+        assert list(llm._usage.get() or []) == [(9, 2, True)]
+    finally:
+        llm.end_usage(usage)
+
+    def billed_error(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={"error": {"message": "overloaded"}, "usage": {"prompt_tokens": 4, "completion_tokens": 1}},
+        )
+
+    _install_transport(monkeypatch, billed_error)
+    usage = llm.begin_usage()
+    try:
+        with pytest.raises(llm.LLMError, match="HTTP 500"):
+            await llm.call_chat("m", "sys", "user")
+        assert list(llm._usage.get() or []) == [(4, 1, True)]
+    finally:
+        llm.end_usage(usage)
+
+    def bare_error(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, json={"error": {"message": "down"}})
+
+    _install_transport(monkeypatch, bare_error)
+    usage = llm.begin_usage()
+    try:
+        with pytest.raises(llm.LLMError, match="HTTP 502"):
+            await llm.call_chat("m", "sys", "user")
+        assert list(llm._usage.get() or []) == [(0, 0, False)]
+    finally:
+        llm.end_usage(usage)
+
+
+@pytest.mark.asyncio
 async def test_trial_input_over_the_cap_is_refused(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("the request must not be sent")

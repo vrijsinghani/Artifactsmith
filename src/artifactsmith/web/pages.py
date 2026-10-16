@@ -35,6 +35,7 @@ button.primary{background:var(--accent);color:#fff;border:0;font-weight:600;marg
 .back{display:inline-block;margin-bottom:.6rem}
 .pager{display:flex;gap:.5rem;margin:.5rem 0 1rem}
 .pager a{flex:1;text-align:center;padding:.55rem .7rem;border:1px solid var(--line);border-radius:8px;text-decoration:none}
+pre{margin:.4rem 0;padding:.7rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow-x:auto;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
 """
 
 
@@ -52,7 +53,7 @@ def security_headers(nonce: str) -> dict[str, str]:
         "Content-Security-Policy": csp,
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "no-referrer",
+        "Referrer-Policy": "same-origin",
         "Cross-Origin-Resource-Policy": "same-origin",
         "Cross-Origin-Opener-Policy": "same-origin",
         "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), microphone=()",

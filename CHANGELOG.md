@@ -16,6 +16,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- `/trial` and `/app` send `Referrer-Policy: same-origin`. An `Origin: null` form post is accepted only when `Sec-Fetch-Site` is `same-origin`. Trial build limits count reservation rows, so deleting an artifact does not reset them. Opening a magic link does not use it up; the "Show my token" button does. Sign-in mail includes `Date` and `Message-ID`. A model call that spent tokens settles that cost, or keeps the hold when the provider omits usage. Trial page CSS cannot hide the abuse footer. The token page names the free-build count and wraps Claude Desktop, Cursor, and generic MCP snippets. Idle trial cleanup also runs hourly.
 - A realistic `asmb_` token fails the secret check with or without `Bearer`, including inside a code block or URL and when a zero-width character splits it. `asmb_...`, `asmb_…`, `Bearer <token>`, `YOUR_TOKEN`, `$AM_TOKEN`, and `${AM_TOKEN}` still pass.
 - A `needs_input:` content-check failure keeps that prefix and the check name, and drops hosts, raw URLs, and credentials from the stored job error.
 - Stylesheet newlines between rules are removed so the bold sheet has room under its 8192-byte cap. Selectors and declarations are unchanged.

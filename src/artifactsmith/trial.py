@@ -16,6 +16,7 @@ import time
 from datetime import UTC, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from typing import Any
 from urllib.parse import quote
 
@@ -117,16 +118,21 @@ def day_spend_micros(conn: Any, day: str) -> int:
     return int(row["n"] if row else 0)
 
 
-def reserve(conn: Any, job_id: str, when: float) -> None:
-    """Hold worst-case cost for this UTC day. Caller must already be inside a write transaction."""
+def reserve(conn: Any, job_id: str, when: float, token_id: str) -> None:
+    """Hold worst-case cost for this UTC day. Caller must already be inside a write transaction.
+
+    ``token_id`` is what the lifetime and hourly limits count. Deleting an artifact
+    removes the job row and must not remove this one.
+    """
     day = utc_day(when)
     worst = worst_case_micros()
     if day_spend_micros(conn, day) + worst > cap_micros():
         raise TrialLimit(CAP_ERROR)
     conn.execute(
-        "INSERT INTO trial_reservations (job_id, day, reserved_micros, actual_micros, settled_at) "
-        "VALUES (?,?,?,NULL,NULL)",
-        (job_id, day, worst),
+        "INSERT INTO trial_reservations "
+        "(job_id, token_id, day, reserved_micros, actual_micros, settled_at, created_at) "
+        "VALUES (?,?,?,?,NULL,NULL,?)",
+        (job_id, token_id, day, worst, when),
     )
 
 
@@ -211,6 +217,8 @@ def send_magic_link(to: str, url: str) -> None:
     message["From"] = sender
     message["To"] = to
     message["Subject"] = "Your ArtifactSmith trial link"
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid(domain="artifactsmith")
     message.set_content(
         "Open this link to finish signing up. It works once.\n\n"
         + url
@@ -227,6 +235,21 @@ def send_magic_link(to: str, url: str) -> None:
     except Exception as exc:
         log.error("trial email failed: %s", type(exc).__name__)
         raise TrialMailError(MAIL_UNAVAILABLE) from exc
+
+
+def link_pending(db: Any, raw: str) -> bool:
+    """True when this code can still be used. Does not mark it used."""
+    row = _link_row(db, raw)
+    return row is not None and row["used_at"] is None and float(row["expires_at"]) >= time.time()
+
+
+def _link_row(db: Any, raw: str) -> Any:
+    if not raw or len(raw) > 200:
+        return None
+    return db.one(
+        "SELECT email_hash, expires_at, used_at FROM trial_links WHERE code_hash=?",
+        hashlib.sha256(raw.encode()).hexdigest(),
+    )
 
 
 def consume_link(db: Any, raw: str) -> str | None:
@@ -283,8 +306,28 @@ def workspace_is_trial(db: Any, workspace: str) -> bool:
     return row is not None
 
 
+# Inline !important beats a page rule that hides footer, *, or this id.
+_FOOTER_STYLE = (
+    "all:revert!important;display:block!important;visibility:visible!important;opacity:1!important;"
+    "position:static!important;float:none!important;clear:both!important;inset:auto!important;"
+    "transform:none!important;filter:none!important;clip:auto!important;clip-path:none!important;"
+    "height:auto!important;max-height:none!important;overflow:visible!important;"
+    "margin:2rem 0 0!important;padding:.8rem 0!important;"
+    "font:14px/1.4 system-ui,sans-serif!important;color:#3f3f46!important;background:#fff!important;"
+    "text-indent:0!important;z-index:2147483647!important;"
+)
+_LINK_STYLE = (
+    "color:#0b5cab!important;font-size:14px!important;visibility:visible!important;"
+    "display:inline!important;opacity:1!important;"
+)
+
+
 def stamp_trial_chrome(html: bytes, mailto: str) -> bytes:
-    """Add noindex and a small abuse footer at serve time. Stored bytes stay unchanged."""
+    """Add noindex and an abuse footer at serve time. Stored bytes stay unchanged.
+
+    The footer uses an inline ``!important`` style so a page rule such as
+    ``footer { display: none !important }`` cannot hide the report link.
+    """
     from html import escape
 
     text = html.decode("utf-8", errors="replace")
@@ -296,11 +339,8 @@ def stamp_trial_chrome(html: bytes, mailto: str) -> bytes:
             text = meta + text
     link = ""
     if mailto:
-        link = f' <a href="mailto:{escape(mailto, quote=True)}">Report abuse</a>'
-    footer = (
-        '<footer style="margin:2rem 0 0;padding:.8rem 0;font:14px system-ui,sans-serif;color:#3f3f46">'
-        f"Trial page.{link}</footer>"
-    )
+        link = f' <a href="mailto:{escape(mailto, quote=True)}" style="{_LINK_STYLE}">Report abuse</a>'
+    footer = f'<footer id="am-trial-report" style="{_FOOTER_STYLE}">Trial page.{link}</footer>'
     if re.search(r"(?i)</body>", text):
         text = re.sub(r"(?i)</body>", footer + "</body>", text, count=1)
     else:
@@ -318,7 +358,13 @@ def purge_idle_trials(db: Any, store: Any, *, now: float | None = None) -> int:
     removed = 0
     for token in rows:
         latest = db.one("SELECT MAX(created_at) AS t FROM jobs WHERE client=?", token["id"])
-        last = float(latest["t"]) if latest and latest["t"] is not None else float(token["created_at"])
+        held = db.one("SELECT MAX(created_at) AS t FROM trial_reservations WHERE token_id=?", token["id"])
+        stamps = [float(token["created_at"])]
+        if latest and latest["t"] is not None:
+            stamps.append(float(latest["t"]))
+        if held and held["t"] is not None:
+            stamps.append(float(held["t"]))
+        last = max(stamps)
         if last >= cutoff:
             continue
         busy = db.one(

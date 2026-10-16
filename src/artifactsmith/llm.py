@@ -4,6 +4,7 @@ that the builder parses; this module never executes model output."""
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 import re
 
@@ -62,18 +63,43 @@ def _apply_output_cap(payload: dict[str, object]) -> None:
         raise LLMError("trial input is too large")
 
 
-def _record_usage(data: object, *, chat: bool) -> None:
+def _mark_unknown() -> None:
+    """A request left this process and the provider did not report usage. Keep the hold."""
     sink = _usage.get()
-    if sink is None or not isinstance(data, dict):
+    if sink is not None:
+        sink.append((0, 0, False))
+
+
+def _record_body(body: bytes, *, chat: bool, unknown: bool) -> None:
+    """Record provider counts from a response body, including a failed call.
+
+    ``unknown`` is false for a probe this process is about to retry, so a body
+    with no usage is ignored. The final body always records something: measured
+    tokens when they are present, otherwise an unknown row that keeps the hold.
+    """
+    sink = _usage.get()
+    if sink is None:
+        return
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        if unknown:
+            sink.append((0, 0, False))
+        return
+    if not isinstance(data, dict):
+        if unknown:
+            sink.append((0, 0, False))
         return
     usage = data.get("usage")
     if not isinstance(usage, dict):
-        sink.append((0, 0, False))
+        if unknown:
+            sink.append((0, 0, False))
         return
     key_in, key_out = ("prompt_tokens", "completion_tokens") if chat else ("input_tokens", "output_tokens")
     incoming, outgoing = usage.get(key_in), usage.get(key_out)
     if not isinstance(incoming, int) or not isinstance(outgoing, int):
-        sink.append((0, 0, False))
+        if unknown:
+            sink.append((0, 0, False))
         return
     sink.append((incoming, outgoing, True))
 
@@ -152,15 +178,34 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300, *,
     payload = apply_effort(payload, model, effort)
     _apply_output_cap(payload)
     url = CFG.normalized_llm_base() + "/v1/chat/completions"
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
-        status, body = await _post_chat(client, url, payload, headers)
-        if _temperature_rejected(status, body, payload):
-            _MODELS_WITHOUT_TEMPERATURE.add(model)
-            payload.pop("temperature", None)
+    recorded = False
+    status = 0
+    body = b""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
             status, body = await _post_chat(client, url, payload, headers)
-        if status != 200:
-            raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
-    data = httpx.Response(200, content=body).json()
+            if _temperature_rejected(status, body, payload):
+                _record_body(body, chat=True, unknown=False)
+                _MODELS_WITHOUT_TEMPERATURE.add(model)
+                payload.pop("temperature", None)
+                status, body = await _post_chat(client, url, payload, headers)
+            _record_body(body, chat=True, unknown=True)
+            recorded = True
+    except LLMError:
+        if not recorded:
+            _mark_unknown()
+        raise
+    except Exception:
+        if not recorded:
+            _mark_unknown()
+        raise
+    if status != 200:
+        raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+        log.warning("unexpected chat-completions shape: %s", type(e).__name__)
+        raise LLMError("unexpected chat-completions response") from e
     try:
         text = data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
@@ -168,7 +213,6 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300, *,
         raise LLMError("unexpected chat-completions response") from e
     if not text.strip():
         raise LLMError("empty model output")
-    _record_usage(data, chat=True)
     return text
 
 
@@ -187,21 +231,40 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
     )
     _apply_output_cap(payload)
     url = CFG.normalized_llm_base() + "/v1/responses"
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as r:
-            body = await _read_capped(r)
-            if r.status_code != 200:
-                raise _scrub_http_error(r.status_code, body.decode("utf-8", errors="replace"))
-    data = httpx.Response(200, content=body).json()
+    recorded = False
+    status = 0
+    body = b""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=15)) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                status = response.status_code
+                body = await _read_capped(response)
+            _record_body(body, chat=False, unknown=True)
+            recorded = True
+    except LLMError:
+        if not recorded:
+            _mark_unknown()
+        raise
+    except Exception:
+        if not recorded:
+            _mark_unknown()
+        raise
+    if status != 200:
+        raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+        raise LLMError("unexpected responses shape") from e
+    if not isinstance(data, dict):
+        raise LLMError("unexpected responses shape")
     text = "".join(
         c.get("text", "")
         for item in data.get("output", [])
         for c in item.get("content", [])
-        if c.get("type") in ("output_text", "text")
+        if isinstance(c, dict) and c.get("type") in ("output_text", "text")
     )
     if not text.strip():
         raise LLMError("empty model output")
-    _record_usage(data, chat=False)
     return text
 
 

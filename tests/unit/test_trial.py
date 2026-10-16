@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.testclient import TestClient
@@ -229,7 +229,7 @@ def test_settled_cost_frees_room_for_another_trial(svc, trial_on, monkeypatch):
 def test_settle_rolls_back_with_the_open_transaction(svc, trial_on):
     try:
         with svc.db.tx() as conn:
-            trial.reserve(conn, "job_join", time.time())
+            trial.reserve(conn, "job_join", time.time(), "tok_join")
             trial.settle(svc.db, "job_join", [(1, 1, True)])
             raise RuntimeError("roll")
     except RuntimeError:
@@ -242,12 +242,12 @@ def test_spend_cap_resets_on_the_utc_day(svc, trial_on, monkeypatch):
     monkeypatch.setattr(CFG, "trial_daily_usd", "0.10")
     stamp = 1_700_000_000.0
     with svc.db.tx() as conn:
-        trial.reserve(conn, "job_a", stamp)
+        trial.reserve(conn, "job_a", stamp, "tok_a")
     with pytest.raises(trial.TrialLimit, match="00:00 UTC"):
         with svc.db.tx() as conn:
-            trial.reserve(conn, "job_b", stamp)
+            trial.reserve(conn, "job_b", stamp, "tok_b")
     with svc.db.tx() as conn:
-        trial.reserve(conn, "job_c", stamp + 86400)
+        trial.reserve(conn, "job_c", stamp + 86400, "tok_c")
 
 
 def test_empty_settle_releases_a_hold(svc, trial_on, monkeypatch):
@@ -413,6 +413,14 @@ def test_trial_chrome_adds_noindex_and_abuse_link(svc, trial_on, monkeypatch):
     bare = trial.stamp_trial_chrome(b"<html><body>x</body></html>", trial.abuse_email())
     assert b"mailto:" not in bare
     assert b"Trial page." in bare
+    hostile = (
+        b"<html><head><style>footer{display:none!important}body *{display:none!important}</style></head>"
+        b"<body>x</body></html>"
+    )
+    resistant = trial.stamp_trial_chrome(hostile, "abuse@example.com")
+    assert b'id="am-trial-report"' in resistant
+    assert b"display:block!important" in resistant
+    assert b"visibility:visible!important" in resistant
 
 
 def test_idle_trial_workspace_is_deleted_after_30_days(svc, monkeypatch):
@@ -518,6 +526,32 @@ def test_idle_trial_workspace_is_deleted_after_30_days(svc, monkeypatch):
     assert svc.db.one("SELECT revoked_at FROM tokens WHERE id=?", "tok_new")["revoked_at"] is None
 
 
+def test_delete_does_not_reset_trial_build_limits(svc, trial_on, monkeypatch):
+    monkeypatch.setattr(CFG, "trial_build_limit", 1)
+    _token(svc)
+    principal = _trial()
+    created = _create(svc, principal, "only")
+    with pytest.raises(AMError, match="used up"):
+        _create(svc, principal, "second")
+    step = svc.delete(principal, created["artifact_id"])
+    done = svc.delete(principal, created["artifact_id"], confirm_token=step["confirm_token"])
+    assert done["deleted"] is True
+    assert svc.db.one("SELECT id FROM jobs") is None
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_reservations")["n"] == 1
+    with pytest.raises(AMError, match="used up"):
+        _create(svc, principal, "third")
+
+    monkeypatch.setattr(CFG, "trial_build_limit", 20)
+    monkeypatch.setattr(CFG, "trial_builds_per_hour", 1)
+    other = _trial(pid="tok_hour", workspace="hourws")
+    _token(svc, "tok_hour", workspace="hourws")
+    made = _create(svc, other, "hour-1")
+    confirm = svc.delete(other, made["artifact_id"])
+    svc.delete(other, made["artifact_id"], confirm_token=confirm["confirm_token"])
+    with pytest.raises(AMError, match="builds/hour"):
+        _create(svc, other, "hour-2")
+
+
 def test_signup_ip_limit(svc, monkeypatch):
     monkeypatch.setattr(CFG, "trial_signups_per_ip", 2)
     monkeypatch.setattr(CFG, "trial_signup_window_s", 86400)
@@ -547,6 +581,98 @@ def test_send_magic_link_fail_closed(monkeypatch, caplog):
             trial.send_magic_link("a@example.com", "https://trial.example/trial/verify?code=two")
     assert "127.0.0.1" not in caplog.text
     assert "trial email failed:" in caplog.text
+
+
+def test_sign_in_mail_has_date_and_message_id(monkeypatch):
+    from email.message import EmailMessage
+
+    sent: list[EmailMessage] = []
+
+    class _SMTP:
+        def __init__(self, host: str, port: int, timeout: float = 20) -> None:
+            self.host = host
+
+        def __enter__(self) -> _SMTP:
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+        def send_message(self, message: EmailMessage) -> None:
+            sent.append(message)
+
+    monkeypatch.setattr(CFG, "smtp_host", "smtp.example")
+    monkeypatch.setattr(CFG, "smtp_port", 25)
+    monkeypatch.setattr(CFG, "smtp_from", "trial@example.com")
+    monkeypatch.setattr(CFG, "smtp_user", "")
+    monkeypatch.setattr(CFG, "smtp_tls", False)
+    monkeypatch.setattr(trial.smtplib, "SMTP", _SMTP)
+    trial.send_magic_link("a@example.com", "https://trial.example/trial/verify?code=magic-code-xyz")
+    message = sent[0]
+    assert message["Date"]
+    message_id = str(message["Message-ID"])
+    assert message_id.startswith("<") and message_id.endswith(">")
+    assert "magic-code-xyz" not in message_id
+    assert "a@example.com" not in message_id
+
+
+@pytest.mark.asyncio
+async def test_retention_sweep_repeats_from_the_background_loop(svc, monkeypatch):
+    calls = {"n": 0}
+
+    def sweep(db: object, store: object, now: float | None = None) -> int:
+        calls["n"] += 1
+        return 0
+
+    monkeypatch.setattr(trial, "purge_idle_trials", sweep)
+    monkeypatch.setattr(Service, "_retention_interval_s", lambda self: 0.01)
+    svc.start_workers()
+    try:
+        for _ in range(50):
+            if calls["n"] >= 2:
+                break
+            await asyncio.sleep(0.02)
+        assert calls["n"] >= 2
+    finally:
+        await svc.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_model_call_settles_the_tokens_it_spent(svc, trial_on, monkeypatch):
+    _token(svc)
+
+    async def fake_build(**kw: object) -> BuildResult:
+        sink = llm._usage.get()
+        assert sink is not None
+        sink.append((100, 50, True))
+        raise llm.LLMError("empty model output")
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", fake_build)
+    created = _create(svc, _trial(), "spent")
+    await svc._run_job(created["job_id"])
+    assert svc.db.one("SELECT actual_micros FROM trial_reservations WHERE job_id=?", created["job_id"])[
+        "actual_micros"
+    ] == trial.micros_for(100, 50)
+
+
+def test_old_reservations_gain_token_columns(tmp_path):
+    import sqlite3
+
+    from artifactsmith.db import DB
+
+    path = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE trial_reservations ("
+        "job_id TEXT PRIMARY KEY, day TEXT NOT NULL, reserved_micros INTEGER NOT NULL, "
+        "actual_micros INTEGER, settled_at REAL)"
+    )
+    conn.commit()
+    conn.close()
+    db = DB(path)
+    cols = {str(row[1]) for row in db.conn.execute("PRAGMA table_info(trial_reservations)")}
+    assert {"token_id", "created_at"} <= cols
+    db.close()
 
 
 @pytest.fixture
@@ -580,7 +706,13 @@ def _csrf(client: TestClient) -> str:
 
 def _verify(client: TestClient, url: str):
     parsed = urlparse(url)
-    return client.get(f"{parsed.path}?{parsed.query}")
+    code = parse_qs(parsed.query)["code"][0]
+    opened = client.get(f"{parsed.path}?{parsed.query}")
+    if opened.status_code != 200:
+        return opened
+    csrf = client.cookies.get("am_trial_csrf")
+    assert csrf
+    return client.post("/trial/verify", data={"csrf": csrf, "code": code})
 
 
 def test_magic_link_shows_the_token_once(trial_http):
@@ -599,13 +731,80 @@ def test_magic_link_shows_the_token_once(trial_http):
     found = re.search(r'value="(asmb_[^"]+)"', page.text)
     assert found
     raw = found.group(1)
-    pre = page.text.split("<pre>", 1)[1].split("</pre>", 1)[0]
-    assert "YOUR_TOKEN" in pre
-    assert raw not in pre
-    assert "https://trial.example/mcp" in pre
+    pres = re.findall(r"<pre>(.*?)</pre>", page.text, re.S)
+    assert [title in page.text for title in ("Claude Desktop", "Cursor", "Generic MCP client")] == [True, True, True]
+    assert len(pres) == 3
+    for pre in pres:
+        assert "YOUR_TOKEN" in pre
+        assert raw not in pre
+        assert "https://trial.example/mcp" in pre
+    assert f"{int(CFG.trial_build_limit)} free builds" in client.get("/trial").text
+    assert "pre-wrap" in client.get("/trial").text
     again = _verify(client, box["url"])
     assert again.status_code == 400
     assert "already used" in again.text
+
+
+def test_get_verify_does_not_consume_the_link(trial_http, svc):
+    client, box = trial_http
+    csrf = _csrf(client)
+    assert client.post("/trial", data={"csrf": csrf, "email": "scan@example.com"}).status_code == 200
+    parsed = urlparse(box["url"])
+    opened = client.get(f"{parsed.path}?{parsed.query}")
+    assert opened.status_code == 200
+    assert "Show my token" in opened.text
+    assert "asmb_" not in opened.text
+    assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
+    blocked = client.post("/trial/verify", data={"csrf": "nope", "code": parse_qs(parsed.query)["code"][0]})
+    assert blocked.status_code == 403
+    assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
+    shown = _verify(client, box["url"])
+    assert "Your trial token" in shown.text
+    assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is not None
+
+
+def test_opaque_origin_needs_a_same_site_fetch(trial_http):
+    client, _box = trial_http
+    page = client.get("/trial")
+    assert page.headers["referrer-policy"] == "same-origin"
+    csrf = client.cookies.get("am_trial_csrf")
+    assert csrf
+    opaque = client.post(
+        "/trial",
+        data={"csrf": csrf, "email": "a@example.com"},
+        headers={"origin": "null", "sec-fetch-site": "same-origin"},
+    )
+    assert opaque.status_code == 200
+    assert "form expired" not in opaque.text.lower()
+    rejected = client.post(
+        "/trial",
+        data={"csrf": csrf, "email": "b@example.com"},
+        headers={"origin": "null"},
+    )
+    assert rejected.status_code == 403
+    assert "form expired" in rejected.text.lower()
+    foreign = client.post(
+        "/trial",
+        data={"csrf": csrf, "email": "c@example.com"},
+        headers={"origin": "https://evil.example"},
+    )
+    assert foreign.status_code == 403
+    login = client.get("/app/login")
+    assert login.headers["referrer-policy"] == "same-origin"
+
+    def login_post(headers: dict[str, str]):
+        token = client.cookies.get("am_csrf")
+        assert token
+        return client.post("/app/login", data={"csrf": token, "token": "not-a-token"}, headers=headers)
+
+    signed = login_post({"origin": "null", "sec-fetch-site": "same-origin"})
+    assert signed.status_code == 401
+    assert "form expired" not in signed.text.lower()
+    expired = login_post({"origin": "null"})
+    assert expired.status_code == 403
+    assert "form expired" in expired.text.lower()
+    matched = login_post({"origin": "https://127.0.0.1:8780"})
+    assert matched.status_code == 401
 
 
 def test_gmail_alias_cannot_mint_a_second_token(trial_http, svc):
@@ -614,6 +813,7 @@ def test_gmail_alias_cannot_mint_a_second_token(trial_http, svc):
     assert client.post("/trial", data={"csrf": csrf, "email": "j.o.e+tag@googlemail.com"}).status_code == 200
     first = _verify(client, box["url"])
     assert "Your trial token" in first.text
+    csrf = _csrf(client)
     assert client.post("/trial", data={"csrf": csrf, "email": "joe@gmail.com"}).status_code == 200
     second = _verify(client, box["url"])
     assert "already has a trial" in second.text
