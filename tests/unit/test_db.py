@@ -70,19 +70,19 @@ def test_tx_rollback(tmp_path):
 def test_nested_tx_joins_the_outer(tmp_path):
     db = DB(tmp_path / "state.sqlite")
     with db.tx() as conn:
-            conn.execute(
-                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
-                ("tok_outer", "h-outer", "a", "ws", "[]", 1.0),
-            )
-            db.exec(
-                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
-                "tok_inner",
-                "h-inner",
-                "b",
-                "ws",
-                "[]",
-                1.0,
-            )
+        conn.execute(
+            "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+            ("tok_outer", "h-outer", "a", "ws", "[]", 1.0),
+        )
+        db.exec(
+            "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+            "tok_inner",
+            "h-inner",
+            "b",
+            "ws",
+            "[]",
+            1.0,
+        )
     assert db.one("SELECT id FROM tokens WHERE id=?", "tok_outer") is not None
     assert db.one("SELECT id FROM tokens WHERE id=?", "tok_inner") is not None
     try:
