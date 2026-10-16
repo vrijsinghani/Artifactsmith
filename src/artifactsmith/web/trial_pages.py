@@ -51,35 +51,40 @@ def _field(form: Any, name: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+_BEARER = "Bearer YOUR_TOKEN"
+
+
+def _mcp_url(api_url: str) -> str:
+    return api_url.rstrip("/") + "/mcp"
+
+
+def _server(body: dict[str, Any]) -> dict[str, Any]:
+    return {"mcpServers": {"artifactsmith": body}}
+
+
+def _connector_line(api_url: str) -> str:
+    """Anthropic's route for a public MCP server. One sentence, so it wraps on a phone."""
+    return (
+        "Claude Desktop: Customize → Connectors → Add custom connector, "
+        f"with URL {escape(_mcp_url(api_url))} and an Authorization request header."
+    )
+
+
 def _client_snippets(api_url: str) -> str:
-    """Claude Desktop, Claude Code, Cursor, and a generic client. The token is a placeholder."""
-    url = api_url.rstrip("/") + "/mcp"
-    desktop = {
-        "mcpServers": {
-            "artifactsmith": {
-                "command": "npx",
-                "args": ["-y", "mcp-remote", url, "--header", "Authorization: Bearer YOUR_TOKEN"],
-            }
+    url = _mcp_url(api_url)
+    auth = {"Authorization": _BEARER}
+    # Windows Claude Desktop splits a space inside args. Cursor does the same
+    # when it launches mcp-remote. The header arg has no space around the colon.
+    desktop = _server(
+        {
+            "command": "npx",
+            "args": ["-y", "mcp-remote", url, "--header", "Authorization:${AUTH_HEADER}"],
+            "env": {"AUTH_HEADER": _BEARER},
         }
-    }
-    code = {
-        "mcpServers": {
-            "artifactsmith": {
-                "type": "http",
-                "url": url,
-                "headers": {"Authorization": "Bearer YOUR_TOKEN"},
-            }
-        }
-    }
-    cursor = {
-        "mcpServers": {
-            "artifactsmith": {
-                "url": url,
-                "headers": {"Authorization": "Bearer YOUR_TOKEN"},
-            }
-        }
-    }
-    generic = f"Server URL: {url}\nAuthorization: Bearer YOUR_TOKEN"
+    )
+    code = _server({"type": "http", "url": url, "headers": auth})
+    cursor = _server({"url": url, "headers": auth})
+    generic = f"Server URL: {url}\nAuthorization: {_BEARER}"
     blocks = [
         ("Claude Desktop", json.dumps(desktop, indent=2)),
         ("Claude Code", json.dumps(code, indent=2)),
@@ -129,6 +134,7 @@ def _token_page(raw: str, workspace: str) -> str:
         f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
         f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
         "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
+        f"<p>{_connector_line(CFG.api_url)}</p>"
         f"{_client_snippets(CFG.api_url)}"
         '<p><a href="/app/login">Open My pages</a></p>'
     )

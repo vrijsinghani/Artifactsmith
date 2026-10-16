@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
-from html import escape
+from html import escape, unescape
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -748,13 +749,23 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     raw = found.group(1)
     pres = re.findall(r"<pre>(.*?)</pre>", page.text, re.S)
     titles = ("Claude Desktop", "Claude Code", "Cursor", "Generic MCP client")
-    assert [title in page.text for title in titles] == [True, True, True, True]
+    assert [f"<h2>{title}</h2>" in page.text for title in titles] == [True, True, True, True]
     assert len(pres) == 4
-    desktop, code, _cursor, _generic = pres
-    assert "mcp-remote" in desktop
-    assert "&quot;type&quot;" not in desktop
-    assert "&quot;type&quot;: &quot;http&quot;" in code
+    desktop, code, cursor, _generic = pres
+    desktop_cfg = json.loads(unescape(desktop))["mcpServers"]["artifactsmith"]
+    assert desktop_cfg["args"][-2:] == ["--header", "Authorization:${AUTH_HEADER}"]
+    assert desktop_cfg["env"]["AUTH_HEADER"] == "Bearer YOUR_TOKEN"
+    assert all("Bearer " not in arg for arg in desktop_cfg["args"])
+    code_cfg = json.loads(unescape(code))["mcpServers"]["artifactsmith"]
+    assert code_cfg["type"] == "http"
+    assert code_cfg["headers"]["Authorization"] == "Bearer YOUR_TOKEN"
     assert "mcp-remote" not in code
+    cursor_cfg = json.loads(unescape(cursor))["mcpServers"]["artifactsmith"]
+    assert cursor_cfg["url"].endswith("/mcp")
+    assert cursor_cfg["headers"]["Authorization"] == "Bearer YOUR_TOKEN"
+    assert "args" not in cursor_cfg
+    assert "mcp-remote" not in cursor
+    assert "Add custom connector, with URL https://trial.example/mcp and an Authorization request header." in page.text
     for pre in pres:
         assert "YOUR_TOKEN" in pre
         assert raw not in pre
@@ -765,6 +776,22 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert again.status_code == 400
     assert "already used" in again.text
     assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 1
+
+
+def test_mcp_remote_args_do_not_contain_a_spaced_bearer():
+    from artifactsmith.web.trial_pages import _client_snippets
+
+    html = _client_snippets("https://artifactsmith.neuralami.ai")
+    saw_remote = False
+    for block in re.findall(r"<pre>(.*?)</pre>", html, re.S):
+        text = unescape(block)
+        if "mcp-remote" not in text:
+            continue
+        saw_remote = True
+        for entry in json.loads(text)["mcpServers"].values():
+            for arg in entry["args"]:
+                assert "Bearer " not in arg
+    assert saw_remote
 
 
 def test_unverified_signup_shows_the_token_and_keeps_the_limits(trial_http, svc, monkeypatch):
