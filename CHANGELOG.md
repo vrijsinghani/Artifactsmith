@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- `/trial` includes an Open Graph and Twitter card when `AM_API_URL` is a public `https` origin. The image is `GET /static/og-trial.png` with no token. A loopback or private origin omits the tags. The page stays `noindex`.
 - `AM_TRIAL_SIGNUPS_PER_DAY` (default 300). Once that many trials are minted today, `/trial` says `today's trial spots are taken, back at 00:00 UTC`.
 - `AM_TRIAL_EMAIL_VERIFY` (default `true`). Set it to `false` to show the trial token on submit, send no mail, and store the sign-up as unverified. Email, disposable-domain, per-address, and per-IP checks stay in place.
 - Hosted trial at `/trial`, off until `AM_TRIAL_ENABLED=true`. A verified email gets one workspace token, shown once. Trial builds use `AM_TRIAL_MODEL` (default `anthropic/claude-haiku-5-5`) with a 16,000-token output cap and ignore the caller's model. Trial tokens cannot `publish`. Each trial has `AM_TRIAL_BUILD_LIMIT` builds (default 20) and `AM_TRIAL_BUILDS_PER_HOUR` (default 10). Internal tokens keep `AM_BUILDS_PER_HOUR` (default 20). `AM_TRIAL_DAILY_USD` (default 10) holds each trial build's worst-case cost before it runs and settles to the measured cost after. Trial jobs use at most one of the `AM_MAX_BUILDS` slots. Trial share links last at most 30 days. Trial pages add a noindex tag and an abuse footer (`AM_TRIAL_ABUSE_EMAIL`). Gmail dots and +tags count as one address. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30).

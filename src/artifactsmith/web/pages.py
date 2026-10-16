@@ -64,12 +64,13 @@ def esc(value: object) -> str:
     return escape("" if value is None else str(value), quote=True)
 
 
-def _shell(title: str, body: str, nonce: str) -> str:
+def _shell(title: str, body: str, nonce: str, head: str = "") -> str:
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         '<meta name=viewport content="width=device-width, initial-scale=1">'
         "<meta name=robots content=noindex>"
         f"<title>{esc(title)}</title>"
+        f"{head}"
         f'<style nonce="{esc(nonce)}">{_CSS}</style></head><body><main>{body}</main></body></html>'
     )
 

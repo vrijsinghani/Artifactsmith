@@ -26,6 +26,7 @@ from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_shar
 from .renderers import MIME, SOURCE_NAME
 from .service import AMError, Service, page_title, stamp_share_title, unsign
 from .web.routes import build_pages
+from .web.trial_pages import _CARD_PATH
 
 SVC: Service | None = None
 
@@ -529,9 +530,10 @@ class BearerAuth:
 
 
 class ApiApp:
-    """MCP bearer API, plus the cookie session for /app/ on this same origin.
+    """MCP bearer API, plus the pages on this same origin.
 
-    /app/ is not wrapped in BearerAuth. The preview origin never mounts it.
+    /app/, /trial/, and the exact card path are not wrapped in BearerAuth.
+    The preview origin never mounts them.
     """
 
     def __init__(self) -> None:
@@ -542,7 +544,13 @@ class ApiApp:
         # Lifespan has no path. It must reach the MCP app so its session manager starts.
         if scope["type"] == "http":
             path = scope["path"]
-            if path == "/app" or path.startswith("/app/") or path == "/trial" or path.startswith("/trial/"):
+            if (
+                path == "/app"
+                or path.startswith("/app/")
+                or path == "/trial"
+                or path.startswith("/trial/")
+                or path == _CARD_PATH
+            ):
                 await self.pages(scope, receive, send)
                 return
         await self.api(scope, receive, send)
