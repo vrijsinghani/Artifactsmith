@@ -269,7 +269,7 @@ def consume_link(db: Any, raw: str) -> str | None:
         return str(row["email_hash"])
 
 
-def mint_trial(db: Any, digest: str) -> tuple[str, str] | None:
+def mint_trial(db: Any, digest: str, *, verified: bool = True) -> tuple[str, str] | None:
     """Create the workspace token once. None when this email already has a trial."""
     with db.tx() as conn:
         if conn.execute("SELECT 1 FROM trial_signups WHERE email_hash=?", (digest,)).fetchone():
@@ -292,8 +292,8 @@ def mint_trial(db: Any, digest: str) -> tuple[str, str] | None:
             ),
         )
         conn.execute(
-            "INSERT INTO trial_signups (email_hash, token_id, created_at) VALUES (?,?,?)",
-            (digest, token_id, now),
+            "INSERT INTO trial_signups (email_hash, token_id, created_at, verified) VALUES (?,?,?,?)",
+            (digest, token_id, now, 1 if verified else 0),
         )
         return raw, workspace
 

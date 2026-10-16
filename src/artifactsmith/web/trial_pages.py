@@ -90,9 +90,13 @@ def _form(csrf: str, message: str = "") -> str:
         f'<input type=hidden name=csrf value="{escape(csrf, quote=True)}">'
         "<label for=email>Email</label>"
         "<input id=email name=email type=email autocomplete=email required maxlength=254>"
-        "<button class=primary type=submit>Email me a link</button>"
+        f"<button class=primary type=submit>{_submit_label()}</button>"
         "</form>"
     )
+
+
+def _submit_label() -> str:
+    return "Show my token" if not CFG.trial_email_verify else "Email me a link"
 
 
 def _confirm(csrf: str, code: str) -> str:
@@ -105,6 +109,26 @@ def _confirm(csrf: str, code: str) -> str:
         "<button class=primary type=submit>Show my token</button>"
         "</form>"
     )
+
+
+def _token_page(raw: str, workspace: str) -> str:
+    return (
+        "<h1>Your trial token</h1>"
+        "<p>Copy it now. It is not shown again.</p>"
+        f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
+        f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
+        "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
+        f"{_client_snippets(CFG.api_url)}"
+        '<p><a href="/app/login">Open My pages</a></p>'
+    )
+
+
+def _show_token(svc: Service, digest: str, nonce: str, *, verified: bool) -> HTMLResponse:
+    minted = mint_trial(svc.db, digest, verified=verified)
+    if minted is None:
+        return _html("<h1>Trial</h1><p>This email already has a trial. The token was shown once.</p>", nonce)
+    raw, workspace = minted
+    return _html(_token_page(raw, workspace), nonce)
 
 
 def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
@@ -150,7 +174,10 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         note_signup(svc.db, ip)
         if is_disposable(normalized):
             return _html("<h1>Trial</h1><p class=error>Use a regular email address.</p>", nonce, status=400)
-        raw = issue_link(svc.db, email_hash(normalized))
+        digest = email_hash(normalized)
+        if not CFG.trial_email_verify:
+            return _show_token(svc, digest, nonce, verified=False)
+        raw = issue_link(svc.db, digest)
         try:
             send_magic_link(normalized, link_url(raw))
         except TrialMailError:
@@ -193,22 +220,7 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         digest = consume_link(svc.db, _field(form, "code"))
         if digest is None:
             return _html("<h1>Trial</h1><p class=error>That link is invalid or already used.</p>", nonce, status=400)
-        minted = mint_trial(svc.db, digest)
-        if minted is None:
-            return _html("<h1>Trial</h1><p>This email already has a trial. The token was shown once.</p>", nonce)
-        raw, workspace = minted
-        body = (
-            "<h1>Your trial token</h1>"
-            "<p>Copy it now. It is not shown again.</p>"
-            f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
-            f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
-            "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
-            f"{_client_snippets(CFG.api_url)}"
-            '<p><a href="/app/login">Open My pages</a></p>'
-        )
-        response = _html(body, nonce)
-        response.headers["Cache-Control"] = "no-store"
-        return response
+        return _show_token(svc, digest, nonce, verified=True)
 
     return [
         Route("/trial", trial_get, methods=["GET"]),

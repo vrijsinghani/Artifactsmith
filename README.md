@@ -329,6 +329,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_MAX_BUILDS` | `2` | Concurrent workers. A hosted trial uses at most one of these slots. |
 | `AM_BUILDS_PER_HOUR` | `20` | Per-token quota for internal tokens. Trial tokens use `AM_TRIAL_BUILDS_PER_HOUR`. |
 | `AM_TRIAL_ENABLED` | `false` | Open `/trial` sign-up and allow trial builds. `false` closes both immediately. |
+| `AM_TRIAL_EMAIL_VERIFY` | `true` | Email a one-time link before showing the token. `false` shows it on submit and records the address as unverified. |
 | `AM_TRIAL_BUILD_LIMIT` | `20` | Lifetime builds for one trial token. |
 | `AM_TRIAL_BUILDS_PER_HOUR` | `10` | Hourly limit for a trial token. Does not change `AM_BUILDS_PER_HOUR`. |
 | `AM_TRIAL_DAILY_USD` | `10` | Global trial spend cap per UTC day. Internal tokens are not capped. |
@@ -357,7 +358,7 @@ Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empt
 
 ## Hosted trial
 
-Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). Opening the link does not spend it. The "Show my token" button shows the workspace token once, plus config for Claude Desktop, Cursor, and a generic MCP client. Each snippet says `YOUR_TOKEN`. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. One verified address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop, Cursor, and a generic MCP client. Each snippet says `YOUR_TOKEN`. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. One normalized address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
 
 Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` and an abuse footer that stays visible if the page hides footers. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
 

@@ -127,7 +127,8 @@ CREATE TABLE IF NOT EXISTS trial_links (
 CREATE TABLE IF NOT EXISTS trial_signups (
   email_hash TEXT PRIMARY KEY,
   token_id TEXT NOT NULL,
-  created_at REAL NOT NULL
+  created_at REAL NOT NULL,
+  verified INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS trial_signup_ips (
   ip TEXT NOT NULL,
@@ -203,6 +204,9 @@ class DB:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN token_id TEXT")
         if hold_cols and "created_at" not in hold_cols:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN created_at REAL")
+        signup_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(trial_signups)").fetchall()}
+        if signup_cols and "verified" not in signup_cols:
+            self.conn.execute("ALTER TABLE trial_signups ADD COLUMN verified INTEGER NOT NULL DEFAULT 1")
         if hold_cols:
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS trial_reservations_token ON trial_reservations(token_id, created_at)"

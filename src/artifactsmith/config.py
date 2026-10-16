@@ -192,6 +192,7 @@ class Config:
     builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_BUILDS_PER_HOUR", 20, minimum=1))
     # Hosted trial. Off until an operator turns it on. Internal tokens ignore these.
     trial_enabled: bool = field(default_factory=lambda: _setting_bool("AM_TRIAL_ENABLED", False))
+    trial_email_verify: bool = field(default_factory=lambda: _setting_bool("AM_TRIAL_EMAIL_VERIFY", True))
     trial_build_limit: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILD_LIMIT", 20, minimum=1))
     trial_builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILDS_PER_HOUR", 10, minimum=1))
     trial_daily_usd: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_DAILY_USD", "10"))

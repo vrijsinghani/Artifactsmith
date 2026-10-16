@@ -715,7 +715,7 @@ def _verify(client: TestClient, url: str):
     return client.post("/trial/verify", data={"csrf": csrf, "code": code})
 
 
-def test_magic_link_shows_the_token_once(trial_http):
+def test_magic_link_shows_the_token_once(trial_http, svc):
     client, box = trial_http
     csrf = _csrf(client)
     posted = client.post("/trial", data={"csrf": csrf, "email": "Person@Example.com"})
@@ -743,6 +743,66 @@ def test_magic_link_shows_the_token_once(trial_http):
     again = _verify(client, box["url"])
     assert again.status_code == 400
     assert "already used" in again.text
+    assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 1
+
+
+def test_unverified_signup_shows_the_token_and_keeps_the_limits(trial_http, svc, monkeypatch):
+    client, box = trial_http
+    monkeypatch.setattr(CFG, "trial_email_verify", False)
+    monkeypatch.setattr(CFG, "smtp_host", "")
+    monkeypatch.setattr(CFG, "smtp_from", "")
+    monkeypatch.setattr(CFG, "trial_signups_per_ip", 3)
+    page = client.get("/trial")
+    assert "Show my token" in page.text
+    assert "Email me a link" not in page.text
+    csrf = client.cookies.get("am_trial_csrf")
+    assert csrf
+    denied = client.post("/trial", data={"csrf": "nope", "email": "a@example.com"})
+    assert denied.status_code == 403
+    disposable = client.post("/trial", data={"csrf": csrf, "email": "a@mailinator.com"})
+    assert disposable.status_code == 400
+    assert "regular email" in disposable.text
+    posted = client.post("/trial", data={"csrf": csrf, "email": "Person+tag@Gmail.com"})
+    assert posted.status_code == 200
+    assert posted.headers["cache-control"] == "no-store"
+    assert "Your trial token" in posted.text
+    assert "sign-up link is on its way" not in posted.text
+    assert box == {}
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_links")["n"] == 0
+    found = re.search(r'value="(asmb_[^"]+)"', posted.text)
+    assert found
+    row = svc.db.one("SELECT verified, kind FROM trial_signups JOIN tokens ON tokens.id=trial_signups.token_id")
+    assert row["verified"] == 0
+    assert row["kind"] == "trial"
+    again = client.post("/trial", data={"csrf": csrf, "email": "person@googlemail.com"})
+    assert "already has a trial" in again.text
+    assert "asmb_" not in again.text
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 1
+    blocked = client.post("/trial", data={"csrf": csrf, "email": "other@example.com"})
+    assert blocked.status_code == 429
+    monkeypatch.setattr(CFG, "trial_enabled", False)
+    closed = client.post("/trial", data={"csrf": csrf, "email": "more@example.com"})
+    assert "closed" in closed.text
+    assert svc.db.one("SELECT COUNT(*) AS n FROM tokens WHERE kind='trial'")["n"] == 1
+
+
+def test_old_signups_count_as_verified(tmp_path):
+    import sqlite3
+
+    from artifactsmith.db import DB
+
+    path = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE trial_signups (email_hash TEXT PRIMARY KEY, token_id TEXT NOT NULL, created_at REAL NOT NULL)"
+    )
+    conn.execute("INSERT INTO trial_signups (email_hash, token_id, created_at) VALUES ('abc', 'tok_old', 1)")
+    conn.commit()
+    conn.close()
+    db = DB(path)
+    row = db.one("SELECT verified FROM trial_signups WHERE email_hash=?", "abc")
+    assert row["verified"] == 1
+    db.close()
 
 
 def test_get_verify_does_not_consume_the_link(trial_http, svc):
