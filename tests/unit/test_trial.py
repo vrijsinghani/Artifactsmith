@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import time
+from html import escape
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -751,8 +752,8 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert len(pres) == 4
     desktop, code, _cursor, _generic = pres
     assert "mcp-remote" in desktop
-    assert '"type"' not in desktop
-    assert '"type": "http"' in code
+    assert "&quot;type&quot;" not in desktop
+    assert "&quot;type&quot;: &quot;http&quot;" in code
     assert "mcp-remote" not in code
     for pre in pres:
         assert "YOUR_TOKEN" in pre
@@ -982,21 +983,21 @@ def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, 
         time.time(),
     )
     full = client.get("/trial")
-    assert trial.SPOTS_TAKEN in full.text
+    assert escape(trial.SPOTS_TAKEN) in full.text
     assert "Email me a link" not in full.text
     attempts = svc.db.one("SELECT COUNT(*) AS n FROM trial_signup_ips")["n"]
     blocked = client.post("/trial", data={"csrf": "nope", "email": "other@example.com"})
     assert blocked.status_code == 200
-    assert trial.SPOTS_TAKEN in blocked.text
+    assert escape(trial.SPOTS_TAKEN) in blocked.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 2
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signup_ips")["n"] == attempts
     parsed = urlparse(box["url"])
     code = parse_qs(parsed.query)["code"][0]
     opened = client.get(f"{parsed.path}?{parsed.query}")
-    assert trial.SPOTS_TAKEN in opened.text
+    assert escape(trial.SPOTS_TAKEN) in opened.text
     assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
     kept = client.post("/trial/verify", data={"csrf": "x", "code": code})
-    assert trial.SPOTS_TAKEN in kept.text
+    assert escape(trial.SPOTS_TAKEN) in kept.text
     assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
     svc.db.exec("DELETE FROM trial_signups WHERE email_hash=?", "todayhash")
     monkeypatch.setattr(CFG, "trial_email_verify", False)
@@ -1004,15 +1005,15 @@ def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, 
     minted = client.post("/trial", data={"csrf": csrf, "email": "mint@example.com"})
     assert "Your trial token" in minted.text
     again = client.get("/trial")
-    assert trial.SPOTS_TAKEN in again.text
+    assert escape(trial.SPOTS_TAKEN) in again.text
     second = client.post("/trial", data={"csrf": csrf, "email": "mint2@example.com"})
-    assert trial.SPOTS_TAKEN in second.text
+    assert escape(trial.SPOTS_TAKEN) in second.text
     assert "asmb_" not in second.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM tokens WHERE kind='trial'")["n"] == 1
     monkeypatch.setattr(CFG, "trial_enabled", False)
     closed = client.get("/trial")
     assert "closed" in closed.text
-    assert trial.SPOTS_TAKEN not in closed.text
+    assert escape(trial.SPOTS_TAKEN) not in closed.text
 
 
 def test_ipv6_signups_share_a_48(trial_http, svc, monkeypatch):
