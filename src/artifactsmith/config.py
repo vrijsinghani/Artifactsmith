@@ -203,6 +203,7 @@ class Config:
         default_factory=lambda: _setting_int("AM_TRIAL_MAX_OUTPUT_TOKENS", 16_000, minimum=1, maximum=200_000)
     )
     trial_signups_per_ip: int = field(default_factory=lambda: _setting_int("AM_TRIAL_SIGNUPS_PER_IP", 3, minimum=1))
+    trial_signups_per_day: int = field(default_factory=lambda: _setting_int("AM_TRIAL_SIGNUPS_PER_DAY", 300, minimum=1))
     trial_signup_window_s: int = field(
         default_factory=lambda: _setting_int("AM_TRIAL_SIGNUP_WINDOW_S", 86400, minimum=60)
     )

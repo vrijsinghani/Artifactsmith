@@ -336,7 +336,8 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_TRIAL_PRICE_IN` / `AM_TRIAL_PRICE_OUT` | `0.10` / `0.50` | USD per 1M input / output tokens, used to price the hold. |
 | `AM_TRIAL_MODEL` | `anthropic/claude-haiku-5-5` | Model for every trial build. The caller's model name is ignored. |
 | `AM_TRIAL_MAX_OUTPUT_TOKENS` | `16000` | Output cap sent on trial model calls. |
-| `AM_TRIAL_SIGNUPS_PER_IP` / `AM_TRIAL_SIGNUP_WINDOW_S` | `3` / `86400` | Sign-up attempts per client address per window. |
+| `AM_TRIAL_SIGNUPS_PER_IP` / `AM_TRIAL_SIGNUP_WINDOW_S` | `3` / `86400` | Sign-up attempts per IPv4 address or IPv6 `/48` per window. |
+| `AM_TRIAL_SIGNUPS_PER_DAY` | `300` | Minted trials per UTC day. After that, `/trial` says today's trial spots are taken, back at 00:00 UTC. |
 | `AM_TRIAL_LINK_TTL_S` | `1800` | Magic-link lifetime, in seconds. |
 | `AM_TRIAL_RETENTION_DAYS` | `30` | Delete a trial workspace this many days after its last build. |
 | `AM_TRIAL_ABUSE_EMAIL` | empty | Mailto on the trial page footer. Empty omits the link. |
@@ -348,7 +349,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_API_PORT` / `AM_PREVIEW_PORT` | `8780` / `8781` | Listen ports. |
 | `AM_API_URL` / `AM_PREVIEW_URL` / `AM_SHARE_URL` | `http://127.0.0.1:8780` / `:8781` | URLs written into cards and links. Empty `AM_SHARE_URL` uses `AM_PREVIEW_URL`. An `https://` API URL marks the My pages cookie Secure. |
 | `AM_COOKIE_SECURE` | follows `AM_API_URL` | `true` or `false` forces the My pages cookie Secure flag. Leave it unset on local HTTP. |
-| `AM_TRUSTED_PROXIES` | empty | Comma-separated IPs or CIDRs that may set `X-Real-IP` or `X-Forwarded-For` for My pages login limits. Empty ignores those headers. |
+| `AM_TRUSTED_PROXIES` | empty | Comma-separated IPs or CIDRs that may set `X-Real-IP` or `X-Forwarded-For` for My pages login limits and trial sign-up limits. Empty ignores those headers. |
 | `AM_LOGIN_LIMIT` / `AM_LOGIN_PREFIX_LIMIT` / `AM_LOGIN_WINDOW_S` | 8 / 8 / 900 | Failed sign-ins per IPv4 address or IPv6 `/64`, and per hashed token prefix, inside the window (seconds). |
 | `AM_ALLOWED_HOSTS` | `127.0.0.1:<api_port>,localhost:<api_port>` | Comma-separated Host values for MCP DNS-rebinding protection (on by default). |
 | `AM_ALLOWED_ORIGINS` | empty | Comma-separated Origin values for MCP DNS-rebinding protection. |
@@ -358,9 +359,9 @@ Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empt
 
 ## Hosted trial
 
-Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop, Cursor, and a generic MCP client. Each snippet says `YOUR_TOKEN`. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. One normalized address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). The `Message-ID` domain is the domain of `AM_SMTP_FROM`. Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop (`mcp-remote`), Claude Code (HTTP), Cursor, and a generic MCP client. Each snippet says `YOUR_TOKEN`. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. One normalized address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected. Sign-up attempts from one IPv6 network share a `/48`. My pages login stays a `/64`. At most `AM_TRIAL_SIGNUPS_PER_DAY` trials are minted per UTC day (default 300). After that, `/trial` says today's trial spots are taken, back at 00:00 UTC.
 
-Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` and an abuse footer that stays visible if the page hides footers. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
+Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. A trial token's tool list omits `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily spend cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` even when the page already has a robots meta that does not say noindex, and an abuse footer that stays visible if the page hides footers. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
 
 ## Security
 

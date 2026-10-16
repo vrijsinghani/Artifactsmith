@@ -15,7 +15,7 @@ import artifactsmith.server as server
 from artifactsmith.config import ConfigError, _trusted_proxies
 from artifactsmith.db import DB
 from artifactsmith.service import Service
-from artifactsmith.web.client_addr import client_ip, limit_key
+from artifactsmith.web.client_addr import client_host, client_ip, limit_key, signup_key
 
 _PROXY = ipaddress.ip_network("192.168.30.160/32")
 WHEN = datetime(2026, 1, 15, 18, 0, tzinfo=UTC).timestamp()
@@ -69,6 +69,23 @@ def test_ipv6_limit_key_groups_a_64_and_keeps_ipv4(monkeypatch: pytest.MonkeyPat
     peer = _request("2001:db8:1:2:aaaa::9", {"x-real-ip": "198.51.100.4"})
     assert client_ip(peer) == "2001:db8:1:2::/64"
     assert limit_key("not-an-ip") == "not-an-ip"
+
+
+def test_signup_key_groups_a_48_while_login_stays_a_64(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server.CFG, "trusted_proxies", (_PROXY,))
+    one = _request("192.168.30.160", {"x-real-ip": "2001:db8:1:2:aaaa::1"})
+    two = _request("192.168.30.160", {"x-real-ip": "2001:db8:1:3::1"})
+    other = _request("192.168.30.160", {"x-real-ip": "2001:db8:2::1"})
+    assert signup_key(client_host(one)) == signup_key(client_host(two)) == "2001:db8:1::/48"
+    assert signup_key(client_host(other)) == "2001:db8:2::/48"
+    assert client_ip(one) == "2001:db8:1:2::/64"
+    assert client_ip(two) == "2001:db8:1:3::/64"
+    assert "aaaa" not in signup_key(client_host(one))
+    assert signup_key("::ffff:203.0.113.9") == "203.0.113.9"
+    assert signup_key("198.51.100.4") == "198.51.100.4"
+    assert signup_key("not-an-ip") == "not-an-ip"
+    spoofed = _request("2001:db8:9:9::1", {"x-real-ip": "2001:db8:1:2::1"})
+    assert signup_key(client_host(spoofed)) == "2001:db8:9::/48"
 
 
 def test_ipv6_prefix_shares_one_login_bucket(svc: Service, monkeypatch: pytest.MonkeyPatch) -> None:

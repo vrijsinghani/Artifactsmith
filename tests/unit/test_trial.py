@@ -421,6 +421,12 @@ def test_trial_chrome_adds_noindex_and_abuse_link(svc, trial_on, monkeypatch):
     assert b'id="am-trial-report"' in resistant
     assert b"display:block!important" in resistant
     assert b"visibility:visible!important" in resistant
+    indexed = b'<html><head><meta name="robots" content="index,follow"></head><body>x</body></html>'
+    indexed_stamped = trial.stamp_trial_chrome(indexed, "")
+    assert indexed_stamped.lower().count(b"noindex") == 1
+    assert b"index,follow" in indexed_stamped
+    swapped = b'<html><head><meta content="noindex,nofollow" name="robots"></head><body>x</body></html>'
+    assert trial.stamp_trial_chrome(swapped, "").lower().count(b"noindex") == 1
 
 
 def test_idle_trial_workspace_is_deleted_after_30_days(svc, monkeypatch):
@@ -611,9 +617,17 @@ def test_sign_in_mail_has_date_and_message_id(monkeypatch):
     message = sent[0]
     assert message["Date"]
     message_id = str(message["Message-ID"])
-    assert message_id.startswith("<") and message_id.endswith(">")
+    assert message_id.startswith("<") and message_id.endswith("@example.com>")
     assert "magic-code-xyz" not in message_id
     assert "a@example.com" not in message_id
+
+    monkeypatch.setattr(CFG, "smtp_from", "ArtifactSmith Trial <trial@mail.example>")
+    trial.send_magic_link("a@example.com", "https://trial.example/trial/verify?code=magic-code-xyz")
+    assert str(sent[1]["Message-ID"]).endswith("@mail.example>")
+
+    monkeypatch.setattr(CFG, "smtp_from", "not-an-address")
+    trial.send_magic_link("a@example.com", "https://trial.example/trial/verify?code=magic-code-xyz")
+    assert str(sent[2]["Message-ID"]).endswith("@localhost>")
 
 
 @pytest.mark.asyncio
@@ -732,8 +746,14 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert found
     raw = found.group(1)
     pres = re.findall(r"<pre>(.*?)</pre>", page.text, re.S)
-    assert [title in page.text for title in ("Claude Desktop", "Cursor", "Generic MCP client")] == [True, True, True]
-    assert len(pres) == 3
+    titles = ("Claude Desktop", "Claude Code", "Cursor", "Generic MCP client")
+    assert [title in page.text for title in titles] == [True, True, True, True]
+    assert len(pres) == 4
+    desktop, code, _cursor, _generic = pres
+    assert "mcp-remote" in desktop
+    assert '"type"' not in desktop
+    assert '"type": "http"' in code
+    assert "mcp-remote" not in code
     for pre in pres:
         assert "YOUR_TOKEN" in pre
         assert raw not in pre
@@ -938,3 +958,113 @@ def test_signup_closed_and_mail_failure_stay_generic(trial_http, monkeypatch):
     assert failed.status_code == 503
     assert "sign-up email is not available" in failed.text
     assert "smtp" not in failed.text.lower()
+
+
+def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, monkeypatch):
+    client, box = trial_http
+    monkeypatch.setattr(CFG, "trial_signups_per_day", 1)
+    svc.db.exec(
+        "INSERT INTO trial_signups (email_hash, token_id, created_at, verified) VALUES (?,?,?,1)",
+        "yesterday",
+        "tok_y",
+        time.time() - 90000,
+    )
+    assert "Email me a link" in client.get("/trial").text
+    csrf = _csrf(client)
+    posted = client.post("/trial", data={"csrf": csrf, "email": "today@example.com"})
+    assert posted.status_code == 200
+    assert "sign-up link is on its way" in posted.text
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 1
+    svc.db.exec(
+        "INSERT INTO trial_signups (email_hash, token_id, created_at, verified) VALUES (?,?,?,1)",
+        "todayhash",
+        "tok_today",
+        time.time(),
+    )
+    full = client.get("/trial")
+    assert trial.SPOTS_TAKEN in full.text
+    assert "Email me a link" not in full.text
+    attempts = svc.db.one("SELECT COUNT(*) AS n FROM trial_signup_ips")["n"]
+    blocked = client.post("/trial", data={"csrf": "nope", "email": "other@example.com"})
+    assert blocked.status_code == 200
+    assert trial.SPOTS_TAKEN in blocked.text
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 2
+    assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signup_ips")["n"] == attempts
+    parsed = urlparse(box["url"])
+    code = parse_qs(parsed.query)["code"][0]
+    opened = client.get(f"{parsed.path}?{parsed.query}")
+    assert trial.SPOTS_TAKEN in opened.text
+    assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
+    kept = client.post("/trial/verify", data={"csrf": "x", "code": code})
+    assert trial.SPOTS_TAKEN in kept.text
+    assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
+    svc.db.exec("DELETE FROM trial_signups WHERE email_hash=?", "todayhash")
+    monkeypatch.setattr(CFG, "trial_email_verify", False)
+    csrf = _csrf(client)
+    minted = client.post("/trial", data={"csrf": csrf, "email": "mint@example.com"})
+    assert "Your trial token" in minted.text
+    again = client.get("/trial")
+    assert trial.SPOTS_TAKEN in again.text
+    second = client.post("/trial", data={"csrf": csrf, "email": "mint2@example.com"})
+    assert trial.SPOTS_TAKEN in second.text
+    assert "asmb_" not in second.text
+    assert svc.db.one("SELECT COUNT(*) AS n FROM tokens WHERE kind='trial'")["n"] == 1
+    monkeypatch.setattr(CFG, "trial_enabled", False)
+    closed = client.get("/trial")
+    assert "closed" in closed.text
+    assert trial.SPOTS_TAKEN not in closed.text
+
+
+def test_ipv6_signups_share_a_48(trial_http, svc, monkeypatch):
+    import ipaddress
+
+    _client, _box = trial_http
+    monkeypatch.setattr(CFG, "trial_signups_per_ip", 1)
+    monkeypatch.setattr(CFG, "trusted_proxies", (ipaddress.ip_network("192.168.30.160/32"),))
+    proxy = TestClient(server.ApiApp(), base_url="https://127.0.0.1:8780", client=("192.168.30.160", 443))
+
+    def post(addr: str, email: str):
+        proxy.get("/trial", headers={"X-Real-IP": addr})
+        csrf = proxy.cookies.get("am_trial_csrf")
+        assert csrf
+        return proxy.post("/trial", data={"csrf": csrf, "email": email}, headers={"X-Real-IP": addr})
+
+    first = post("2001:db8:1:2:aaaa::1", "one@example.com")
+    assert first.status_code == 200
+    assert "sign-up link is on its way" in first.text
+    same_48 = post("2001:db8:1:3::1", "two@example.com")
+    assert same_48.status_code == 429
+    other_48 = post("2001:db8:2::1", "three@example.com")
+    assert other_48.status_code == 200
+    stored = str(svc.db.all("SELECT ip FROM trial_signup_ips"))
+    assert "2001:db8:1::/48" in stored
+    assert "2001:db8:2::/48" in stored
+    assert "aaaa" not in stored
+    assert "/64" not in stored
+
+
+@pytest.mark.asyncio
+async def test_trial_tool_list_omits_publish():
+    from mcp.server.lowlevel.server import request_ctx
+    from mcp.shared.context import RequestContext
+
+    class _Request:
+        def __init__(self, principal: object) -> None:
+            self.scope = {"am_principal": principal}
+
+    async def names(request: object | None) -> list[str]:
+        token = request_ctx.set(
+            RequestContext(request_id="1", meta=None, session=None, lifespan_context=None, request=request)
+        )
+        try:
+            return [tool.name for tool in await server.mcp.list_tools()]
+        finally:
+            request_ctx.reset(token)
+
+    assert "publish" in [tool.name for tool in await server.mcp.list_tools()]
+    hidden = await names(_Request({"trial": True}))
+    assert "publish" not in hidden
+    assert "create" in hidden
+    assert "publish" in await names(_Request({"trial": False}))
+    assert "publish" in await names(_Request({}))
+    assert "publish" in await names(None)

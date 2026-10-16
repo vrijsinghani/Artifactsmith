@@ -16,6 +16,7 @@ from ..service import Service
 from ..trial import (
     CLOSED,
     MAIL_UNAVAILABLE,
+    SPOTS_TAKEN,
     TrialMailError,
     consume_link,
     email_hash,
@@ -28,8 +29,9 @@ from ..trial import (
     note_signup,
     send_magic_link,
     signup_blocked,
+    signup_day_full,
 )
-from .client_addr import client_ip, limit_key
+from .client_addr import client_host, signup_key
 from .pages import _shell, new_nonce, security_headers
 from .session import csrf_signature_ok, issue_csrf, same_origin, tokens_match
 
@@ -50,9 +52,17 @@ def _field(form: Any, name: str) -> str:
 
 
 def _client_snippets(api_url: str) -> str:
-    """Claude Desktop, Cursor, and a generic client. The token is a placeholder."""
+    """Claude Desktop, Claude Code, Cursor, and a generic client. The token is a placeholder."""
     url = api_url.rstrip("/") + "/mcp"
-    claude = {
+    desktop = {
+        "mcpServers": {
+            "artifactsmith": {
+                "command": "npx",
+                "args": ["-y", "mcp-remote", url, "--header", "Authorization: Bearer YOUR_TOKEN"],
+            }
+        }
+    }
+    code = {
         "mcpServers": {
             "artifactsmith": {
                 "type": "http",
@@ -71,7 +81,8 @@ def _client_snippets(api_url: str) -> str:
     }
     generic = f"Server URL: {url}\nAuthorization: Bearer YOUR_TOKEN"
     blocks = [
-        ("Claude Desktop", json.dumps(claude, indent=2)),
+        ("Claude Desktop", json.dumps(desktop, indent=2)),
+        ("Claude Code", json.dumps(code, indent=2)),
         ("Cursor", json.dumps(cursor, indent=2)),
         ("Generic MCP client", generic),
     ]
@@ -139,6 +150,8 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         nonce = new_nonce()
         if not CFG.trial_enabled:
             return _html("<h1>Trial</h1><p>Trial sign-up is closed.</p>", nonce)
+        if signup_day_full(svc.db):
+            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
         csrf = issue_csrf()
         response = _html(_form(csrf), nonce)
         response.set_cookie(_COOKIE, csrf, max_age=int(CFG.csrf_ttl_s), **_cookie_kwargs())
@@ -151,6 +164,8 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         nonce = new_nonce()
         if not CFG.trial_enabled:
             return _html("<h1>Trial</h1><p>Trial sign-up is closed.</p>", nonce)
+        if signup_day_full(svc.db):
+            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
         form = await request.form()
         posted = _field(form, "csrf")
         if (
@@ -159,7 +174,7 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
             or not csrf_signature_ok(posted)
         ):
             return _html("<h1>Trial</h1><p class=error>The form expired. Load the page again.</p>", nonce, status=403)
-        ip = limit_key(client_ip(request))
+        ip = signup_key(client_host(request))
         if signup_blocked(svc.db, ip):
             return _html(
                 "<h1>Trial</h1><p class=error>Too many sign-ups from this network today.</p>", nonce, status=429
@@ -193,6 +208,8 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         nonce = new_nonce()
         if not CFG.trial_enabled:
             return _html(f"<h1>Trial</h1><p>{escape(CLOSED)}</p>", nonce)
+        if signup_day_full(svc.db):
+            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
         code = request.query_params.get("code", "")
         if not link_pending(svc.db, code):
             return _html("<h1>Trial</h1><p class=error>That link is invalid or already used.</p>", nonce, status=400)
@@ -209,6 +226,8 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         nonce = new_nonce()
         if not CFG.trial_enabled:
             return _html(f"<h1>Trial</h1><p>{escape(CLOSED)}</p>", nonce)
+        if signup_day_full(svc.db):
+            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
         form = await request.form()
         posted = _field(form, "csrf")
         if (

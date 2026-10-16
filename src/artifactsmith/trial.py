@@ -16,7 +16,7 @@ import time
 from datetime import UTC, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formatdate, make_msgid, parseaddr
 from typing import Any
 from urllib.parse import quote
 
@@ -33,6 +33,7 @@ SHARE_DAYS = 30
 SELF_HOST = "https://github.com/vrijsinghani/artifactsmith#readme"
 CLOSED = "trial is closed"
 CAP_ERROR = "trial capacity reached for today, resets at 00:00 UTC"
+SPOTS_TAKEN = "today's trial spots are taken, back at 00:00 UTC"
 QUOTA_ERROR = f"trial builds are used up. Self-host ArtifactSmith: {SELF_HOST}"
 MAIL_UNAVAILABLE = "sign-up email is not available"
 _GMAIL = frozenset({"gmail.com", "googlemail.com"})
@@ -174,6 +175,21 @@ def settle(db: Any, job_id: str, usage: list[tuple[int, int, bool]]) -> None:
         )
 
 
+def _mail_domain(sender: str) -> str:
+    """Domain of AM_SMTP_FROM, including a display name such as Name <a@b.c>."""
+    _name, addr = parseaddr(sender)
+    domain = addr.rsplit("@", 1)[-1].strip() if "@" in addr else ""
+    return domain or "localhost"
+
+
+def signup_day_full(db: Any, when: float | None = None) -> bool:
+    """True when today's minted trials have reached AM_TRIAL_SIGNUPS_PER_DAY."""
+    stamp = time.time() if when is None else when
+    start = datetime.fromtimestamp(stamp, UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    row = db.one("SELECT COUNT(*) AS n FROM trial_signups WHERE created_at>=?", start.timestamp())
+    return int(row["n"] if row else 0) >= int(CFG.trial_signups_per_day)
+
+
 def signup_blocked(db: Any, ip: str) -> bool:
     cutoff = time.time() - int(CFG.trial_signup_window_s)
     db.exec("DELETE FROM trial_signup_ips WHERE created_at<?", cutoff)
@@ -218,7 +234,7 @@ def send_magic_link(to: str, url: str) -> None:
     message["To"] = to
     message["Subject"] = "Your ArtifactSmith trial link"
     message["Date"] = formatdate(localtime=False)
-    message["Message-ID"] = make_msgid(domain="artifactsmith")
+    message["Message-ID"] = make_msgid(domain=_mail_domain(sender))
     message.set_content(
         "Open this link to finish signing up. It works once.\n\n"
         + url
@@ -331,7 +347,10 @@ def stamp_trial_chrome(html: bytes, mailto: str) -> bytes:
     from html import escape
 
     text = html.decode("utf-8", errors="replace")
-    if not re.search(r"(?i)name\s*=\s*[\"']?robots", text):
+    has_noindex = re.search(r"(?i)<meta\b[^>]*\brobots\b[^>]*\bnoindex\b", text) or re.search(
+        r"(?i)<meta\b[^>]*\bnoindex\b[^>]*\brobots\b", text
+    )
+    if not has_noindex:
         meta = '<meta name="robots" content="noindex">'
         if re.search(r"(?i)<head[^>]*>", text):
             text = re.sub(r"(?i)<head[^>]*>", lambda match: match.group(0) + meta, text, count=1)

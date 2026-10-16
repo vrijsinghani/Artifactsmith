@@ -68,6 +68,26 @@ mcp = FastMCP(
 )
 
 
+_list_tools = mcp.list_tools
+
+
+async def _list_tools_for_caller() -> list[Any]:
+    """Trial tokens do not see publish. Other callers see every tool."""
+    tools = await _list_tools()
+    try:
+        request = mcp._mcp_server.request_context.request
+    except LookupError:
+        return tools
+    principal = getattr(request, "scope", {}).get("am_principal") if request is not None else None
+    if isinstance(principal, dict) and principal.get("trial"):
+        return [tool for tool in tools if tool.name != "publish"]
+    return tools
+
+
+mcp.list_tools = _list_tools_for_caller  # type: ignore[method-assign]
+mcp._mcp_server.list_tools()(_list_tools_for_caller)  # type: ignore[no-untyped-call]
+
+
 def _svc() -> Service:
     if SVC is None:
         raise AMError("server is not ready")

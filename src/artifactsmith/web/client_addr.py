@@ -33,41 +33,53 @@ def peer_is_trusted(peer: str) -> bool:
     return any(addr in net for net in CFG.trusted_proxies)
 
 
-def limit_key(value: str) -> str:
-    """Bucket for a login attempt. IPv6 shares a /64. IPv4 stays one address.
+def _bucket(value: str, prefix: int) -> str:
+    """IPv6 shares one prefix. IPv4 stays one address. Mapped IPv6 is that IPv4.
 
-    An IPv4-mapped IPv6 address counts as that IPv4 address. Anything that is
-    not an IP stays as given, so a missing peer does not become unlimited.
+    Anything that is not an IP stays as given, so a missing peer is not unlimited.
     """
     addr = _parse_ip(value)
     if isinstance(addr, ipaddress.IPv6Address):
         mapped = addr.ipv4_mapped
         if mapped is not None:
             return str(mapped)
-        network = ipaddress.ip_network(f"{addr}/64", strict=False)
-        return f"{network.network_address}/64"
+        network = ipaddress.ip_network(f"{addr}/{prefix}", strict=False)
+        return f"{network.network_address}/{prefix}"
     if isinstance(addr, ipaddress.IPv4Address):
         return str(addr)
     return value or "unknown"
 
 
-def client_ip(request: Request) -> str:
-    """Rate-limit key for this login attempt.
+def limit_key(value: str) -> str:
+    """Bucket for a login attempt. IPv6 shares a /64."""
+    return _bucket(value, 64)
+
+
+def signup_key(value: str) -> str:
+    """Bucket for a trial sign-up. IPv6 shares a /48."""
+    return _bucket(value, 48)
+
+
+def client_host(request: Request) -> str:
+    """Client address before a rate-limit bucket.
 
     A trusted peer may name the browser with X-Real-IP, or with the rightmost
-    X-Forwarded-For hop (the address that proxy appended). A missing or invalid
-    header stays on the peer, so the attempt is limited instead of unlimited.
-    IPv6 keys are the /64. IPv4 keys are the address.
+    X-Forwarded-For hop. A missing or invalid header stays on the peer.
     """
     peer = _peer(request)
     if not peer_is_trusted(peer):
-        return limit_key(peer)
+        return peer
     real = _parse_ip(request.headers.get("x-real-ip", ""))
     if real is not None:
-        return limit_key(str(real))
+        return str(real)
     hops = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
     if hops:
         forwarded = _parse_ip(hops[-1])
         if forwarded is not None:
-            return limit_key(str(forwarded))
-    return limit_key(peer)
+            return str(forwarded)
+    return peer
+
+
+def client_ip(request: Request) -> str:
+    """Rate-limit key for this login attempt. IPv6 keys are the /64."""
+    return limit_key(client_host(request))
