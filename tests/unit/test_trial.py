@@ -641,6 +641,26 @@ def test_disposable_email_and_ip_limit_and_bad_csrf(trial_http, monkeypatch):
     assert "Too many sign-ups" in second.text
 
 
+@pytest.mark.asyncio
+async def test_lifespan_reaches_the_mcp_app():
+    app = server.ApiApp()
+    seen: list[str] = []
+
+    async def fake_api(scope, receive, send):
+        seen.append(scope["type"])
+
+    app.api = fake_api
+
+    async def receive():
+        return {"type": "lifespan.startup"}
+
+    async def send(message):
+        return None
+
+    await app({"type": "lifespan"}, receive, send)
+    assert seen == ["lifespan"]
+
+
 def test_signup_closed_and_mail_failure_stay_generic(trial_http, monkeypatch):
     client, _box = trial_http
     monkeypatch.setattr(CFG, "trial_enabled", False)

@@ -519,12 +519,12 @@ class ApiApp:
         self.api = BearerAuth(mcp.streamable_http_app())
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        path = scope["path"]
-        if scope["type"] == "http" and (
-            path == "/app" or path.startswith("/app/") or path == "/trial" or path.startswith("/trial/")
-        ):
-            await self.pages(scope, receive, send)
-            return
+        # Lifespan has no path. It must reach the MCP app so its session manager starts.
+        if scope["type"] == "http":
+            path = scope["path"]
+            if path == "/app" or path.startswith("/app/") or path == "/trial" or path.startswith("/trial/"):
+                await self.pages(scope, receive, send)
+                return
         await self.api(scope, receive, send)
 
 
