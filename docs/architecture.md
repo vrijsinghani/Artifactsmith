@@ -12,7 +12,7 @@ your browser            Preview :8781 (no cookies) --> object store
 
 ## Process
 
-`artifactsmith serve` starts the MCP API (FastMCP streamable HTTP) behind bearer auth, a read-only My pages catalog at `/app/` on that same port, a cookieless preview and share app on a second port, and `AM_MAX_BUILDS` worker tasks that pull jobs from an in-process queue.
+`artifactsmith serve` starts the MCP API (FastMCP streamable HTTP) behind bearer auth, a read-only My pages catalog at `/app/` on that same port, a cookieless preview and share app on a second port, and `AM_MAX_BUILDS` worker tasks. Internal jobs are preferred, and at most one hosted-trial job runs at a time.
 
 SQLite holds artifacts, versions, jobs, tokens, shares, and My pages sessions. The S3-compatible object store holds rendered files and the input `source.json`. On restart, unfinished jobs go back on the queue. Done versions stay as they are. A session row stores the hash of the cookie and the token id, not the token. Login failures store an IPv4 address, an IPv6 `/64`, or a hash of a token prefix, not the token and not the IPv6 interface id.
 

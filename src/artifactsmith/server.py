@@ -497,6 +497,7 @@ class BearerAuth:
                     "name": row["name"],
                     "workspace": row["workspace"],
                     "perms": set(json.loads(row["perms"])),
+                    "trial": row["kind"] == "trial" if "kind" in row.keys() else False,
                 }
         if not principal:
             resp = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
@@ -518,7 +519,10 @@ class ApiApp:
         self.api = BearerAuth(mcp.streamable_http_app())
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and (scope["path"] == "/app" or scope["path"].startswith("/app/")):
+        path = scope["path"]
+        if scope["type"] == "http" and (
+            path == "/app" or path.startswith("/app/") or path == "/trial" or path.startswith("/trial/")
+        ):
             await self.pages(scope, receive, send)
             return
         await self.api(scope, receive, send)
@@ -537,6 +541,16 @@ CSP = (
     "font-src data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; "
     "sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
 )
+
+
+def _trial_chrome(aid: str, data: bytes) -> bytes:
+    """noindex and an abuse footer for a trial workspace. Other pages are unchanged."""
+    from . import trial as trial_mod
+
+    row = _svc().db.one("SELECT workspace FROM artifacts WHERE id=?", aid)
+    if row is None or not trial_mod.workspace_is_trial(_svc().db, str(row["workspace"])):
+        return data
+    return trial_mod.stamp_trial_chrome(data, trial_mod.abuse_email())
 
 
 def _serve(data: bytes, ctype: str, fname: str, attachment: bool) -> Response:
@@ -580,9 +594,12 @@ async def _open_page(
         except MarkdownViewError:
             logging.getLogger("artifactsmith").warning("markdown view refused artifact=%s version=%s", aid, version)
             return _not_found()
-        return _serve(stamp_share_title(html, shown), MIME["html"], SOURCE_NAME["html"], attachment=False)
+        return _serve(
+            _trial_chrome(aid, stamp_share_title(html, shown)), MIME["html"], SOURCE_NAME["html"], attachment=False
+        )
     if name.endswith(".html") or (ct or "").lower().startswith("text/html"):
-        return _serve(stamp_share_title(data, shown), ct, name, attachment=False)
+        page = stamp_share_title(data, shown)
+        return _serve(_trial_chrome(aid, page), ct, name, attachment=False)
     return _serve(data, ct, name, attachment=False)
 
 

@@ -145,7 +145,13 @@ def principal_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not perms:
         return None
-    return {"id": row["id"], "name": row["name"], "workspace": row["workspace"], "perms": perms}
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "workspace": row["workspace"],
+        "perms": perms,
+        "trial": row["kind"] == "trial" if "kind" in row.keys() else False,
+    }
 
 
 def find_live_token(db: DB, raw: str) -> dict[str, Any] | None:

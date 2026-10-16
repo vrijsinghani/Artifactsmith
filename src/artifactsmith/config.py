@@ -96,6 +96,26 @@ def _cookie_secure() -> bool:
     return _setting_bool("AM_COOKIE_SECURE", False)
 
 
+def _setting_decimal(name: str, default: str) -> str:
+    from decimal import Decimal, InvalidOperation
+
+    raw = _setting(name, default).strip()
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ConfigError(f"{name} must be a decimal number, got {raw!r}") from exc
+    if value < 0:
+        raise ConfigError(f"{name} must be >= 0, got {raw!r}")
+    return format(value, "f")
+
+
+def _setting_model(name: str, default: str) -> str:
+    raw = _setting(name, default).strip() or default
+    if not raw or len(raw) > 128 or any(ch.isspace() for ch in raw):
+        raise ConfigError(f"{name} must be a plain model name")
+    return raw
+
+
 def _setting_bool(name: str, default: bool) -> bool:
     raw = _setting(name, "").lower()
     if raw == "":
@@ -170,6 +190,29 @@ class Config:
     # Output policy.
     max_concurrent_builds: int = field(default_factory=lambda: _setting_int("AM_MAX_BUILDS", 2, minimum=1))
     builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_BUILDS_PER_HOUR", 20, minimum=1))
+    # Hosted trial. Off until an operator turns it on. Internal tokens ignore these.
+    trial_enabled: bool = field(default_factory=lambda: _setting_bool("AM_TRIAL_ENABLED", False))
+    trial_build_limit: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILD_LIMIT", 20, minimum=1))
+    trial_builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILDS_PER_HOUR", 10, minimum=1))
+    trial_daily_usd: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_DAILY_USD", "10"))
+    trial_price_in: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_PRICE_IN", "0.10"))
+    trial_price_out: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_PRICE_OUT", "0.50"))
+    trial_model: str = field(default_factory=lambda: _setting_model("AM_TRIAL_MODEL", "anthropic/claude-haiku-5-5"))
+    trial_max_output_tokens: int = field(
+        default_factory=lambda: _setting_int("AM_TRIAL_MAX_OUTPUT_TOKENS", 16_000, minimum=1, maximum=200_000)
+    )
+    trial_signups_per_ip: int = field(default_factory=lambda: _setting_int("AM_TRIAL_SIGNUPS_PER_IP", 3, minimum=1))
+    trial_signup_window_s: int = field(
+        default_factory=lambda: _setting_int("AM_TRIAL_SIGNUP_WINDOW_S", 86400, minimum=60)
+    )
+    trial_link_ttl_s: int = field(default_factory=lambda: _setting_int("AM_TRIAL_LINK_TTL_S", 1800, minimum=60))
+    trial_retention_days: int = field(default_factory=lambda: _setting_int("AM_TRIAL_RETENTION_DAYS", 30, minimum=1))
+    trial_abuse_email: str = field(default_factory=lambda: _setting("AM_TRIAL_ABUSE_EMAIL", ""))
+    smtp_host: str = field(default_factory=lambda: _setting("AM_SMTP_HOST", ""))
+    smtp_port: int = field(default_factory=lambda: _setting_int("AM_SMTP_PORT", 587, minimum=1, maximum=65535))
+    smtp_user: str = field(default_factory=lambda: _setting("AM_SMTP_USER", ""))
+    smtp_from: str = field(default_factory=lambda: _setting("AM_SMTP_FROM", ""))
+    smtp_tls: bool = field(default_factory=lambda: _setting_bool("AM_SMTP_TLS", True))
     build_timeout_s: int = field(default_factory=lambda: _setting_int("AM_BUILD_TIMEOUT", 900, minimum=1))
     render_timeout_s: int = field(default_factory=lambda: _setting_int("AM_RENDER_TIMEOUT", 120, minimum=1))
     # A stalled edit patch falls back while the job still has budget for a full rewrite.
@@ -219,6 +262,9 @@ class Config:
 
     def llm_key(self) -> str:
         return _setting("AM_LLM_KEY") or _setting("OPENAI_API_KEY")
+
+    def smtp_password(self) -> str:
+        return _setting("AM_SMTP_PASSWORD")
 
     def llm_send_temperature(self) -> bool:
         """False when AM_LLM_TEMPERATURE is the literal value none."""

@@ -67,6 +67,47 @@ def test_tx_rollback(tmp_path):
     assert db.one("SELECT id FROM tokens WHERE id=?", "tok_1") is None
 
 
+def test_nested_tx_joins_the_outer(tmp_path):
+    db = DB(tmp_path / "state.sqlite")
+    with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+                ("tok_outer", "h-outer", "a", "ws", "[]", 1.0),
+            )
+            db.exec(
+                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+                "tok_inner",
+                "h-inner",
+                "b",
+                "ws",
+                "[]",
+                1.0,
+            )
+    assert db.one("SELECT id FROM tokens WHERE id=?", "tok_outer") is not None
+    assert db.one("SELECT id FROM tokens WHERE id=?", "tok_inner") is not None
+    try:
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+                ("tok_roll", "h-roll", "c", "ws", "[]", 1.0),
+            )
+            db.exec(
+                "INSERT INTO tokens (id,token_hash,name,workspace,perms,created_at) VALUES (?,?,?,?,?,?)",
+                "tok_roll_inner",
+                "h-roll-inner",
+                "d",
+                "ws",
+                "[]",
+                1.0,
+            )
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert db.one("SELECT id FROM tokens WHERE id=?", "tok_roll") is None
+    assert db.one("SELECT id FROM tokens WHERE id=?", "tok_roll_inner") is None
+    db.close()
+
+
 def test_jloads():
     assert jloads(None, []) == []
     assert jloads("", {"x": 1}) == {"x": 1}

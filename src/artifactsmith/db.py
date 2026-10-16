@@ -117,6 +117,39 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts(ip, created_at);
+CREATE TABLE IF NOT EXISTS trial_links (
+  code_hash TEXT PRIMARY KEY,
+  email_hash TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL,
+  used_at REAL
+);
+CREATE TABLE IF NOT EXISTS trial_signups (
+  email_hash TEXT PRIMARY KEY,
+  token_id TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS trial_signup_ips (
+  ip TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS trial_signup_ips_ip ON trial_signup_ips(ip, created_at);
+CREATE TABLE IF NOT EXISTS trial_reservations (
+  job_id TEXT PRIMARY KEY,
+  day TEXT NOT NULL,
+  reserved_micros INTEGER NOT NULL,
+  actual_micros INTEGER,
+  settled_at REAL
+);
+CREATE TABLE IF NOT EXISTS trial_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS trial_usage_job ON trial_usage(job_id);
 """
 
 
@@ -131,6 +164,7 @@ class DB:
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.lock = threading.RLock()
+        self._tx_owner: int | None = None
 
     def _migrate(self) -> None:
         art_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(artifacts)").fetchall()}
@@ -157,6 +191,11 @@ class DB:
             self.conn.execute("ALTER TABLE login_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'ip'")
         if attempt_cols:
             self.conn.execute("CREATE INDEX IF NOT EXISTS login_attempts_kind ON login_attempts(kind, ip, created_at)")
+        token_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(tokens)").fetchall()}
+        if "kind" not in token_cols:
+            self.conn.execute("ALTER TABLE tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'internal'")
+        if "email_hash" not in token_cols:
+            self.conn.execute("ALTER TABLE tokens ADD COLUMN email_hash TEXT")
         # Format was fixed on the artifact, so that value is each existing version's format.
         self.conn.execute(
             "UPDATE versions SET format = ("
@@ -166,14 +205,21 @@ class DB:
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
+        """Write transaction. A nested call on this thread joins the open one."""
         with self.lock:
+            if self._tx_owner == threading.get_ident():
+                yield self.conn
+                return
             self.conn.execute("BEGIN IMMEDIATE")
+            self._tx_owner = threading.get_ident()
             try:
                 yield self.conn
                 self.conn.execute("COMMIT")
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise
+            finally:
+                self._tx_owner = None
 
     def one(self, sql: str, *args: Any) -> dict[str, Any] | None:
         with self.lock:

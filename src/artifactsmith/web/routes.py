@@ -42,6 +42,7 @@ from .session import (
     set_tz_cookie,
     tokens_match,
 )
+from .trial_pages import trial_routes
 
 
 def _stamp(response: Response) -> Response:
@@ -221,6 +222,7 @@ def build_pages(get_svc: Callable[[], Service]) -> HostGuard:
             Route("/app/", home, methods=["GET"]),
             Route("/app/a/{artifact_id}", detail, methods=["GET"]),
             Route("/app/logout", logout, methods=["POST"]),
+            *trial_routes(current),
         ]
     )
     return HostGuard(app)

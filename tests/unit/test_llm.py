@@ -189,6 +189,80 @@ async def test_call_chat_remembers_models_without_temperature(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_trial_output_cap_records_usage_and_survives_temperature_retry(monkeypatch):
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        seen.append(payload)
+        if "temperature" in payload:
+            return httpx.Response(400, json={"error": {"message": "temperature is not supported"}})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+            },
+        )
+
+    _install_transport(monkeypatch, handler)
+    cap = llm.set_output_cap(16_000)
+    usage = llm.begin_usage()
+    try:
+        text = await llm.call_chat("anthropic/claude-haiku-5-5", "sys", "user")
+        rows = list(llm._usage.get() or [])
+    finally:
+        llm.end_usage(usage)
+        llm.reset_output_cap(cap)
+    assert text == "ok"
+    assert [row["max_tokens"] for row in seen] == [16_000, 16_000]
+    assert "temperature" not in seen[1]
+    assert rows == [(12, 3, True)]
+    assert llm._usage.get() is None
+    assert llm._output_cap.get() is None
+
+
+@pytest.mark.asyncio
+async def test_trial_responses_cap_and_missing_usage(monkeypatch):
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"output": [{"content": [{"type": "output_text", "text": "hi"}]}]},
+        )
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm.CFG, "llm_api", "responses")
+    cap = llm.set_output_cap(16_000)
+    usage = llm.begin_usage()
+    try:
+        text = await llm.call("m", "sys", "user")
+        rows = list(llm._usage.get() or [])
+    finally:
+        llm.end_usage(usage)
+        llm.reset_output_cap(cap)
+    assert text == "hi"
+    assert seen[0]["max_output_tokens"] == 16_000
+    assert rows == [(0, 0, False)]
+
+
+@pytest.mark.asyncio
+async def test_trial_input_over_the_cap_is_refused(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("the request must not be sent")
+
+    _install_transport(monkeypatch, handler)
+    cap = llm.set_output_cap(16_000)
+    try:
+        with pytest.raises(llm.LLMError, match="trial input is too large"):
+            await llm.call_chat("m", "sys", "x" * (200_000 * 4 + 1))
+    finally:
+        llm.reset_output_cap(cap)
+
+
+@pytest.mark.asyncio
 async def test_call_chat_omits_temperature_when_env_none(monkeypatch):
     monkeypatch.setenv("AM_LLM_TEMPERATURE", "none")
     seen: list[dict[str, object]] = []

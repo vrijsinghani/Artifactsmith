@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from html import escape, unescape
 from typing import Any
 
-from . import builder
+from . import builder, llm, trial
 from .build_mode import ModeError, parse_build_mode
 from .config import CFG
 from .db import DB, jloads
@@ -289,25 +289,50 @@ class Service:
     def __init__(self) -> None:
         self.db = DB(CFG.db_path)
         self.store = Store()
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
+        # Internal jobs are preferred. A second trial job waits so one slot stays free.
+        self.internal_q: asyncio.Queue[str] = asyncio.Queue()
+        self.trial_q: asyncio.Queue[str] = asyncio.Queue()
+        self.queue = self.internal_q
         self.progress: dict[str, str] = {}
         self._workers: list[asyncio.Task[None]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._trial_running = 0
+        self._sched_lock = asyncio.Lock()
+        self._wake = asyncio.Event()
 
-    def _enqueue(self, jid: str) -> None:
-        """Wake a worker from any thread. asyncio.Queue is not thread-safe for put_nowait."""
+    def _job_is_trial(self, jid: str) -> bool:
+        row = self.db.one(
+            "SELECT tokens.kind AS kind FROM jobs JOIN tokens ON tokens.id = jobs.client WHERE jobs.id=?",
+            jid,
+        )
+        return bool(row and row["kind"] == "trial")
+
+    def _token_is_trial(self, token_id: str) -> bool:
+        row = self.db.one("SELECT kind FROM tokens WHERE id=?", token_id)
+        return bool(row and row["kind"] == "trial")
+
+    def _put_job(self, q: asyncio.Queue[str], jid: str) -> None:
+        def deliver() -> None:
+            q.put_nowait(jid)
+            self._wake.set()
+
         loop = self._loop
         if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(self.queue.put_nowait, jid)
+            loop.call_soon_threadsafe(deliver)
             return
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
             running = None
         if running is not None:
-            running.call_soon_threadsafe(self.queue.put_nowait, jid)
-        else:
-            self.queue.put_nowait(jid)
+            running.call_soon_threadsafe(deliver)
+            return
+        deliver()
+
+    def _enqueue(self, jid: str) -> None:
+        """Wake a worker from any thread. asyncio.Queue is not thread-safe for put_nowait."""
+        q = self.trial_q if self._job_is_trial(jid) else self.internal_q
+        self._put_job(q, jid)
 
     # ---------------- access ----------------
     @staticmethod
@@ -364,12 +389,39 @@ class Service:
         return json.dumps({"_fp": fingerprint, "body": result}, separators=(",", ":"))
 
     def _check_quota(self, c: Any, principal: dict[str, Any]) -> None:
+        if principal.get("trial"):
+            if not CFG.trial_enabled:
+                raise AMError(trial.CLOSED)
+            total = c.execute("SELECT COUNT(*) n FROM jobs WHERE client=?", (principal["id"],)).fetchone()["n"]
+            if int(total) >= int(CFG.trial_build_limit):
+                raise AMError(trial.QUOTA_ERROR)
+            hour_limit = int(CFG.trial_builds_per_hour)
+        else:
+            hour_limit = int(CFG.builds_per_hour)
         n = c.execute(
             "SELECT COUNT(*) n FROM jobs WHERE client=? AND created_at>?",
             (principal["id"], now() - 3600),
         ).fetchone()["n"]
-        if n >= CFG.builds_per_hour:
-            raise AMError(f"quota: {CFG.builds_per_hour} builds/hour reached")
+        if int(n) >= hour_limit:
+            raise AMError(f"quota: {hour_limit} builds/hour reached")
+
+    def _hold_trial(self, c: Any, principal: dict[str, Any], jid: str, when: float) -> None:
+        if not principal.get("trial"):
+            return
+        try:
+            trial.reserve(c, jid, when)
+        except trial.TrialLimit as exc:
+            raise AMError(exc.message) from exc
+
+    def _builds_remaining(self, principal: dict[str, Any]) -> int:
+        row = self.db.one("SELECT COUNT(*) AS n FROM jobs WHERE client=?", principal["id"])
+        used = int(row["n"]) if row else 0
+        return max(0, int(CFG.trial_build_limit) - used)
+
+    def _annotate_trial(self, principal: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+        if principal.get("trial"):
+            result["builds_remaining"] = self._builds_remaining(principal)
+        return result
 
     @staticmethod
     def _validate_idempotency_key(key: str | None) -> str | None:
@@ -430,6 +482,16 @@ class Service:
         if not MODEL_RE.match(m):
             raise AMError("model must be a plain model name")
         return m
+
+    def _resolve_model(self, principal: dict[str, Any], model: str | None) -> str:
+        """Trial builds ignore the caller's model name."""
+        if not principal.get("trial"):
+            return self._model(model)
+        if not CFG.trial_enabled:
+            raise AMError(trial.CLOSED)
+        if not MODEL_RE.match(CFG.trial_model):
+            raise AMError("trial model is not configured")
+        return CFG.trial_model
 
     @staticmethod
     def _source(source_content: str | None, source_files: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -515,7 +577,7 @@ class Service:
         if not SLUG_RE.match(raw_slug):
             raise AMError("slug must be 2-63 chars of a-z, 0-9 and '-'")
         slug = raw_slug
-        model = self._model(model)
+        model = self._resolve_model(principal, model)
         verbatim_request = self._validate_verbatim(verbatim_request)
         display_name = self._validate_display_name(title, slug)
         idempotency_key = self._validate_idempotency_key(idempotency_key)
@@ -547,7 +609,7 @@ class Service:
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
         if prior:
-            return dict(prior, idempotent_replay=True)
+            return self._annotate_trial(principal, dict(prior, idempotent_replay=True))
         aid, jid, t = rid("art_"), rid("job_"), now()
         prev = self.db.one("SELECT * FROM artifacts WHERE workspace=? AND slug=?", ws, slug)
         newv = 1
@@ -582,7 +644,7 @@ class Service:
                 if existing:
                     data = json.loads(existing["result_json"])
                     if isinstance(data, dict) and data.get("_fp") == fingerprint and isinstance(data.get("body"), dict):
-                        return dict(data["body"], idempotent_replay=True)
+                        return self._annotate_trial(principal, dict(data["body"], idempotent_replay=True))
                     raise AMError("idempotency_key was already used with a different request")
             if prev:
                 row = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (aid,)).fetchone()
@@ -623,6 +685,7 @@ class Service:
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
                 (jid, aid, newv, principal["id"], "queued", t),
             )
+            self._hold_trial(c, principal, jid, t)
             if idempotency_key:
                 c.execute(
                     "INSERT INTO idempotency VALUES (?,?,?,?)",
@@ -630,7 +693,7 @@ class Service:
                 )
         self.audit(principal, "create", artifact_id=aid, slug=slug, kind=kind, model=model)
         self._enqueue(jid)
-        return result
+        return self._annotate_trial(principal, result)
 
     # ---------------- edit ----------------
     def edit(
@@ -656,7 +719,7 @@ class Service:
         if a.get("deleting_at"):
             raise AMError("artifact is being deleted")
         verbatim_request = self._validate_verbatim(verbatim_request)
-        model = self._model(model)
+        model = self._resolve_model(principal, model)
         idempotency_key = self._validate_idempotency_key(idempotency_key)
         if style is None or str(style).strip() == "":
             prev = self.db.one(
@@ -687,7 +750,7 @@ class Service:
         )
         prior = self._idem_lookup(principal, idempotency_key, fingerprint)
         if prior:
-            return dict(prior, idempotent_replay=True)
+            return self._annotate_trial(principal, dict(prior, idempotent_replay=True))
         jid, t = rid("job_"), now()
         with self.db.tx() as c:
             self._check_quota(c, principal)
@@ -699,7 +762,7 @@ class Service:
                 if existing:
                     data = json.loads(existing["result_json"])
                     if isinstance(data, dict) and data.get("_fp") == fingerprint and isinstance(data.get("body"), dict):
-                        return dict(data["body"], idempotent_replay=True)
+                        return self._annotate_trial(principal, dict(data["body"], idempotent_replay=True))
                     raise AMError("idempotency_key was already used with a different request")
             art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
             if art and art["deleting_at"]:
@@ -749,6 +812,7 @@ class Service:
                 "INSERT INTO jobs (id,artifact_id,version,client,status,created_at) VALUES (?,?,?,?,?,?)",
                 (jid, a["id"], newv, principal["id"], "queued", t),
             )
+            self._hold_trial(c, principal, jid, t)
             c.execute("UPDATE artifacts SET updated_at=? WHERE id=?", (t, a["id"]))
             result = {
                 "artifact_id": a["id"],
@@ -768,7 +832,7 @@ class Service:
                 )
         self.audit(principal, "edit", artifact_id=a["id"], version=newv, base_version=base_version, model=model)
         self._enqueue(jid)
-        return result
+        return self._annotate_trial(principal, result)
 
     def publish(
         self,
@@ -791,6 +855,8 @@ class Service:
         """Queue a finished page. The worker skips the model and runs the output checks."""
         from .publishing import admit_publish
 
+        if principal.get("trial"):
+            raise AMError("trial tokens cannot publish")
         return admit_publish(
             self,
             principal,
@@ -824,6 +890,10 @@ class Service:
                 j["id"],
             )
             self._enqueue(j["id"])
+        try:
+            trial.purge_idle_trials(self.db, self.store)
+        except Exception:  # noqa: BLE001 — retention must not stop the server
+            log.exception("trial retention sweep failed")
         for _ in range(CFG.max_concurrent_builds):
             self._workers.append(asyncio.create_task(self._worker()))
 
@@ -836,16 +906,51 @@ class Service:
         self._workers.clear()
         self.db.close()
 
+    def _take(self, q: asyncio.Queue[str]) -> str | None:
+        try:
+            return q.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
+    def _claim_next(self) -> tuple[str, bool] | None:
+        """Internal work first. At most one trial build is in flight."""
+        jid = self._take(self.internal_q)
+        if jid is not None:
+            return jid, False
+        if self._trial_running < 1:
+            jid = self._take(self.trial_q)
+            if jid is not None:
+                self._trial_running += 1
+                return jid, True
+        return None
+
+    async def _next_job(self) -> tuple[str, bool]:
+        while True:
+            async with self._sched_lock:
+                found = self._claim_next()
+                if found is not None:
+                    return found
+                # A job can arrive between the empty check and the clear.
+                self._wake.clear()
+                found = self._claim_next()
+                if found is not None:
+                    return found
+            await self._wake.wait()
+
     async def _worker(self) -> None:
         while True:
-            jid = await self.queue.get()
+            jid, trial_slot = await self._next_job()
             try:
                 await self._run_job(jid)
             except Exception as e:  # noqa: BLE001
                 log.exception("worker failed job=%s", jid)
                 self._fail(jid, f"internal error: {type(e).__name__}")
             finally:
-                self.queue.task_done()
+                if trial_slot:
+                    async with self._sched_lock:
+                        self._trial_running = max(0, self._trial_running - 1)
+                (self.trial_q if trial_slot else self.internal_q).task_done()
+                self._wake.set()
 
     def _set_job(self, jid: str, status: str, error: str | None = None, progress_msg: str | None = None) -> None:
         j = self.db.one("SELECT * FROM jobs WHERE id=?", jid)
@@ -895,10 +1000,13 @@ class Service:
         v = self.db.one("SELECT * FROM versions WHERE artifact_id=? AND version=?", j["artifact_id"], j["version"])
         if not a or not v:
             self._fail(jid, "artifact or version vanished")
+            trial.settle(self.db, jid, [])
             return
         if a.get("deleting_at"):
             self._fail(jid, "artifact is being deleted")
+            trial.settle(self.db, jid, [])
             return
+        is_trial = self._job_is_trial(jid)
         with self.db.tx() as c:
             art = c.execute("SELECT deleting_at FROM artifacts WHERE id=?", (a["id"],)).fetchone()
             if art and art["deleting_at"]:
@@ -910,6 +1018,7 @@ class Service:
                     "UPDATE versions SET publish_json=NULL WHERE artifact_id=? AND version=?",
                     (a["id"], v["version"]),
                 )
+                trial.settle(self.db, jid, [])
                 return
             claimed = c.execute(
                 "UPDATE jobs SET status='building', started_at=? WHERE id=? AND status='queued'",
@@ -921,6 +1030,13 @@ class Service:
             c.execute(
                 "UPDATE versions SET status='building' WHERE artifact_id=? AND version=?", (a["id"], v["version"])
             )
+
+        if is_trial and not CFG.trial_enabled:
+            self._fail(jid, trial.CLOSED)
+            trial.settle(self.db, jid, [])
+            return
+        cap_token = llm.set_output_cap(int(CFG.trial_max_output_tokens)) if is_trial else None
+        usage_token = llm.begin_usage() if is_trial else None
 
         def progress(msg: str) -> None:
             self.progress[jid] = msg
@@ -943,6 +1059,10 @@ class Service:
             log.exception("build failed job=%s", jid)
             # Do not leak LLM/renderer/store internals to clients.
             self._fail(jid, f"build failed: {type(e).__name__}")
+        finally:
+            if usage_token is not None and cap_token is not None:
+                trial.settle(self.db, jid, llm.end_usage(usage_token))
+                llm.reset_output_cap(cap_token)
 
     async def _execute_build(
         self,
@@ -1006,7 +1126,7 @@ class Service:
                 slug=a["slug"],
                 display_name=a["display_name"],
                 verbatim=v["verbatim_request"],
-                model=v["model"] or CFG.default_model,
+                model=CFG.trial_model if self._token_is_trial(str(j["client"])) else (v["model"] or CFG.default_model),
                 base_source=base_source,
                 base_version=v["base_version"],
                 history=history,
@@ -1217,6 +1337,8 @@ class Service:
         a = self.get_artifact(principal, a["id"])
         out = self.card(a, v)
         out["share"] = self._share_state(a["id"], version)
+        if principal.get("trial"):
+            out["builds_remaining"] = self._builds_remaining(principal)
         if v["status"] == "done" and v.get("model") == builder.PUBLISHED_MODEL:
             recorded = await asyncio.to_thread(self._manifest, a, v)
             if isinstance(recorded, dict) and "safety_changes" in recorded:
@@ -1520,6 +1642,8 @@ class Service:
             sid = shortid(16)
             t = now()
             exp = self._share_exp(t, ttl_days if ttl_days is not None else CFG.share_ttl_days)
+            if principal.get("trial"):
+                exp = min(exp, t + trial.SHARE_DAYS * 86400)
             self.db.exec(
                 "INSERT INTO shares (id, artifact_id, version, sha256, created_by, created_at, expires_at, "
                 "revoked_at, pinned) VALUES (?,?,?,?,?,?,?,NULL,?)",

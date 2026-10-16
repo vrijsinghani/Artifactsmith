@@ -326,8 +326,22 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_RENDER_TIMEOUT` | `120` | Seconds for one renderer call. |
 | `AM_BUILD_TIMEOUT` | `900` | Seconds for the whole job. |
 | `AM_EDIT_PATCH_TIMEOUT_S` | `45` | Seconds for the edit patch call. A timeout falls back to a full rewrite. |
-| `AM_MAX_BUILDS` | `2` | Concurrent workers. |
-| `AM_BUILDS_PER_HOUR` | `20` | Per-token quota. |
+| `AM_MAX_BUILDS` | `2` | Concurrent workers. A hosted trial uses at most one of these slots. |
+| `AM_BUILDS_PER_HOUR` | `20` | Per-token quota for internal tokens. Trial tokens use `AM_TRIAL_BUILDS_PER_HOUR`. |
+| `AM_TRIAL_ENABLED` | `false` | Open `/trial` sign-up and allow trial builds. `false` closes both immediately. |
+| `AM_TRIAL_BUILD_LIMIT` | `20` | Lifetime builds for one trial token. |
+| `AM_TRIAL_BUILDS_PER_HOUR` | `10` | Hourly limit for a trial token. Does not change `AM_BUILDS_PER_HOUR`. |
+| `AM_TRIAL_DAILY_USD` | `10` | Global trial spend cap per UTC day. Internal tokens are not capped. |
+| `AM_TRIAL_PRICE_IN` / `AM_TRIAL_PRICE_OUT` | `0.10` / `0.50` | USD per 1M input / output tokens, used to price the hold. |
+| `AM_TRIAL_MODEL` | `anthropic/claude-haiku-5-5` | Model for every trial build. The caller's model name is ignored. |
+| `AM_TRIAL_MAX_OUTPUT_TOKENS` | `16000` | Output cap sent on trial model calls. |
+| `AM_TRIAL_SIGNUPS_PER_IP` / `AM_TRIAL_SIGNUP_WINDOW_S` | `3` / `86400` | Sign-up attempts per client address per window. |
+| `AM_TRIAL_LINK_TTL_S` | `1800` | Magic-link lifetime, in seconds. |
+| `AM_TRIAL_RETENTION_DAYS` | `30` | Delete a trial workspace this many days after its last build. |
+| `AM_TRIAL_ABUSE_EMAIL` | empty | Mailto on the trial page footer. Empty omits the link. |
+| `AM_SMTP_HOST` / `AM_SMTP_PORT` / `AM_SMTP_FROM` | empty / `587` / empty | Magic-link mail. Empty host or from fails closed. |
+| `AM_SMTP_USER` / `AM_SMTP_PASSWORD` | empty | SMTP login. Password accepts `AM_SMTP_PASSWORD_FILE`. |
+| `AM_SMTP_TLS` | `true` | Start TLS when sending the magic link. |
 | `AM_HOST` | `127.0.0.1` | Listen address for `artifactsmith serve`. Compose/image set `0.0.0.0` in-container. |
 | `AM_BIND_ADDRESS` | `127.0.0.1` | Host publish bind for ports `8780` and `8781` in `compose.yaml`. |
 | `AM_API_PORT` / `AM_PREVIEW_PORT` | `8780` / `8781` | Listen ports. |
@@ -340,6 +354,12 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_DATA_DIR` / `AM_SECRETS_DIR` | `/data` / `/secrets` | SQLite and the HMAC signing key. |
 
 Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empty `AM_STORE_KEY` and `AM_STORE_SECRET`. The storage image is `rustfs/rustfs:1.0.1` (pinned by digest in `compose.yaml`).
+
+## Hosted trial
+
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). The page shows the workspace token once and a client snippet that says `YOUR_TOKEN`. One verified address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected.
+
+Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. Responses include `builds_remaining`. When the daily cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` and a small footer.
 
 ## Security
 
