@@ -184,6 +184,8 @@ def _form(csrf: str, message: str = "") -> str:
         "<h1>Try it before you install</h1>"
         "<p>ArtifactSmith is an open-source MCP server. Your agent sends it the request and its notes, "
         "and gets back a web page, PDF, Word doc or spreadsheet.</p>"
+        f'<p>Source and install: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a> '
+        "(Open source, MIT)</p>"
         "<p>Examples, no sign-up: "
         '<a href="https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/">comparison page</a>'
         " · "
@@ -191,8 +193,6 @@ def _form(csrf: str, message: str = "") -> str:
         " · "
         '<a href="https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/">PDF checklist</a>'
         "</p>"
-        f'<p>Source and install: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a> '
-        "(Open source, MIT)</p>"
         "<p>I run a copy here so you can see it work first. Enter an email and you get a token "
         "for Claude Desktop, Cursor or any MCP client. It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"

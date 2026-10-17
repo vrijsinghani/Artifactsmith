@@ -744,6 +744,7 @@ def test_try_page_links_public_examples(trial_http):
     assert "https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/" in text
     assert "https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/" in text
     assert "https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/" in text
+    assert text.index("Source and install:") < text.index("Examples, no sign-up:")
     assert text.index("Examples, no sign-up:") < text.index('<form method=post action="/try">')
 
 
