@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -23,6 +22,8 @@ from . import __version__, stdio_mode
 from .config import CFG
 from .llm import openai_key_missing
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
+from .oauth_grants import resolve_bearer
+from .oauth_origin import authenticate_header
 from .renderers import MIME, SOURCE_NAME
 from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
 from .web.routes import build_pages
@@ -80,7 +81,7 @@ async def _list_tools_for_caller() -> list[Any]:
     except LookupError:
         return tools
     principal = getattr(request, "scope", {}).get("am_principal") if request is not None else None
-    if isinstance(principal, dict) and principal.get("trial"):
+    if isinstance(principal, dict) and (principal.get("trial") or principal.get("demo")):
         return [tool for tool in tools if tool.name != "publish"]
     return tools
 
@@ -591,23 +592,36 @@ class BearerAuth:
         auth = headers.get("authorization", "")
         principal = None
         if auth.lower().startswith("bearer "):
-            h = hashlib.sha256(auth[7:].strip().encode()).hexdigest()
-            row = _svc().db.one("SELECT * FROM tokens WHERE token_hash=? AND revoked_at IS NULL", h)
-            if row:
-                principal = {
-                    "id": row["id"],
-                    "name": row["name"],
-                    "workspace": row["workspace"],
-                    "perms": set(json.loads(row["perms"])),
-                    "trial": row["kind"] == "trial" if "kind" in row.keys() else False,
-                }
+            principal = resolve_bearer(_svc().db, auth[7:].strip())
         if not principal:
-            resp = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+            resp = JSONResponse(
+                {"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": authenticate_header()}
+            )
             await resp(scope, receive, send)
             return
         scope.update({"am_principal": principal})
         await self.app(scope, receive, send)
         return
+
+
+def _public_page(path: str) -> bool:
+    """Pages and OAuth discovery. These are not behind the bearer token."""
+    if path.startswith("/app") or path.startswith("/trial/") or path.startswith("/.well-known/oauth-"):
+        return True
+    return path in {
+        "/",
+        "/try",
+        "/try/",
+        "/trial",
+        "/privacy",
+        "/privacy/",
+        "/oauth/authorize",
+        "/oauth/token",
+        "/oauth/register",
+        "/oauth/revoke",
+        "/oauth/confirm",
+        _CARD_PATH,
+    }
 
 
 class ApiApp:
@@ -625,16 +639,7 @@ class ApiApp:
         # Lifespan has no path. It must reach the MCP app so its session manager starts.
         if scope["type"] == "http":
             path = scope["path"]
-            if (
-                path == "/app"
-                or path.startswith("/app/")
-                or path == "/"
-                or path == "/try"
-                or path == "/try/"
-                or path == "/trial"
-                or path.startswith("/trial/")
-                or path == _CARD_PATH
-            ):
+            if _public_page(path):
                 await self.pages(scope, receive, send)
                 return
         await self.api(scope, receive, send)

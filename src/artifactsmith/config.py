@@ -145,6 +145,32 @@ def _trusted_proxies() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, .
     return tuple(nets)
 
 
+_CLIENT_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+
+
+def _oauth_static_client() -> str:
+    raw = _setting("AM_OAUTH_STATIC_CLIENT_ID", "artifactsmith")
+    if not raw or len(raw) > 64 or any(ch not in _CLIENT_CHARS for ch in raw):
+        raise ConfigError("AM_OAUTH_STATIC_CLIENT_ID is invalid")
+    return raw
+
+
+def _demo_pair() -> tuple[str, str]:
+    email = _setting("AM_OAUTH_DEMO_EMAIL", "").strip()
+    password = _setting("AM_OAUTH_DEMO_PASSWORD", "")
+    if bool(email) != bool(password):
+        raise ConfigError("AM_OAUTH_DEMO_EMAIL and AM_OAUTH_DEMO_PASSWORD must both be set or both be empty")
+    return email, password
+
+
+def _oauth_demo_email() -> str:
+    return _demo_pair()[0]
+
+
+def _oauth_demo_password() -> str:
+    return _demo_pair()[1]
+
+
 def _default_allowed_hosts() -> list[str]:
     raw = _setting("AM_ALLOWED_HOSTS", "")
     if raw.strip():
@@ -211,6 +237,14 @@ class Config:
     trial_link_ttl_s: int = field(default_factory=lambda: _setting_int("AM_TRIAL_LINK_TTL_S", 1800, minimum=60))
     trial_retention_days: int = field(default_factory=lambda: _setting_int("AM_TRIAL_RETENTION_DAYS", 30, minimum=1))
     trial_abuse_email: str = field(default_factory=lambda: _setting("AM_TRIAL_ABUSE_EMAIL", ""))
+    # OAuth. Empty redirect list uses the built-in Claude and ChatGPT allowlist.
+    oauth_redirects: str = field(default_factory=lambda: _setting("AM_OAUTH_REDIRECTS", ""))
+    oauth_static_client_id: str = field(default_factory=_oauth_static_client)
+    oauth_demo_email: str = field(default_factory=_oauth_demo_email)
+    oauth_demo_password: str = field(default_factory=_oauth_demo_password)
+    oauth_demo_build_limit: int = field(
+        default_factory=lambda: _setting_int("AM_OAUTH_DEMO_BUILD_LIMIT", 20, minimum=1)
+    )
     smtp_host: str = field(default_factory=lambda: _setting("AM_SMTP_HOST", ""))
     smtp_port: int = field(default_factory=lambda: _setting_int("AM_SMTP_PORT", 587, minimum=1, maximum=65535))
     smtp_user: str = field(default_factory=lambda: _setting("AM_SMTP_USER", ""))

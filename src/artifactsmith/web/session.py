@@ -153,12 +153,14 @@ def principal_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not perms:
         return None
+    kind = str(row["kind"]) if "kind" in row.keys() else "internal"
     return {
         "id": row["id"],
         "name": row["name"],
         "workspace": row["workspace"],
         "perms": perms,
-        "trial": row["kind"] == "trial" if "kind" in row.keys() else False,
+        "trial": kind == "trial",
+        "demo": kind == "demo",
     }
 
 

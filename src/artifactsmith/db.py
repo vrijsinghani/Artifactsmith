@@ -156,6 +156,57 @@ CREATE TABLE IF NOT EXISTS trial_usage (
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS trial_usage_job ON trial_usage(job_id);
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id TEXT PRIMARY KEY,
+  redirect_json TEXT NOT NULL,
+  auth_method TEXT NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_pending (
+  id_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  state TEXT NOT NULL,
+  challenge TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  email_hash TEXT,
+  token_id TEXT,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_links (
+  code_hash TEXT PRIMARY KEY,
+  pending_hash TEXT NOT NULL,
+  expires_at REAL NOT NULL,
+  used_at REAL
+);
+CREATE TABLE IF NOT EXISTS oauth_grants (
+  code_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  challenge TEXT NOT NULL,
+  token_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  expires_at REAL NOT NULL,
+  used_at REAL,
+  family_id TEXT
+);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id TEXT PRIMARY KEY,
+  family_id TEXT NOT NULL,
+  access_hash TEXT NOT NULL UNIQUE,
+  refresh_hash TEXT NOT NULL UNIQUE,
+  client_id TEXT NOT NULL,
+  token_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  access_expires_at REAL NOT NULL,
+  refresh_expires_at REAL NOT NULL,
+  rotated_at REAL,
+  revoked_at REAL
+);
+CREATE INDEX IF NOT EXISTS oauth_tokens_family ON oauth_tokens(family_id);
 """
 
 

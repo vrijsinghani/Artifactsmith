@@ -17,6 +17,7 @@ from ..service import AMError, Service
 from .catalog import STATUSES, list_pages, page_detail, parse_page
 from .client_addr import client_ip
 from .clock import TZ_COOKIE, default_zone, zone_from_name
+from .oauth_pages import oauth_routes
 from .pages import (
     new_nonce,
     render_detail,
@@ -223,6 +224,7 @@ def build_pages(get_svc: Callable[[], Service]) -> HostGuard:
             Route("/app/a/{artifact_id}", detail, methods=["GET"]),
             Route("/app/logout", logout, methods=["POST"]),
             *trial_routes(current),
+            *oauth_routes(current),
         ]
     )
     return HostGuard(app)

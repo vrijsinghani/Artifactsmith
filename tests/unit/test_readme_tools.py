@@ -49,6 +49,9 @@ def test_readme_states_requirements_client_setup_and_stdio_limits():
     assert "~/.cursor/mcp.json" in connect
     assert "claude mcp add --transport http artifactsmith http://127.0.0.1:8780/mcp" in connect
     assert "Authorization: Bearer YOUR_TOKEN" in connect
+    assert "Claude.ai custom connectors sign in with OAuth." in connect
+    assert "ChatGPT personal plans cannot add a custom MCP server." in connect
+    assert "Free and Plus can use a directory listing." in connect
     assert "Node.js" in connect
     assert "mcp-remote" in connect
     assert "Pass this as source_content: The pilot store code is HARBOR-17." in connect

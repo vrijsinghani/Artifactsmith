@@ -289,6 +289,9 @@ class Service:
     def __init__(self) -> None:
         self.db = DB(CFG.db_path)
         self.store = Store()
+        from .oauth_demo import ensure as ensure_oauth_demo
+
+        ensure_oauth_demo(self.db, self.store)
         # Internal jobs are preferred. A second trial job waits so one slot stays free.
         self.internal_q: asyncio.Queue[str] = asyncio.Queue()
         self.trial_q: asyncio.Queue[str] = asyncio.Queue()
@@ -306,11 +309,11 @@ class Service:
             "SELECT tokens.kind AS kind FROM jobs JOIN tokens ON tokens.id = jobs.client WHERE jobs.id=?",
             jid,
         )
-        return bool(row and row["kind"] == "trial")
+        return bool(row and row["kind"] in ("trial", "demo"))
 
     def _token_is_trial(self, token_id: str) -> bool:
         row = self.db.one("SELECT kind FROM tokens WHERE id=?", token_id)
-        return bool(row and row["kind"] == "trial")
+        return bool(row and row["kind"] in ("trial", "demo"))
 
     def _put_job(self, q: asyncio.Queue[str], jid: str) -> None:
         def deliver() -> None:
@@ -390,6 +393,19 @@ class Service:
         return json.dumps({"_fp": fingerprint, "body": result}, separators=(",", ":"))
 
     def _check_quota(self, c: Any, principal: dict[str, Any]) -> None:
+        if principal.get("demo"):
+            limit = int(CFG.oauth_demo_build_limit)
+            total = c.execute(trial.COUNTED_BUILDS_SQL, (principal["id"],)).fetchone()["n"]
+            if int(total) >= limit:
+                raise AMError(f"you've used the {limit} review builds.")
+            hour_limit = int(CFG.trial_builds_per_hour)
+            n = c.execute(
+                "SELECT COUNT(*) n FROM trial_reservations WHERE token_id=? AND created_at>?",
+                (principal["id"], now() - 3600),
+            ).fetchone()["n"]
+            if int(n) >= hour_limit:
+                raise AMError(f"quota: {hour_limit} builds/hour reached")
+            return
         if principal.get("trial"):
             if not CFG.trial_enabled:
                 raise AMError(trial.CLOSED)
@@ -414,6 +430,11 @@ class Service:
             raise AMError(f"quota: {hour_limit} builds/hour reached")
 
     def _hold_trial(self, c: Any, principal: dict[str, Any], jid: str, when: float) -> None:
+        if principal.get("demo"):
+            from .oauth_demo import reserve as reserve_demo
+
+            reserve_demo(c, jid, when, str(principal["id"]))
+            return
         if not principal.get("trial"):
             return
         try:
@@ -424,10 +445,11 @@ class Service:
     def _builds_remaining(self, principal: dict[str, Any]) -> int:
         row = self.db.one(trial.COUNTED_BUILDS_SQL, principal["id"])
         used = int(row["n"]) if row else 0
-        return max(0, int(CFG.trial_build_limit) - used)
+        limit = int(CFG.oauth_demo_build_limit) if principal.get("demo") else int(CFG.trial_build_limit)
+        return max(0, limit - used)
 
     def _annotate_trial(self, principal: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-        if principal.get("trial"):
+        if principal.get("trial") or principal.get("demo"):
             result["builds_remaining"] = self._builds_remaining(principal)
         return result
 
@@ -492,7 +514,11 @@ class Service:
         return m
 
     def _resolve_model(self, principal: dict[str, Any], model: str | None) -> str:
-        """Trial builds ignore the caller's model name."""
+        """Trial and review builds ignore the caller's model name."""
+        if principal.get("demo"):
+            if not MODEL_RE.match(CFG.trial_model):
+                raise AMError("hosted model is not configured")
+            return CFG.trial_model
         if not principal.get("trial"):
             return self._model(model)
         if not CFG.trial_enabled:
@@ -863,7 +889,7 @@ class Service:
         """Queue a finished page. The worker skips the model and runs the output checks."""
         from .publishing import admit_publish
 
-        if principal.get("trial"):
+        if principal.get("trial") or principal.get("demo"):
             raise AMError("hosted tokens cannot publish")
         return admit_publish(
             self,
@@ -1367,9 +1393,9 @@ class Service:
         a = self.get_artifact(principal, a["id"])
         out = self.card(a, v)
         out["share"] = self._share_state(a["id"], version)
-        if principal.get("trial"):
+        if principal.get("trial") or principal.get("demo"):
             out["builds_remaining"] = self._builds_remaining(principal)
-            if v["status"] == "needs_input":
+            if principal.get("trial") and v["status"] == "needs_input":
                 out["free_retries_left"] = trial.free_retries_left(self.db, str(principal["id"]))
         if v["status"] == "done" and v.get("model") == builder.PUBLISHED_MODEL:
             recorded = await asyncio.to_thread(self._manifest, a, v)
@@ -1674,7 +1700,7 @@ class Service:
             sid = shortid(16)
             t = now()
             exp = self._share_exp(t, ttl_days if ttl_days is not None else CFG.share_ttl_days)
-            if principal.get("trial"):
+            if principal.get("trial") or principal.get("demo"):
                 exp = min(exp, t + trial.SHARE_DAYS * 86400)
             self.db.exec(
                 "INSERT INTO shares (id, artifact_id, version, sha256, created_by, created_at, expires_at, "
