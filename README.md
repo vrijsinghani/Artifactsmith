@@ -20,22 +20,126 @@ ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Mark
 
 ## Quickstart
 
+https://github.com/vrijsinghani/Artifactsmith
+
+You need Docker with Compose, and an OpenAI-compatible model endpoint plus a key. Set `OPENAI_API_KEY` (or `AM_LLM_KEY`). The base URL setting is `AM_LLM_BASE` (default `https://api.openai.com`).
+
+`publish` stores a finished page with no model call, so it does not need that key. `create` and `edit` do.
+
 ```bash
+git clone https://github.com/vrijsinghani/Artifactsmith
+cd Artifactsmith
 cp .env.example .env
-# Set OPENAI_API_KEY (or AM_LLM_KEY). Change AM_LLM_BASE / AM_DEFAULT_MODEL
-# only if you are not using the default OpenAI host and model.
-# Object-store keys: leave them empty and run ./scripts/ensure-local-env.sh,
-# or paste your own AM_STORE_KEY and AM_STORE_SECRET.
+# Put your key on its own line: OPENAI_API_KEY=sk-...
+# Leave AM_STORE_KEY and AM_STORE_SECRET empty. The next command fills them.
 ./scripts/ensure-local-env.sh
 docker compose up -d --build
-
-# Create a token (prints the raw value once; only its hash is stored).
-# --workspace is a label that scopes every artifact the token can see
-# (e.g. alpha, team-a). Tokens cannot cross workspaces.
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
-The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself.
+`--workspace` is the label for every artifact that token can see. The command prints the token once. Only its hash is stored.
+
+If `docker compose up` waits on `storage-init`, run `docker compose ps` and `docker compose logs storage-init`. That container exits after 120 seconds when it cannot reach the storage endpoint named in the log (`AM_STORE_ENDPOINT`, default `http://storage:9000`).
+
+The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself.
+
+HTTP MCP client. Replace `YOUR_TOKEN` with the value printed above.
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "url": "http://127.0.0.1:8780/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}
+```
+
+Python `tools/list`, `create`, `status`, and `share` (`pip install mcp`):
+
+```python
+import asyncio
+import json
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+URL = "http://127.0.0.1:8780/mcp"
+TOKEN = "YOUR_TOKEN"
+
+def payload(result):
+    if result.structuredContent is not None:
+        return result.structuredContent
+    return json.loads(result.content[0].text)
+
+async def main():
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    async with streamablehttp_client(URL, headers=headers) as (read, write, _session):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            listed = await session.list_tools()
+            print([tool.name for tool in listed.tools])
+            created = payload(await session.call_tool("create", {
+                "verbatim_request": "A one-page note that says hello.",
+                "display_name": "Hello",
+            }))
+            print(created)
+            done = payload(await session.call_tool("status", {
+                "job_id": created["job_id"],
+                "wait": 90,
+            }))
+            print(done)
+            if done.get("status") == "done":
+                shared = payload(await session.call_tool("share", {
+                    "artifact_id": created["artifact_id"],
+                }))
+                print(shared["url"])
+
+asyncio.run(main())
+```
+
+With no model key, call `publish` instead of `create`. Pass `markdown` and `display_name`. Then `status` and `share` are the same.
+
+### Local stdio
+
+Install from the repo:
+
+```bash
+uv tool install git+https://github.com/vrijsinghani/Artifactsmith
+```
+
+`pip install git+https://github.com/vrijsinghani/Artifactsmith` does the same.
+
+Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "command": "artifactsmith",
+      "args": ["stdio"]
+    }
+  }
+}
+```
+
+Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "type": "stdio",
+      "command": "artifactsmith",
+      "args": ["stdio"]
+    }
+  }
+}
+```
+
+`artifactsmith stdio` speaks MCP on stdin and stdout and does not listen. `tools/list` works. It cannot use the object store or the model, so `create`, `edit`, and `publish` fail with `stdio cannot use the object store or the model`. Use the Compose server above to build and share a page.
 
 Host ports bind to `127.0.0.1`:
 
@@ -115,7 +219,7 @@ When `AM_ALLOWED_HOSTS` lists only the public hostname, a local `curl http://127
 
 ### MCP client on another machine
 
-Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Claude Desktop on this same machine can instead run `artifactsmith stdio`, which speaks MCP on stdin and stdout and does not listen. Example:
+Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Local stdio install and its limit are in Quickstart. Example:
 
 ```text
 URL:    http://192.0.2.10:8780/mcp

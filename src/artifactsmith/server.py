@@ -8,7 +8,6 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
@@ -22,6 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__, stdio_mode
 from .config import CFG
+from .llm import MISSING_MODEL_KEY, missing_openai_key_warning
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .renderers import MIME, SOURCE_NAME
 from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
@@ -773,12 +773,6 @@ preview_app = Starlette(
 )
 
 
-def missing_openai_key_warning(base: str, key: str) -> bool:
-    """True when the configured LLM host is api.openai.com and no key is set."""
-    host = (urlparse(base).hostname or "").lower()
-    return (not key) and host == "api.openai.com"
-
-
 async def main() -> None:
     global SVC
     logging.basicConfig(
@@ -787,10 +781,7 @@ async def main() -> None:
     )
     log = logging.getLogger("artifactsmith")
     if missing_openai_key_warning(CFG.normalized_llm_base(), CFG.llm_key()):
-        log.warning(
-            "OPENAI_API_KEY / AM_LLM_KEY is empty while AM_LLM_BASE points at api.openai.com; "
-            "create will fail with HTTP 401 until you set a key or point AM_LLM_BASE at a local gateway"
-        )
+        log.warning("%s", MISSING_MODEL_KEY)
     svc = Service()
     SVC = svc
     svc.store.ensure_bucket()

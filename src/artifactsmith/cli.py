@@ -17,10 +17,13 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .db import DB
 from .service import ALL_PERMS, WS_RE, write_audit
+
+if TYPE_CHECKING:
+    from .store import Store
 
 _TOKEN_MIN = 24
 
@@ -168,24 +171,50 @@ def cmd_token_perms(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_storage_init(args: argparse.Namespace) -> int:
+STORAGE_INIT_TIMEOUT_S = 120
+
+
+def _storage_init_store(remaining: float) -> Store:
+    """One try per call, short enough that head plus create still fit in `remaining`."""
     from .store import Store
 
-    store = Store()
-    last = None
-    for attempt in range(60):
+    # A stalled connect and a stalled read, on head_bucket and the create fallback.
+    slice_s = max(0.05, remaining / 4)
+    return Store(
+        connect_timeout=min(10.0, slice_s),
+        read_timeout=min(60.0, slice_s),
+        max_attempts=0,
+    )
+
+
+def cmd_storage_init(args: argparse.Namespace) -> int:
+    from .config import CFG
+
+    endpoint = CFG.store_endpoint or "(AM_STORE_ENDPOINT is empty)"
+    deadline = time.monotonic() + STORAGE_INIT_TIMEOUT_S
+    attempt = 0
+    last = "no response"
+    while time.monotonic() < deadline:
+        attempt += 1
+        remaining = deadline - time.monotonic()
         try:
+            store = _storage_init_store(remaining)
             created = store.ensure_bucket()
             print(
-                json.dumps(
-                    {"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt + 1}
-                )
+                json.dumps({"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt})
             )
             return 0
         except Exception as e:  # noqa: BLE001
-            last = str(e)
-            time.sleep(1)
-    print(json.dumps({"error": f"object store not ready: {last}"}))
+            last = type(e).__name__
+            print(f"waiting for storage at {endpoint} (attempt {attempt})", file=sys.stderr)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))
+    print(
+        f"storage at {endpoint} was not ready after {STORAGE_INIT_TIMEOUT_S}s ({last})",
+        file=sys.stderr,
+    )
     return 1
 
 

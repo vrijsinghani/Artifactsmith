@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 
 import pytest
 from starlette.testclient import TestClient
 
 import artifactsmith.server as server
+from artifactsmith.config import CFG
 from artifactsmith.service import Service, sign
 
 
@@ -414,6 +416,32 @@ def test_missing_openai_key_warning_uses_hostname():
     assert server.missing_openai_key_warning("https://api.openai.com.evil.example", "") is False
     assert server.missing_openai_key_warning("https://api.openai.com", "sk-x") is False
     assert server.missing_openai_key_warning("http://mock-llm:8080", "") is False
+
+
+@pytest.mark.asyncio
+async def test_main_warns_when_the_openai_key_is_missing(svc, monkeypatch, caplog):
+    from tests.unit.conftest import clear_model_key
+
+    clear_model_key(monkeypatch)
+    monkeypatch.setattr(CFG, "llm_base", "https://api.openai.com")
+
+    class _FakeServer:
+        def __init__(self, config):
+            self.config = config
+
+        async def serve(self):
+            await asyncio.sleep(0)
+
+    async def _no_delay(_seconds: float = 0):
+        return None
+
+    monkeypatch.setattr(server, "Service", lambda: svc)
+    monkeypatch.setattr(server.uvicorn, "Server", _FakeServer)
+    monkeypatch.setattr(server.asyncio, "sleep", _no_delay)
+    with caplog.at_level(logging.WARNING, logger="artifactsmith"):
+        await server.main()
+    assert server.MISSING_MODEL_KEY in caplog.text
+    assert server.SVC is None
 
 
 @pytest.mark.asyncio

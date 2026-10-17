@@ -1028,6 +1028,10 @@ class Service:
             self._fail(jid, "artifact or version vanished")
             trial.settle(self.db, jid, [])
             return
+        if not v.get("publish_json") and llm.missing_openai_key_warning(CFG.normalized_llm_base(), CFG.llm_key()):
+            self._fail(jid, llm.MISSING_MODEL_KEY)
+            trial.settle(self.db, jid, [])
+            return
         if a.get("deleting_at"):
             self._fail(jid, "artifact is being deleted")
             trial.settle(self.db, jid, [])

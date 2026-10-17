@@ -70,6 +70,40 @@ def test_store_requires_config(monkeypatch):
         Store()
 
 
+def test_server_client_keeps_its_timeouts(monkeypatch):
+    seen: dict = {}
+
+    def client(*_a, **kwargs):
+        seen.update(kwargs)
+        return _FakeS3()
+
+    monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")
+    monkeypatch.setattr(store_mod.CFG, "store_credentials", lambda: ("ak", "sk"))
+    monkeypatch.setattr(store_mod.boto3, "client", client)
+    Store()
+    config = seen["config"]
+    assert config.connect_timeout == 10
+    assert config.read_timeout == 60
+    assert config.retries["max_attempts"] == 3
+
+
+def test_init_client_takes_one_attempt(monkeypatch):
+    seen: dict = {}
+
+    def client(*_a, **kwargs):
+        seen.update(kwargs)
+        return _FakeS3()
+
+    monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")
+    monkeypatch.setattr(store_mod.CFG, "store_credentials", lambda: ("ak", "sk"))
+    monkeypatch.setattr(store_mod.boto3, "client", client)
+    Store(connect_timeout=2.5, read_timeout=4.0, max_attempts=0)
+    config = seen["config"]
+    assert config.connect_timeout == 2.5
+    assert config.read_timeout == 4.0
+    assert config.retries["max_attempts"] == 0
+
+
 def test_ensure_put_get_purge(monkeypatch):
     fake = _FakeS3()
     monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")

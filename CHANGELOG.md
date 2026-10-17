@@ -21,6 +21,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- `storage-init` no longer inherits the API health check. It prints progress while it waits, and it exits after 120 seconds with the storage endpoint in the message. `create` against `api.openai.com` with no model key fails in `status.error` as `No model key set: put OPENAI_API_KEY in .env (see README)` before the model call. The same sentence is a startup warning. Quickstart lists Docker, the key, clone-to-share commands, and the stdio install limit.
 - Hosted page, home page, and README copy uses plain sentences. The link-card description no longer tells an origin story.
 - The Claude Desktop trial snippet keeps the bearer token in `AUTH_HEADER`, so Windows Claude Desktop and Cursor do not split a space inside an mcp-remote argument. The Cursor snippet stays a URL plus headers. The token page names Claude Desktop's Add custom connector route.
 - The trial token page includes a Claude Desktop snippet that runs `mcp-remote`, and a Claude Code snippet that uses HTTP. Sign-in mail `Message-ID` uses the domain of `AM_SMTP_FROM`. Served trial pages add `noindex` even when another robots meta is already present. A trial token's tool list omits `publish`. Trial sign-ups group IPv6 clients by `/48`. My pages login stays `/64`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from tests.unit.conftest import clear_model_key
 
 from artifactsmith.builder import BuildError, BuildResult, NeedsInput
 from artifactsmith.config import CFG
@@ -990,3 +991,76 @@ async def test_style_persists_across_edit_and_shows_in_status_inspect(svc, monke
     with pytest.raises(AMError, match="house, bold, editorial, playful, terminal, swiss"):
         svc.edit(p, artifact_id=created["artifact_id"], base_version=2, verbatim_request="nope", style="neon")
     assert seen == ["bold", "bold"]
+
+
+def _page(**kwargs):
+    return BuildResult(
+        files={"index.html": b"<html><body>ok</body></html>"},
+        primary="index.html",
+        assumptions=[],
+        summary="built",
+        model=kwargs.get("model", "gpt-test"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_without_openai_key_fails_before_the_model(svc, monkeypatch):
+    from artifactsmith.llm import MISSING_MODEL_KEY
+
+    clear_model_key(monkeypatch)
+    monkeypatch.setattr(CFG, "llm_base", "https://api.openai.com/v1")
+    called = {"n": 0}
+
+    async def fake_build(**kw):
+        called["n"] += 1
+        return _page()
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", fake_build)
+    p = _principal()
+    created = svc.create(p, slug="no-key", display_name="No Key", kind="web_static", verbatim_request="x")
+    await svc._run_job(created["job_id"])
+    assert called["n"] == 0
+    out = await svc.status(p, job_id=created["job_id"], wait=0)
+    assert out["status"] == "failed"
+    assert out["error"] == MISSING_MODEL_KEY
+
+
+@pytest.mark.asyncio
+async def test_empty_key_on_a_local_base_still_builds(svc, monkeypatch):
+    clear_model_key(monkeypatch)
+    monkeypatch.setattr(CFG, "llm_base", "http://mock-llm:8080")
+    called = {"n": 0}
+
+    async def fake_build(**kw):
+        called["n"] += 1
+        return _page()
+
+    monkeypatch.setattr("artifactsmith.service.builder.run_build", fake_build)
+    p = _principal()
+    created = svc.create(p, slug="local-llm", display_name="Local", kind="web_static", verbatim_request="x")
+    await svc._run_job(created["job_id"])
+    assert called["n"] == 1
+    out = await svc.status(p, job_id=created["job_id"], wait=0)
+    assert out["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_publish_without_openai_key_skips_the_model(svc, monkeypatch):
+    from artifactsmith.llm import MISSING_MODEL_KEY
+
+    clear_model_key(monkeypatch)
+    monkeypatch.setattr(CFG, "llm_base", "https://api.openai.com")
+    called = {"n": 0}
+
+    async def publish_page(**kw):
+        called["n"] += 1
+        return _page(model="published")
+
+    monkeypatch.setattr("artifactsmith.service.builder.publish_page", publish_page)
+    p = _principal()
+    created = svc.publish(p, display_name="Ready", markdown="# Ready\n\nHello.\n")
+    await svc._run_job(created["job_id"])
+    assert called["n"] == 1
+    out = await svc.status(p, job_id=created["job_id"], wait=0)
+    assert out["status"] == "done"
+    assert out.get("error") != MISSING_MODEL_KEY

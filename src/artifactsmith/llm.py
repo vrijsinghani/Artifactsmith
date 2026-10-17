@@ -7,13 +7,23 @@ import contextvars
 import json
 import logging
 import re
+from urllib.parse import urlparse
 
 import httpx
 
 from . import stdio_mode
 from .config import CFG
 
+MISSING_MODEL_KEY = "No model key set: put OPENAI_API_KEY in .env (see README)"
+
 log = logging.getLogger("artifactsmith.llm")
+
+
+def missing_openai_key_warning(base: str, key: str) -> bool:
+    """True when the configured LLM host is api.openai.com and no key is set."""
+    host = (urlparse(base).hostname or "").lower()
+    return (not key) and host == "api.openai.com"
+
 
 # Cap the raw HTTP response body while streaming so a runaway reply cannot fill memory.
 LLM_RESPONSE_CAP_BYTES = 2_000_000

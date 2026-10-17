@@ -32,6 +32,9 @@ services:
     depends_on:
       storage:
         condition: service_started
+    # The image HEALTHCHECK probes the API port. This command never listens there.
+    healthcheck:
+      disable: true
     restart: "no"
     networks: [am]
 
