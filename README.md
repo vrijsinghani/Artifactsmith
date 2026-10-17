@@ -8,13 +8,11 @@ Agents call it to turn their work into documents: web pages, PDFs, Word files, s
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
-Want to see it work before installing?  I run a copy you can point your MCP client at: https://artifactsmith.neuralami.ai/try (email for a token, capped at 20 builds, runs on my server).
+Try it before you install: https://artifactsmith.neuralami.ai/try. I run a copy you can point your MCP client at (email for a token, capped at 20 builds, runs on my server).
 
-## Why I built this
+## What it does
 
-My agents did good work and then handed it back as a wall of chat text. Useful, sure. Fun to read? Not so much.
-
-Then I saw Meta's Muse artifacts, where the agent hands you a real page you can look at, share, and pull back later. I wanted that for my own agents, on my own servers. So I vibe coded it. And here we are.
+ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Markdown), share, and revoke documents. It works with any OpenAI-compatible model endpoint. Meta's Muse artifacts are a real page you can look at, share, and pull back later.
 
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 

@@ -51,8 +51,8 @@ def _cookie_kwargs() -> dict[str, Any]:
 _PAGE_TITLE = "Try ArtifactSmith before you install"
 _CARD_TITLE = "ArtifactSmith: open-source MCP server for agent output"
 _CARD_DESCRIPTION = (
-    "My agents kept handing me walls of chat text.  This turns it into real pages and PDFs.  "
-    "MIT.  Try it before you install."
+    "Open-source MCP server (MIT) that turns agent output into web pages and PDFs "
+    "you can share and revoke. Try it before you install."
 )
 
 
@@ -221,7 +221,7 @@ def _token_page(raw: str, workspace: str) -> str:
         "<p>Copy it now. It is not shown again.</p>"
         f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
         f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
-        f'<p>Like it?  Run your own: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a></p>'
+        f'<p>Run your own copy: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a></p>'
         "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
         f"<p>{_connector_line(CFG.api_url)}</p>"
         f"{_client_snippets(CFG.api_url)}"

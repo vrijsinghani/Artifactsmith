@@ -8,6 +8,7 @@ import logging
 import re
 import time
 from html import escape, unescape
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -741,13 +742,18 @@ def test_trial_page_advertises_a_public_card(trial_http):
     assert page.status_code == 200
     text = page.text
     assert 'property="og:title" content="ArtifactSmith: open-source MCP server for agent output"' in text
-    assert "My agents kept handing me walls of chat text." in text
+    assert (
+        "Open-source MCP server (MIT) that turns agent output into web pages and PDFs "
+        "you can share and revoke. Try it before you install."
+    ) in text
+    assert "walls of chat text" not in text
+    assert "Like it?" not in text
     assert 'property="og:url" content="https://trial.example/try"' in text
     assert 'property="og:image" content="https://trial.example/static/og-trial.png"' in text
     assert 'name="twitter:card" content="summary_large_image"' in text
     assert 'name="twitter:title" content="ArtifactSmith: open-source MCP server for agent output"' in text
     assert (
-        'name="twitter:description" content="My agents kept handing me walls of chat text.  This turns it into real pages and PDFs.  MIT.  Try it before you install."'
+        'name="twitter:description" content="Open-source MCP server (MIT) that turns agent output into web pages and PDFs you can share and revoke. Try it before you install."'
         in text
     )
     assert 'name="twitter:image" content="https://trial.example/static/og-trial.png"' in text
@@ -786,6 +792,60 @@ def test_legacy_post_trial_still_mints(trial_http, svc, monkeypatch):
     assert posted.status_code == 200
     assert "Your token" in posted.text
     assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 0
+
+
+class _VisibleText(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip = 0
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self._skip += 1
+        if tag == "meta":
+            content = dict(attrs).get("content")
+            if isinstance(content, str) and not content.startswith(("http://", "https://")):
+                self.parts.append(content)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip:
+            self.parts.append(data)
+
+
+def _visible_copy(html: str) -> str:
+    """Page text a person reads. URLs and form actions are not copy."""
+    parser = _VisibleText()
+    parser.feed(html)
+    text = re.sub(r"https?://\S+", " ", " ".join(parser.parts))
+    return re.sub(r"\s+", " ", text)
+
+
+def test_visible_pages_avoid_banned_copy(trial_http, monkeypatch):
+    client, _box = trial_http
+    monkeypatch.setattr(CFG, "trial_email_verify", False)
+    try_page = client.get("/try")
+    home = client.get("/")
+    token = _csrf(client)
+    minted = client.post("/try", data={"csrf": token, "email": "copy@example.com"})
+    assert minted.status_code == 200
+    assert "Run your own copy:" in minted.text
+    pages = (try_page.text, minted.text, home.text)
+    for html in pages:
+        visible = _visible_copy(html).lower()
+        assert "walls of chat text" not in visible
+        assert "like it?" not in visible
+        assert "trial" not in visible
+        assert "free builds" not in visible
+    home_text = _visible_copy(home.text)
+    assert "Turn agent output into web pages, PDFs, Word docs and spreadsheets." in home_text
+    assert "Open-source, self-hosted MCP server. Private until you share. Revocable links. MIT." in home_text
+    assert "Agents do real work, then hand it back" not in home_text
+    assert "For a finished page, publish stores it with no model call." in home_text
 
 
 def test_home_page_links_the_repo_then_try(trial_http):
