@@ -49,15 +49,15 @@ def test_readme_states_requirements_client_setup_and_stdio_limits():
     assert "~/.cursor/mcp.json" in connect
     assert "claude mcp add --transport http artifactsmith http://127.0.0.1:8780/mcp" in connect
     assert "Authorization: Bearer YOUR_TOKEN" in connect
-    assert "Claude.ai (any plan, web or phone):" in connect
+    assert "Claude.ai: Customize → Connectors → + Add → Add custom connector." in connect
     assert "https://artifactsmith.neuralami.ai/mcp" in connect
     assert connect.index("https://artifactsmith.neuralami.ai/mcp") < connect.index(
         "https://github.com/vrijsinghani/Artifactsmith"
     )
     assert connect.index("https://github.com/vrijsinghani/Artifactsmith") < connect.index("claude_desktop_config.json")
     assert "Claude Desktop, Claude Code, and Cursor use a token there." in connect
-    assert "ChatGPT personal plans cannot add a custom MCP server yet." in connect
-    assert "A ChatGPT Business, Enterprise, or Edu admin can add it via OAuth." in connect
+    assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in connect
+    assert "A ChatGPT Business, Enterprise, or Edu admin can add it on the web; it signs in with OAuth." in connect
     assert "Free and Plus can use a directory listing." not in connect
     assert "Node.js" in connect
     assert "mcp-remote" in connect

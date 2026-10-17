@@ -222,15 +222,17 @@ def _form(csrf: str, message: str = "") -> str:
         " · "
         '<a href="https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/">PDF checklist</a>'
         "</p>"
-        "<p>Claude.ai (any plan, web or phone): Settings → Connectors → Add custom connector. "
-        'Paste <a href="https://artifactsmith.neuralami.ai/mcp">https://artifactsmith.neuralami.ai/mcp</a>. '
-        "Connect. Sign in with your email.</p>"
+        "<p>Claude.ai: Customize → Connectors → + Add → Add custom connector. "
+        'Paste <a href="https://artifactsmith.neuralami.ai/mcp">https://artifactsmith.neuralami.ai/mcp</a>, '
+        "select Connect, and sign in with your email. The connector then works in the Claude desktop and "
+        "phone apps too. Free plans allow one custom connector. On Team and Enterprise plans an owner adds it first.</p>"
         "<p>Claude Desktop, Claude Code, and Cursor use a token. "
         "I run a copy here so you can see it work first. Enter an email and the next page shows where the token goes. "
         "It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
-        "<p>ChatGPT personal plans cannot add a custom MCP server yet. "
-        "A ChatGPT Business, Enterprise, or Edu admin can add it via OAuth.</p>"
+        "<p>ChatGPT Free, Go, and Plus cannot add a custom MCP server. Pro can add one with read and fetch "
+        "access only, so it cannot build pages. A ChatGPT Business, Enterprise, or Edu admin can add it on the web; "
+        "it signs in with OAuth.</p>"
         "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f"{note}"
         '<form method=post action="/try">'
