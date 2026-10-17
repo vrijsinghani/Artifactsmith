@@ -18,7 +18,7 @@ ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Mark
 
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
-Requirements: Docker Engine with the Compose plugin, and an OpenAI-compatible API key (or a local OpenAI-compatible endpoint).
+Requirements: Docker Engine with the Compose plugin. A model key (OpenAI-compatible API or local endpoint) is needed to build pages; publishing ready-made Markdown or HTML works without one.
 
 ## Quickstart
 
@@ -98,7 +98,7 @@ asyncio.run(main())
 PY
 ```
 
-The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself. `create` needs a key or a local OpenAI-compatible endpoint. With an empty key, a failed `create` reports that `OPENAI_API_KEY` / `AM_LLM_KEY` is empty.
+The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself. `create` needs a key or a local OpenAI-compatible endpoint. With an empty key, a failed `create` reports that `OPENAI_API_KEY` / `AM_LLM_KEY` is empty. Run `docker compose up -d` again so the change takes effect.
 
 Host ports bind to `127.0.0.1`:
 

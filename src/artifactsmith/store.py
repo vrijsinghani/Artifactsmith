@@ -23,7 +23,13 @@ class StoreError(RuntimeError):
 
 
 class Store:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        connect_timeout: int = 10,
+        read_timeout: int = 60,
+        max_attempts: int = 3,
+    ) -> None:
         ak, sk = CFG.store_credentials()
         if not CFG.store_endpoint or not ak or not sk:
             raise RuntimeError("object store is not configured (AM_STORE_ENDPOINT / AM_STORE_KEY / AM_STORE_SECRET)")
@@ -37,9 +43,9 @@ class Store:
             config=BotoConfig(
                 signature_version="s3v4",
                 s3={"addressing_style": "path"},
-                retries={"max_attempts": 3},
-                connect_timeout=10,
-                read_timeout=60,
+                retries={"max_attempts": max_attempts},
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
             ),
         )
 

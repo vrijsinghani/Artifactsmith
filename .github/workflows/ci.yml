@@ -156,6 +156,21 @@ jobs:
         run: python -m tests.e2e.test_end_to_end
       - name: Format smoke
         run: python -m tests.e2e.test_formats
+      - name: storage-init exits when storage is stopped
+        run: |
+          docker compose -f compose.yaml -f compose.test.yaml stop storage
+          set +e
+          timeout 150 docker compose -f compose.yaml -f compose.test.yaml run --no-deps --rm storage-init > /tmp/storage-init.out 2> /tmp/storage-init.err
+          rc=$?
+          set -e
+          cat /tmp/storage-init.out /tmp/storage-init.err
+          test "$rc" -eq 1
+          grep -E 'ConnectTimeoutError|EndpointConnectionError' /tmp/storage-init.out /tmp/storage-init.err
+          grep -F 'check that the storage service is running and AM_STORE_ENDPOINT points at it' /tmp/storage-init.out /tmp/storage-init.err
+          if grep -E 'https?://' /tmp/storage-init.out /tmp/storage-init.err; then
+            echo "storage-init printed an endpoint URL"
+            exit 1
+          fi
       - name: Compose logs on failure
         if: failure()
         run: docker compose -f compose.yaml -f compose.test.yaml logs --no-color | tail -n 200

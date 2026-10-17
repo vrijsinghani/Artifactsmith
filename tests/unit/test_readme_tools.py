@@ -32,10 +32,15 @@ def test_readme_states_requirements_client_setup_and_stdio_limits():
     text = Path(__file__).resolve().parents[2].joinpath("README.md").read_text(encoding="utf-8")
     before, quickstart = text.split("## Quickstart", 1)
     requirements = [line for line in before.splitlines() if line.strip()][-1]
-    assert requirements.startswith("Requirements: Docker Engine with the Compose plugin")
-    assert "OpenAI-compatible API key" in requirements
+    assert requirements == (
+        "Requirements: Docker Engine with the Compose plugin. "
+        "A model key (OpenAI-compatible API or local endpoint) is needed to build pages; "
+        "publishing ready-made Markdown or HTML works without one."
+    )
     body, _rest = quickstart.split("## Connect a client", 1)
     assert "publish" in body
+    settings = body.split("The server reads `AM_LLM_BASE`", 1)[1]
+    assert "Run `docker compose up -d` again so the change takes effect." in settings
     assert '"share"' in body
     assert 'print(shared["url"])' in body
     connect, later = text.split("## Connect a client", 1)[1].split("\n## ", 1)

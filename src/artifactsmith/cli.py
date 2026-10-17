@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -24,6 +25,23 @@ from .service import ALL_PERMS, WS_RE, write_audit
 
 _TOKEN_MIN = 24
 STORAGE_INIT_ATTEMPTS = 60
+STORAGE_INIT_DEADLINE_S = 60
+_STORAGE_INIT_CAUSE_LIMIT = 8
+_STORAGE_INIT_ERROR = (
+    "object store not ready; check that the storage service is running and AM_STORE_ENDPOINT points at it"
+)
+
+
+def _storage_init_cause(exc: BaseException) -> str:
+    from .store import StoreError
+
+    current: BaseException = exc
+    for _ in range(_STORAGE_INIT_CAUSE_LIMIT):
+        cause = current.__cause__
+        if not isinstance(current, StoreError) or not isinstance(cause, BaseException):
+            break
+        current = cause
+    return type(current).__name__
 
 
 def _make_db() -> DB:
@@ -172,23 +190,30 @@ def cmd_token_perms(args: argparse.Namespace) -> int:
 def cmd_storage_init(args: argparse.Namespace) -> int:
     from .store import Store
 
-    store = Store()
-    limit = STORAGE_INIT_ATTEMPTS
+    # Connection failures include the endpoint URL. Keep those loggers quiet.
+    logging.getLogger("botocore").setLevel(logging.CRITICAL)
+    logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+    store = Store(connect_timeout=2, read_timeout=5, max_attempts=0)
+    deadline = time.monotonic() + STORAGE_INIT_DEADLINE_S
     cause = "error"
-    for attempt in range(1, limit + 1):
+    attempts = 0
+    for attempt in range(1, STORAGE_INIT_ATTEMPTS + 1):
+        if time.monotonic() >= deadline:
+            break
+        attempts = attempt
         # One line before the call so a hung attempt is visible. The cause stays a type name.
-        print(f"storage-init: attempt {attempt}/{limit}", file=sys.stderr, flush=True)
+        print(f"storage-init: attempt {attempt}/{STORAGE_INIT_ATTEMPTS}", file=sys.stderr, flush=True)
         try:
             created = store.ensure_bucket()
         except Exception as e:  # noqa: BLE001
-            cause = type(e).__name__
-            if attempt == limit:
+            cause = _storage_init_cause(e)
+            if attempt == STORAGE_INIT_ATTEMPTS or time.monotonic() >= deadline:
                 break
             time.sleep(1)
             continue
         print(json.dumps({"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt}))
         return 0
-    print(json.dumps({"error": "object store not ready", "attempts": limit, "cause": cause}))
+    print(json.dumps({"error": _STORAGE_INIT_ERROR, "attempts": attempts, "cause": cause}))
     return 1
 
 

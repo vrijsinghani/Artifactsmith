@@ -113,6 +113,42 @@ def test_ensure_bucket_requires_versioning(monkeypatch):
         Store().ensure_bucket()
 
 
+def _capture_client(monkeypatch) -> list:
+    seen: list = []
+
+    def _client(*_args, **kwargs):
+        seen.append(kwargs["config"])
+        return _FakeS3()
+
+    monkeypatch.setattr(store_mod.CFG, "store_endpoint", "http://store.test")
+    monkeypatch.setattr(store_mod.CFG, "store_credentials", lambda: ("ak", "sk"))
+    monkeypatch.setattr(store_mod.CFG, "store_bucket", "artifacts")
+    monkeypatch.setattr(store_mod.boto3, "client", _client)
+    return seen
+
+
+def test_server_client_keeps_current_timeouts(monkeypatch):
+    seen = _capture_client(monkeypatch)
+    Store()
+    cfg = seen[0]
+    assert cfg.connect_timeout == 10
+    assert cfg.read_timeout == 60
+    assert cfg.retries["max_attempts"] == 3
+
+
+def test_init_client_has_short_timeouts_and_no_retries(monkeypatch):
+    seen = _capture_client(monkeypatch)
+    Store()
+    Store(connect_timeout=2, read_timeout=5, max_attempts=0)
+    assert seen[0].retries["max_attempts"] == 3
+    cfg = seen[1]
+    assert cfg.connect_timeout == 2
+    assert cfg.read_timeout == 5
+    assert cfg.retries["max_attempts"] == 0
+    assert cfg.signature_version == "s3v4"
+    assert cfg.s3["addressing_style"] == "path"
+
+
 def test_ensure_bucket_does_not_create_on_403(monkeypatch):
     from botocore.exceptions import ClientError
 
