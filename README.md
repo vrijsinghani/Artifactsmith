@@ -113,7 +113,7 @@ When `AM_ALLOWED_HOSTS` lists only the public hostname, a local `curl http://127
 
 ### MCP client on another machine
 
-Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Example:
+Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Claude Desktop on this same machine can instead run `artifactsmith stdio`, which speaks MCP on stdin and stdout and does not listen. Example:
 
 ```text
 URL:    http://192.0.2.10:8780/mcp

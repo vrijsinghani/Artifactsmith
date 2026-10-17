@@ -10,6 +10,7 @@ import re
 
 import httpx
 
+from . import stdio_mode
 from .config import CFG
 
 log = logging.getLogger("artifactsmith.llm")
@@ -165,6 +166,7 @@ def _temperature_rejected(status: int, body: bytes, payload: dict[str, object]) 
 
 
 async def call_chat(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
+    stdio_mode.refuse()
     key = CFG.llm_key()
     headers = {"Content-Type": "application/json"}
     if key:
@@ -217,6 +219,7 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300, *,
 
 
 async def call_responses(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
+    stdio_mode.refuse()
     key = CFG.llm_key()
     headers = {"Content-Type": "application/json"}
     if key:
@@ -269,6 +272,7 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
 
 
 async def call(model: str, system: str, user: str, timeout: float = 300, *, effort: str | None = None) -> str:
+    stdio_mode.refuse()
     if CFG.llm_api == "responses":
         return await call_responses(model, system, user, timeout, effort=effort)
     return await call_chat(model, system, user, timeout, effort=effort)

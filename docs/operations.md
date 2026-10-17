@@ -103,6 +103,33 @@ URL:    {AM_API_URL}/mcp
 Header: Authorization: Bearer <token from artifactsmith token add>
 ```
 
+## Glama
+
+Glama's inspector builds with `uv sync` and then launches the server through `mcp-proxy`. Use Python 3.12 or 3.13 so the `brotli` wheel installs. On an interpreter with no wheel, install `build-essential` before `uv sync`. Python 3.15 has no `brotli` 1.2.0 wheel; without a compiler that `uv sync` still fails.
+
+Build step: `uv sync`
+
+Command: `mcp-proxy -- uv run artifactsmith stdio`
+
+```json
+["mcp-proxy", "--", "uv", "run", "artifactsmith", "stdio"]
+```
+
+`mcp-proxy` is the process that listens. `artifactsmith stdio` is the child. It does not bind a port. Do not add `--port`.
+
+Dummy environment, and nothing else:
+
+```json
+{
+  "AM_STORE_ENDPOINT": "https://s3.example.com",
+  "AM_STORE_KEY": "dummy",
+  "AM_STORE_SECRET": "dummy",
+  "OPENAI_API_KEY": "sk-dummy"
+}
+```
+
+Leave `AM_DATA_DIR` and `AM_SECRETS_DIR` unset. The command then uses a private temp directory. Stdio is the owner of whatever data directory it is given, and only of workspace `local`. Do not point it at the production data or secrets directory: a share in that shared directory is a public URL, and export can mint a download URL when it can write the secrets directory. Store and model calls return an MCP error and do not open a socket.
+
 ## Backups
 
 Copy these together:

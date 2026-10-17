@@ -133,6 +133,15 @@ def test_api_rejects_missing_bad_token(svc, headers):
     assert r.json()["error"] == "unauthorized"
 
 
+def test_stdio_owner_flag_does_not_bypass_bearer(svc, monkeypatch):
+    monkeypatch.setattr("artifactsmith.stdio_mode.enabled", True)
+    client = TestClient(server.BearerAuth(server.mcp.streamable_http_app()))
+    response = client.post("/mcp", headers={"Accept": "application/json, text/event-stream"})
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
 def test_api_rejects_revoked_token(svc):
     raw = "asmb_revokedtokenvalue"
     _add_token(svc, raw, name="revoked", revoked=True)

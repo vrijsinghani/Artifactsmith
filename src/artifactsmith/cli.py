@@ -1,4 +1,4 @@
-"""Operator CLI:  artifactsmith serve | storage-init | token add|list|revoke|perms
+"""Operator CLI:  artifactsmith serve | stdio | storage-init | token add|list|revoke|perms
 
 Tokens are stored only as sha256 hashes in SQLite. `token add` prints the raw token once.
 `token perms` changes permissions on an existing token and does not print or replace the secret.
@@ -9,11 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
 import sys
+import tempfile
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .db import DB
@@ -193,6 +196,30 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+_stdio_dirs: list[tempfile.TemporaryDirectory[str]] = []
+
+
+def _private_stdio_dir() -> Path:
+    holder = tempfile.TemporaryDirectory(prefix="artifactsmith-stdio-")
+    _stdio_dirs.append(holder)
+    return Path(holder.name)
+
+
+def cmd_stdio(args: argparse.Namespace) -> int:
+    """Serve MCP on stdin/stdout for one local owner. Does not listen."""
+    from . import stdio_mode
+    from .config import CFG
+    from .server import run_stdio
+
+    if not os.environ.get("AM_DATA_DIR"):
+        CFG.data_dir = _private_stdio_dir()
+    if not os.environ.get("AM_SECRETS_DIR"):
+        CFG.secrets_dir = _private_stdio_dir()
+    stdio_mode.enable()
+    run_stdio()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
@@ -202,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("serve", help="run the API + preview server")
+    sub.add_parser("stdio", help="serve MCP tools on stdin/stdout for a local client")
     sub.add_parser("storage-init", help="create the object-store bucket and enable versioning")
 
     tok = sub.add_parser("token", help="manage access tokens").add_subparsers(dest="token_cmd", required=True)
@@ -228,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "cmd", None) == "token":
         fn: Callable[[argparse.Namespace], int] = args.fn
         return fn(args)
-    return {"serve": cmd_serve, "storage-init": cmd_storage_init}[args.cmd](args)
+    return {"serve": cmd_serve, "stdio": cmd_stdio, "storage-init": cmd_storage_init}[args.cmd](args)
 
 
 if __name__ == "__main__":

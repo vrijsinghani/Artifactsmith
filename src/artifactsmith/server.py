@@ -20,11 +20,11 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import __version__
+from . import __version__, stdio_mode
 from .config import CFG
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .renderers import MIME, SOURCE_NAME
-from .service import AMError, Service, page_title, stamp_share_title, unsign
+from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
 from .web.routes import build_pages
 
 SVC: Service | None = None
@@ -94,12 +94,79 @@ def _svc() -> Service:
     return SVC
 
 
+def _local_owner() -> dict[str, Any]:
+    return {
+        "id": "local",
+        "name": "local",
+        "workspace": "local",
+        "perms": set(ALL_PERMS),
+        "trial": False,
+    }
+
+
 def _principal(ctx: Context[Any, Any, Any]) -> dict[str, Any]:
-    req = ctx.request_context.request
-    principal = req.scope.get("am_principal") if req is not None else None
-    if not isinstance(principal, dict):
-        raise AMError("unauthenticated")
-    return principal
+    try:
+        req = ctx.request_context.request
+    except LookupError:
+        raise AMError("unauthenticated") from None
+    if req is not None:
+        principal = req.scope.get("am_principal")
+        if not isinstance(principal, dict):
+            raise AMError("unauthenticated")
+        return principal
+    if stdio_mode.enabled:
+        return _local_owner()
+    raise AMError("unauthenticated")
+
+
+def _stdio_blocks_inspect(principal: dict[str, Any], artifact_id: str, version: int | None) -> bool:
+    """A done inspect reads manifest.json even when content is left off."""
+    if not stdio_mode.enabled:
+        return False
+    try:
+        artifact = _svc().get_artifact(principal, artifact_id)
+    except AMError:
+        return False
+    rows = _svc().db.all(
+        "SELECT version, status FROM versions WHERE artifact_id=? ORDER BY version",
+        artifact["id"],
+    )
+    if version is None:
+        target = next((row for row in reversed(rows) if row["status"] == "done"), None)
+    else:
+        target = next((row for row in rows if int(row["version"]) == int(version)), None)
+    return target is not None and target["status"] == "done"
+
+
+def _stdio_status_reads_manifest(principal: dict[str, Any], artifact_id: str | None, job_id: str | None) -> bool:
+    """status reads the manifest only for a done published version."""
+    if not stdio_mode.enabled:
+        return False
+    from .builder import PUBLISHED_MODEL
+
+    svc = _svc()
+    try:
+        if job_id:
+            job = svc.db.one("SELECT * FROM jobs WHERE id=?", job_id)
+            if not job:
+                return False
+            artifact = svc.get_artifact(principal, str(job["artifact_id"]))
+            version = job["version"]
+        else:
+            if not artifact_id:
+                return False
+            artifact = svc.get_artifact(principal, artifact_id)
+            version = svc.db.must("SELECT MAX(version) m FROM versions WHERE artifact_id=?", artifact["id"])["m"]
+    except AMError:
+        return False
+    if version is None:
+        return False
+    row = svc.db.one(
+        "SELECT status, model FROM versions WHERE artifact_id=? AND version=?",
+        artifact["id"],
+        version,
+    )
+    return row is not None and row["status"] == "done" and row.get("model") == PUBLISHED_MODEL
 
 
 def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]:
@@ -195,6 +262,7 @@ def create(
 
     create does not create a share link. When checks fail, the server retries the model once, so a
     failed build takes about twice as long to report as a clean one."""
+    stdio_mode.refuse()
     return _run(
         _svc().create,
         _principal(ctx),
@@ -249,6 +317,7 @@ def edit(
     heading) becomes the card title instead. The slug stays the same.
 
     Ends as needs_input with a missing message if the change needs facts that were not supplied."""
+    stdio_mode.refuse()
     return _run(
         _svc().edit,
         _principal(ctx),
@@ -320,6 +389,7 @@ def publish(
     longer than the metadata cap (the same 'metadata exceeds N characters' error the job would report).
     They are also scanned like model output. On markdown, style changes the opened page. On HTML, style
     is recorded and the submitted page is not restyled."""
+    stdio_mode.refuse()
     return _run(
         _svc().publish,
         _principal(ctx),
@@ -346,8 +416,13 @@ async def status(
     """Build state (queued, building, done, failed, or needs_input). needs_input includes a missing message.
     Also returns progress and the presentation card. wait (0 to 90 seconds) holds the call open until the
     build finishes."""
+    if stdio_mode.enabled:
+        wait = 0
     try:
-        return await _svc().status(_principal(ctx), artifact_id=artifact_id, job_id=job_id, wait=wait)
+        principal = _principal(ctx)
+        if _stdio_status_reads_manifest(principal, artifact_id, job_id):
+            stdio_mode.refuse()
+        return await _svc().status(principal, artifact_id=artifact_id, job_id=job_id, wait=wait)
     except AMError as e:
         return {"error": str(e)}
 
@@ -379,7 +454,10 @@ def inspect(
     Over the cap, size_bytes is set and text is omitted. A store failure sets content_error to
     store_read_failed. The call still requires read permission on this workspace.
     """
-    return _run(_svc().inspect, _principal(ctx), artifact_id, version, include_content)
+    principal = _principal(ctx)
+    if _stdio_blocks_inspect(principal, artifact_id, version):
+        stdio_mode.refuse()
+    return _run(_svc().inspect, principal, artifact_id, version, include_content)
 
 
 @mcp.tool()
@@ -493,6 +571,7 @@ def delete(
     Returns: first call is step "confirm" with confirm_token, title, versions, expires_in "10m", and a warning.
     Second call returns deleted true, artifact_id, and purged_object_versions.
     Example: delete(artifact_id="art_example") then delete(artifact_id="art_example", confirm_token="...")"""
+    stdio_mode.refuse()
     return _run(_svc().delete, _principal(ctx), artifact_id, confirm_token)
 
 
@@ -736,6 +815,22 @@ async def main() -> None:
 
 def run() -> None:
     asyncio.run(main())
+
+
+def run_stdio() -> None:
+    """Serve the registered tools on stdin and stdout.
+
+    Does not bind a port, open the bucket, or start workers. The caller sets
+    stdio owner mode and any private data directory before this runs.
+    """
+    global SVC
+    svc = Service()
+    SVC = svc
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        svc.db.close()
+        SVC = None
 
 
 if __name__ == "__main__":

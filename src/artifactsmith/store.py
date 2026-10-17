@@ -8,6 +8,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
+from . import stdio_mode
 from .config import CFG
 
 log = logging.getLogger("artifactsmith.store")
@@ -52,6 +53,7 @@ class Store:
 
         Versioning is required. Failures enabling it raise StoreError.
         """
+        stdio_mode.refuse()
         created = False
         try:
             self.s3.head_bucket(Bucket=self.bucket)
@@ -84,16 +86,19 @@ class Store:
         return created
 
     def put(self, key: str, data: bytes, content_type: str) -> str:
+        stdio_mode.refuse()
         r = self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
         vid = r.get("VersionId")
         return "" if vid is None else str(vid)
 
     def get(self, key: str) -> tuple[bytes, str]:
+        stdio_mode.refuse()
         r = self.s3.get_object(Bucket=self.bucket, Key=key)
         return r["Body"].read(), r.get("ContentType", "application/octet-stream")
 
     def purge_prefix(self, prefix: str) -> int:
         """Hard-delete every object version and delete marker under a prefix."""
+        stdio_mode.refuse()
         n = 0
         paginator = self.s3.get_paginator("list_object_versions")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
@@ -103,6 +108,7 @@ class Store:
         return n
 
     def count_prefix_versions(self, prefix: str) -> int:
+        stdio_mode.refuse()
         n = 0
         paginator = self.s3.get_paginator("list_object_versions")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
