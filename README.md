@@ -14,7 +14,7 @@ Examples, no sign-up: [comparison page](https://artifactsmith.neuralami.ai/s/b5s
 
 ## What it does
 
-ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Markdown), share, and revoke documents. It works with any OpenAI-compatible model endpoint. Meta's Muse artifacts are a real page you can look at, share, and pull back later.
+ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Markdown), share, and revoke documents. It works with any OpenAI-compatible model endpoint. The idea comes from Meta's Muse artifacts.
 
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
