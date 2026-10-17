@@ -30,11 +30,18 @@ TRIAL_PERMS = ["create", "read", "edit", "export", "share", "delete"]
 MAX_MODEL_CALLS = 3
 MAX_INPUT_TOKENS = 200_000
 SHARE_DAYS = 30
-SELF_HOST = "https://github.com/vrijsinghani/artifactsmith#readme"
-CLOSED = "trial is closed"
-CAP_ERROR = "trial capacity reached for today, resets at 00:00 UTC"
-SPOTS_TAKEN = "today's trial spots are taken, back at 00:00 UTC"
-QUOTA_ERROR = f"trial builds are used up. Self-host ArtifactSmith: {SELF_HOST}"
+REPO = "https://github.com/vrijsinghani/Artifactsmith"
+SELF_HOST = REPO
+CLOSED = f"The hosted copy is closed right now.  You can still run your own: {REPO}"
+CAP_ERROR = f"the hosted copy hit today's limit, back at 00:00 UTC. Run your own: {REPO}"
+SPOTS_TAKEN = f"no more hosted tokens today, back at 00:00 UTC. Run your own: {REPO}"
+
+
+def quota_error() -> str:
+    """Shown when one hosted token has used its build cap."""
+    return f"you've used the {int(CFG.trial_build_limit)} hosted builds. Run your own copy to keep going: {REPO}"
+
+
 MAIL_UNAVAILABLE = "sign-up email is not available"
 _GMAIL = frozenset({"gmail.com", "googlemail.com"})
 _ABUSE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}$")
@@ -232,7 +239,7 @@ def send_magic_link(to: str, url: str) -> None:
     message = EmailMessage()
     message["From"] = sender
     message["To"] = to
-    message["Subject"] = "Your ArtifactSmith trial link"
+    message["Subject"] = "Your ArtifactSmith sign-in link"
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain=_mail_domain(sender))
     message.set_content(
@@ -359,7 +366,8 @@ def stamp_trial_chrome(html: bytes, mailto: str) -> bytes:
     link = ""
     if mailto:
         link = f' <a href="mailto:{escape(mailto, quote=True)}" style="{_LINK_STYLE}">Report abuse</a>'
-    footer = f'<footer id="am-trial-report" style="{_FOOTER_STYLE}">Trial page.{link}</footer>'
+    brand = f'<a href="{REPO}" style="{_LINK_STYLE}">Made with ArtifactSmith (open source).</a>'
+    footer = f'<footer id="am-trial-report" style="{_FOOTER_STYLE}">{brand}{link}</footer>'
     if re.search(r"(?i)</body>", text):
         text = re.sub(r"(?i)</body>", footer + "</body>", text, count=1)
     else:

@@ -133,7 +133,7 @@ def test_trial_model_ignores_the_caller(svc, trial_on):
 
 
 def test_trial_cannot_publish(svc, trial_on):
-    with pytest.raises(AMError, match="trial tokens cannot publish"):
+    with pytest.raises(AMError, match="hosted tokens cannot publish"):
         svc.publish(_trial(), html="<p>x</p>", slug="page", display_name="Page")
     try:
         svc.publish(_principal(), html="<p>x</p>", slug="page", display_name="Page")
@@ -145,9 +145,10 @@ def test_lifetime_quota_and_hourly_limit_stay_separate(svc, trial_on, monkeypatc
     monkeypatch.setattr(CFG, "trial_build_limit", 1)
     first = _create(svc, _trial(), "only")
     assert first["builds_remaining"] == 0
-    with pytest.raises(AMError, match="Self-host ArtifactSmith") as caught:
+    with pytest.raises(AMError, match="hosted builds") as caught:
         _create(svc, _trial(), "second")
-    assert "github.com/vrijsinghani/artifactsmith#readme" in str(caught.value)
+    assert "you've used the 1 hosted builds" in str(caught.value)
+    assert "https://github.com/vrijsinghani/Artifactsmith" in str(caught.value)
     assert "127.0.0.1" not in str(caught.value)
     internal = _create(svc, _principal(), "internal")
     assert "builds_remaining" not in internal
@@ -167,7 +168,7 @@ def test_lifetime_quota_and_hourly_limit_stay_separate(svc, trial_on, monkeypatc
 
 def test_kill_switch_blocks_trial_only(svc, monkeypatch):
     monkeypatch.setattr(CFG, "trial_enabled", False)
-    with pytest.raises(AMError, match="trial is closed"):
+    with pytest.raises(AMError, match="hosted copy is closed"):
         _create(svc, _trial(), "closed")
     assert _create(svc, _principal(), "open")["status"] == "queued"
 
@@ -179,7 +180,7 @@ def test_daily_cap_holds_worst_case_then_settles(svc, trial_on, monkeypatch):
     held = svc.db.one("SELECT reserved_micros, actual_micros FROM trial_reservations WHERE job_id=?", first["job_id"])
     assert held["reserved_micros"] == 84_000
     assert held["actual_micros"] is None
-    with pytest.raises(AMError, match="trial capacity reached for today"):
+    with pytest.raises(AMError, match="hosted copy hit today's limit"):
         _create(svc, _trial(), "over")
     assert svc.db.one("SELECT COUNT(*) AS n FROM jobs WHERE id!=?", first["job_id"])["n"] == 0
     internal = _create(svc, _principal(), "still-ok")
@@ -208,14 +209,14 @@ def test_unknown_usage_keeps_the_hold(svc, trial_on, monkeypatch):
     row = svc.db.one("SELECT reserved_micros, actual_micros FROM trial_reservations WHERE job_id=?", job["id"])
     assert row["actual_micros"] == row["reserved_micros"]
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_usage")["n"] == 0
-    with pytest.raises(AMError, match="resets at 00:00 UTC"):
+    with pytest.raises(AMError, match="back at 00:00 UTC"):
         _create(svc, _trial(pid="tok_b"), "two")
 
 
 def test_settled_cost_frees_room_for_another_trial(svc, trial_on, monkeypatch):
     monkeypatch.setattr(CFG, "trial_daily_usd", "0.10")
     first = _create(svc, _trial(), "one")
-    with pytest.raises(AMError, match="trial capacity reached"):
+    with pytest.raises(AMError, match="hosted copy hit today's limit"):
         _create(svc, _trial(), "two")
     trial.settle(svc.db, first["job_id"], [(100, 20, True)])
     actual = trial.micros_for(100, 20)
@@ -316,7 +317,7 @@ async def test_kill_switch_fails_a_queued_trial_and_releases_the_hold(svc, trial
     await svc._run_job(created["job_id"])
     job = svc.db.one("SELECT status, error FROM jobs WHERE id=?", created["job_id"])
     assert job["status"] == "failed"
-    assert job["error"] == "trial is closed"
+    assert job["error"] == trial.CLOSED
     assert (
         svc.db.one("SELECT actual_micros FROM trial_reservations WHERE job_id=?", created["job_id"])["actual_micros"]
         == 0
@@ -414,7 +415,9 @@ def test_trial_chrome_adds_noindex_and_abuse_link(svc, trial_on, monkeypatch):
     monkeypatch.setattr(CFG, "trial_abuse_email", "not an email")
     bare = trial.stamp_trial_chrome(b"<html><body>x</body></html>", trial.abuse_email())
     assert b"mailto:" not in bare
-    assert b"Trial page." in bare
+    assert b"Made with ArtifactSmith (open source)." in bare
+    assert b"https://github.com/vrijsinghani/Artifactsmith" in bare
+    assert b"Trial page." not in bare
     hostile = (
         b"<html><head><style>footer{display:none!important}body *{display:none!important}</style></head>"
         b"<body>x</body></html>"
@@ -539,14 +542,14 @@ def test_delete_does_not_reset_trial_build_limits(svc, trial_on, monkeypatch):
     _token(svc)
     principal = _trial()
     created = _create(svc, principal, "only")
-    with pytest.raises(AMError, match="used up"):
+    with pytest.raises(AMError, match="hosted builds"):
         _create(svc, principal, "second")
     step = svc.delete(principal, created["artifact_id"])
     done = svc.delete(principal, created["artifact_id"], confirm_token=step["confirm_token"])
     assert done["deleted"] is True
     assert svc.db.one("SELECT id FROM jobs") is None
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_reservations")["n"] == 1
-    with pytest.raises(AMError, match="used up"):
+    with pytest.raises(AMError, match="hosted builds"):
         _create(svc, principal, "third")
 
     monkeypatch.setattr(CFG, "trial_build_limit", 20)
@@ -617,6 +620,7 @@ def test_sign_in_mail_has_date_and_message_id(monkeypatch):
     monkeypatch.setattr(trial.smtplib, "SMTP", _SMTP)
     trial.send_magic_link("a@example.com", "https://trial.example/trial/verify?code=magic-code-xyz")
     message = sent[0]
+    assert message["Subject"] == "Your ArtifactSmith sign-in link"
     assert message["Date"]
     message_id = str(message["Message-ID"])
     assert message_id.startswith("<") and message_id.endswith("@example.com>")
@@ -713,7 +717,7 @@ def trial_http(svc, monkeypatch):
 
 
 def _csrf(client: TestClient) -> str:
-    page = client.get("/trial")
+    page = client.get("/try")
     assert page.status_code == 200
     token = client.cookies.get("am_trial_csrf")
     assert token
@@ -736,15 +740,68 @@ def test_trial_page_advertises_a_public_card(trial_http):
     page = client.get("/trial")
     assert page.status_code == 200
     text = page.text
-    assert 'property="og:title" content="ArtifactSmith"' in text
-    assert 'property="og:description" content="Agent output in, real page or PDF out. 20 free builds."' in text
-    assert 'property="og:url" content="https://trial.example/trial"' in text
+    assert 'property="og:title" content="ArtifactSmith: open-source MCP server for agent output"' in text
+    assert "My agents kept handing me walls of chat text." in text
+    assert 'property="og:url" content="https://trial.example/try"' in text
     assert 'property="og:image" content="https://trial.example/static/og-trial.png"' in text
     assert 'name="twitter:card" content="summary_large_image"' in text
-    assert 'name="twitter:title" content="ArtifactSmith"' in text
-    assert 'name="twitter:description" content="Agent output in, real page or PDF out. 20 free builds."' in text
+    assert 'name="twitter:title" content="ArtifactSmith: open-source MCP server for agent output"' in text
+    assert (
+        'name="twitter:description" content="My agents kept handing me walls of chat text.  This turns it into real pages and PDFs.  MIT.  Try it before you install."'
+        in text
+    )
     assert 'name="twitter:image" content="https://trial.example/static/og-trial.png"' in text
     assert "content=noindex" in text
+    assert "<title>Try ArtifactSmith before you install</title>" in text
+    assert text.index("github.com/vrijsinghani/Artifactsmith") < text.index("I run a copy here")
+    assert "Open source, MIT" in text
+    assert "free builds" not in text
+    assert "free trial" not in text
+    assert "no card" not in text.lower()
+    assert "127.0.0.1" not in text
+    assert "localhost" not in text
+    assert "192.168." not in text
+
+
+def test_get_trial_redirects_to_try(trial_http):
+    client, _box = trial_http
+    page = client.get("/trial", follow_redirects=False)
+    assert page.status_code == 301
+    assert page.headers["location"] == "/try"
+    assert "127.0.0.1" not in page.headers["location"]
+    assert "set-cookie" not in page.headers
+    followed = client.get("/trial")
+    assert followed.status_code == 200
+    assert "Try it before you install" in followed.text
+
+
+def test_legacy_post_trial_still_mints(trial_http, svc, monkeypatch):
+    from artifactsmith.web.session import issue_csrf
+
+    client, _box = trial_http
+    monkeypatch.setattr(CFG, "trial_email_verify", False)
+    token = issue_csrf()
+    client.cookies.set("am_trial_csrf", token, path="/trial")
+    posted = client.post("/trial", data={"csrf": token, "email": "legacy@example.com"})
+    assert posted.status_code == 200
+    assert "Your token" in posted.text
+    assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 0
+
+
+def test_home_page_links_the_repo_then_try(trial_http):
+    client, _box = trial_http
+    page = client.get("/")
+    assert page.status_code == 200
+    text = page.text
+    assert text.index("https://github.com/vrijsinghani/Artifactsmith") < text.index(
+        "https://artifactsmith.neuralami.ai/try"
+    )
+    assert "Try it before you install" in text
+    lowered = text.lower()
+    assert "trial" not in lowered
+    assert "free builds" not in lowered
+    assert "free trial" not in lowered
+    assert "no card" not in lowered
     assert "127.0.0.1" not in text
     assert "localhost" not in text
     assert "192.168." not in text
@@ -810,7 +867,7 @@ def test_other_static_paths_are_not_public(trial_http):
 def test_magic_link_shows_the_token_once(trial_http, svc):
     client, box = trial_http
     csrf = _csrf(client)
-    posted = client.post("/trial", data={"csrf": csrf, "email": "Person@Example.com"})
+    posted = client.post("/try", data={"csrf": csrf, "email": "Person@Example.com"})
     assert posted.status_code == 200
     assert "sign-up link is on its way" in posted.text
     assert "Person@" not in posted.text
@@ -846,7 +903,13 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
         assert "YOUR_TOKEN" in pre
         assert raw not in pre
         assert "https://trial.example/mcp" in pre
-    assert f"{int(CFG.trial_build_limit)} free builds" in client.get("/trial").text
+    landing = client.get("/try").text
+    assert "Try it before you install" in landing
+    assert "Open source, MIT" in landing
+    assert f"capped at {int(CFG.trial_build_limit)} builds" in landing
+    assert "free builds" not in landing
+    assert "free trial" not in landing
+    assert "no card" not in landing
     assert "pre-wrap" in client.get("/trial").text
     again = _verify(client, box["url"])
     assert again.status_code == 400
@@ -881,15 +944,15 @@ def test_unverified_signup_shows_the_token_and_keeps_the_limits(trial_http, svc,
     assert "Email me a link" not in page.text
     csrf = client.cookies.get("am_trial_csrf")
     assert csrf
-    denied = client.post("/trial", data={"csrf": "nope", "email": "a@example.com"})
+    denied = client.post("/try", data={"csrf": "nope", "email": "a@example.com"})
     assert denied.status_code == 403
-    disposable = client.post("/trial", data={"csrf": csrf, "email": "a@mailinator.com"})
+    disposable = client.post("/try", data={"csrf": csrf, "email": "a@mailinator.com"})
     assert disposable.status_code == 400
     assert "regular email" in disposable.text
-    posted = client.post("/trial", data={"csrf": csrf, "email": "Person+tag@Gmail.com"})
+    posted = client.post("/try", data={"csrf": csrf, "email": "Person+tag@Gmail.com"})
     assert posted.status_code == 200
     assert posted.headers["cache-control"] == "no-store"
-    assert "Your trial token" in posted.text
+    assert "Your token" in posted.text
     assert "sign-up link is on its way" not in posted.text
     assert box == {}
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_links")["n"] == 0
@@ -898,14 +961,14 @@ def test_unverified_signup_shows_the_token_and_keeps_the_limits(trial_http, svc,
     row = svc.db.one("SELECT verified, kind FROM trial_signups JOIN tokens ON tokens.id=trial_signups.token_id")
     assert row["verified"] == 0
     assert row["kind"] == "trial"
-    again = client.post("/trial", data={"csrf": csrf, "email": "person@googlemail.com"})
-    assert "already has a trial" in again.text
+    again = client.post("/try", data={"csrf": csrf, "email": "person@googlemail.com"})
+    assert "already has a token" in again.text
     assert "asmb_" not in again.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 1
-    blocked = client.post("/trial", data={"csrf": csrf, "email": "other@example.com"})
+    blocked = client.post("/try", data={"csrf": csrf, "email": "other@example.com"})
     assert blocked.status_code == 429
     monkeypatch.setattr(CFG, "trial_enabled", False)
-    closed = client.post("/trial", data={"csrf": csrf, "email": "more@example.com"})
+    closed = client.post("/try", data={"csrf": csrf, "email": "more@example.com"})
     assert "closed" in closed.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM tokens WHERE kind='trial'")["n"] == 1
 
@@ -932,7 +995,7 @@ def test_old_signups_count_as_verified(tmp_path):
 def test_get_verify_does_not_consume_the_link(trial_http, svc):
     client, box = trial_http
     csrf = _csrf(client)
-    assert client.post("/trial", data={"csrf": csrf, "email": "scan@example.com"}).status_code == 200
+    assert client.post("/try", data={"csrf": csrf, "email": "scan@example.com"}).status_code == 200
     parsed = urlparse(box["url"])
     opened = client.get(f"{parsed.path}?{parsed.query}")
     assert opened.status_code == 200
@@ -943,7 +1006,7 @@ def test_get_verify_does_not_consume_the_link(trial_http, svc):
     assert blocked.status_code == 403
     assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is None
     shown = _verify(client, box["url"])
-    assert "Your trial token" in shown.text
+    assert "Your token" in shown.text
     assert svc.db.one("SELECT used_at FROM trial_links")["used_at"] is not None
 
 
@@ -994,13 +1057,13 @@ def test_opaque_origin_needs_a_same_site_fetch(trial_http):
 def test_gmail_alias_cannot_mint_a_second_token(trial_http, svc):
     client, box = trial_http
     csrf = _csrf(client)
-    assert client.post("/trial", data={"csrf": csrf, "email": "j.o.e+tag@googlemail.com"}).status_code == 200
+    assert client.post("/try", data={"csrf": csrf, "email": "j.o.e+tag@googlemail.com"}).status_code == 200
     first = _verify(client, box["url"])
-    assert "Your trial token" in first.text
+    assert "Your token" in first.text
     csrf = _csrf(client)
-    assert client.post("/trial", data={"csrf": csrf, "email": "joe@gmail.com"}).status_code == 200
+    assert client.post("/try", data={"csrf": csrf, "email": "joe@gmail.com"}).status_code == 200
     second = _verify(client, box["url"])
-    assert "already has a trial" in second.text
+    assert "already has a token" in second.text
     assert "asmb_" not in second.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 1
 
@@ -1008,19 +1071,19 @@ def test_gmail_alias_cannot_mint_a_second_token(trial_http, svc):
 def test_disposable_email_and_ip_limit_and_bad_csrf(trial_http, monkeypatch):
     client, box = trial_http
     monkeypatch.setattr(CFG, "trial_signups_per_ip", 2)
-    denied = client.post("/trial", data={"csrf": "nope", "email": "a@example.com"})
+    denied = client.post("/try", data={"csrf": "nope", "email": "a@example.com"})
     assert denied.status_code == 403
     csrf = _csrf(client)
-    invalid = client.post("/trial", data={"csrf": csrf, "email": "not-an-email"})
+    invalid = client.post("/try", data={"csrf": csrf, "email": "not-an-email"})
     assert invalid.status_code == 400
     assert "valid email" in invalid.text
-    disposable = client.post("/trial", data={"csrf": client.cookies["am_trial_csrf"], "email": "a@mailinator.com"})
+    disposable = client.post("/try", data={"csrf": client.cookies["am_trial_csrf"], "email": "a@mailinator.com"})
     assert disposable.status_code == 400
     assert "regular email" in disposable.text
     assert "url" not in box
-    first = client.post("/trial", data={"csrf": client.cookies["am_trial_csrf"], "email": "one@example.com"})
+    first = client.post("/try", data={"csrf": client.cookies["am_trial_csrf"], "email": "one@example.com"})
     assert first.status_code == 200
-    second = client.post("/trial", data={"csrf": client.cookies["am_trial_csrf"], "email": "two@example.com"})
+    second = client.post("/try", data={"csrf": client.cookies["am_trial_csrf"], "email": "two@example.com"})
     assert second.status_code == 429
     assert "Too many sign-ups" in second.text
 
@@ -1049,7 +1112,7 @@ def test_signup_closed_and_mail_failure_stay_generic(trial_http, monkeypatch):
     client, _box = trial_http
     monkeypatch.setattr(CFG, "trial_enabled", False)
     assert "closed" in client.get("/trial").text
-    assert "closed" in client.post("/trial", data={"email": "a@example.com", "csrf": "x"}).text
+    assert "closed" in client.post("/try", data={"email": "a@example.com", "csrf": "x"}).text
 
     monkeypatch.setattr(CFG, "trial_enabled", True)
 
@@ -1058,7 +1121,7 @@ def test_signup_closed_and_mail_failure_stay_generic(trial_http, monkeypatch):
 
     monkeypatch.setattr("artifactsmith.web.trial_pages.send_magic_link", boom)
     csrf = _csrf(client)
-    failed = client.post("/trial", data={"csrf": csrf, "email": "a@example.com"})
+    failed = client.post("/try", data={"csrf": csrf, "email": "a@example.com"})
     assert failed.status_code == 503
     assert "sign-up email is not available" in failed.text
     assert "smtp" not in failed.text.lower()
@@ -1075,7 +1138,7 @@ def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, 
     )
     assert "Email me a link" in client.get("/trial").text
     csrf = _csrf(client)
-    posted = client.post("/trial", data={"csrf": csrf, "email": "today@example.com"})
+    posted = client.post("/try", data={"csrf": csrf, "email": "today@example.com"})
     assert posted.status_code == 200
     assert "sign-up link is on its way" in posted.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 1
@@ -1089,7 +1152,7 @@ def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, 
     assert escape(trial.SPOTS_TAKEN) in full.text
     assert "Email me a link" not in full.text
     attempts = svc.db.one("SELECT COUNT(*) AS n FROM trial_signup_ips")["n"]
-    blocked = client.post("/trial", data={"csrf": "nope", "email": "other@example.com"})
+    blocked = client.post("/try", data={"csrf": "nope", "email": "other@example.com"})
     assert blocked.status_code == 200
     assert escape(trial.SPOTS_TAKEN) in blocked.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM trial_signups")["n"] == 2
@@ -1105,11 +1168,11 @@ def test_daily_signup_ceiling_stops_minting_and_keeps_the_link(trial_http, svc, 
     svc.db.exec("DELETE FROM trial_signups WHERE email_hash=?", "todayhash")
     monkeypatch.setattr(CFG, "trial_email_verify", False)
     csrf = _csrf(client)
-    minted = client.post("/trial", data={"csrf": csrf, "email": "mint@example.com"})
-    assert "Your trial token" in minted.text
+    minted = client.post("/try", data={"csrf": csrf, "email": "mint@example.com"})
+    assert "Your token" in minted.text
     again = client.get("/trial")
     assert escape(trial.SPOTS_TAKEN) in again.text
-    second = client.post("/trial", data={"csrf": csrf, "email": "mint2@example.com"})
+    second = client.post("/try", data={"csrf": csrf, "email": "mint2@example.com"})
     assert escape(trial.SPOTS_TAKEN) in second.text
     assert "asmb_" not in second.text
     assert svc.db.one("SELECT COUNT(*) AS n FROM tokens WHERE kind='trial'")["n"] == 1
@@ -1131,7 +1194,7 @@ def test_ipv6_signups_share_a_48(trial_http, svc, monkeypatch):
         proxy.get("/trial", headers={"X-Real-IP": addr})
         csrf = proxy.cookies.get("am_trial_csrf")
         assert csrf
-        return proxy.post("/trial", data={"csrf": csrf, "email": email}, headers={"X-Real-IP": addr})
+        return proxy.post("/try", data={"csrf": csrf, "email": email}, headers={"X-Real-IP": addr})
 
     first = post("2001:db8:1:2:aaaa::1", "one@example.com")
     assert first.status_code == 200

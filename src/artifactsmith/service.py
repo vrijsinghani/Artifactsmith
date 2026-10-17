@@ -399,7 +399,7 @@ class Service:
                 (principal["id"],),
             ).fetchone()["n"]
             if int(total) >= int(CFG.trial_build_limit):
-                raise AMError(trial.QUOTA_ERROR)
+                raise AMError(trial.quota_error())
             hour_limit = int(CFG.trial_builds_per_hour)
             n = c.execute(
                 "SELECT COUNT(*) n FROM trial_reservations WHERE token_id=? AND created_at>?",
@@ -499,7 +499,7 @@ class Service:
         if not CFG.trial_enabled:
             raise AMError(trial.CLOSED)
         if not MODEL_RE.match(CFG.trial_model):
-            raise AMError("trial model is not configured")
+            raise AMError("hosted model is not configured")
         return CFG.trial_model
 
     @staticmethod
@@ -865,7 +865,7 @@ class Service:
         from .publishing import admit_publish
 
         if principal.get("trial"):
-            raise AMError("trial tokens cannot publish")
+            raise AMError("hosted tokens cannot publish")
         return admit_publish(
             self,
             principal,

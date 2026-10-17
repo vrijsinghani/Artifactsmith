@@ -61,7 +61,7 @@ def _apply_output_cap(payload: dict[str, object]) -> None:
     if isinstance(parts, list):
         text = "".join(str(item.get("content") or "") for item in parts if isinstance(item, dict))
     if len(text) > MAX_INPUT_TOKENS * 4:
-        raise LLMError("trial input is too large")
+        raise LLMError("this input is too large")
 
 
 def _mark_unknown() -> None:

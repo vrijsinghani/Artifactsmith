@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArtifactSmith&#32;—&#32;artifacts&#32;for&#32;your&#32;own&#32;agents</title>
+<style>
+:root{--navy: #111936;--violet: #5a31c9;--ink: #172033;--muted: #5f6879;--paper: #f7f8fc;--blue: #3478f6;--purple: #8057dc;--amber: #f2ae3d;--green: #36a56c;--line: #dfe3ee;--shadow: 0 18px 45px rgba(24, 29, 55, .12);}*{box-sizing: border-box;}html{scroll-behavior: smooth;}body{margin: 0;color: var(--ink);background: var(--paper);font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;line-height: 1.55;}a{color: inherit;}.hero{position: relative;overflow: hidden;color: white;background:
+        radial-gradient(circle at 82% 18%, rgba(143, 92, 255, .62), transparent 27rem),
+        radial-gradient(circle at 12% 90%, rgba(43, 116, 246, .45), transparent 25rem),
+        linear-gradient(125deg, #0b1027 0%, #171c43 48%, #4a2396 100%);}.hero::after{content: "";position: absolute;right: -9rem;bottom: -13rem;width: 30rem;height: 30rem;border: 1px solid rgba(255,255,255,.18);border-radius: 50%;box-shadow: 0 0 0 3rem rgba(255,255,255,.03), 0 0 0 7rem rgba(255,255,255,.025);}.wrap{width: min(1120px, calc(100% - 40px));margin: 0 auto;}.hero-inner{position: relative;z-index: 1;padding: 26px 0 88px;}nav{display: flex;align-items: center;justify-content: space-between;gap: 20px;margin-bottom: 92px;}.brand{font-weight: 800;letter-spacing: -.04em;font-size: 1.15rem;}.brand span{color: #bca9ff;}.nav-link{color: #e8e5ff;text-decoration: none;font-size: .9rem;}.eyebrow{display: inline-flex;align-items: center;gap: 8px;padding: 7px 12px;border: 1px solid rgba(255,255,255,.25);border-radius: 999px;color: #eeeaff;background: rgba(255,255,255,.09);font-size: .78rem;font-weight: 700;}h1, h2, h3, p{margin-top: 0;}h1{max-width: 850px;margin: 20px 0 24px;font-size: clamp(3.3rem, 8vw, 7rem);line-height: .94;letter-spacing: -.075em;}.hero-copy{max-width: 680px;color: #d9dcf4;font-size: clamp(1.05rem, 2vw, 1.3rem);}.actions{display: flex;flex-wrap: wrap;gap: 12px;margin: 32px 0 24px;}.button{display: inline-flex;align-items: center;justify-content: center;min-height: 48px;padding: 0 19px;border-radius: 12px;font-weight: 800;text-decoration: none;transition: transform .2s ease, box-shadow .2s ease;}.button:hover{transform: translateY(-2px);}.button-light{color: #151936;background: white;box-shadow: 0 10px 25px rgba(0,0,0,.18);}.button-ghost{color: white;border: 1px solid rgba(255,255,255,.35);background: rgba(255,255,255,.08);}.note{max-width: 680px;color: #c8cbed;font-size: .87rem;}main{padding: 72px 0 90px;}.section{margin: 0 auto 86px;max-width: 1120px;width: min(100% - 40px, 1120px);}.section-heading{max-width: 700px;margin-bottom: 28px;}.section-heading h2{margin-bottom: 12px;font-size: clamp(2rem, 4vw, 3.4rem);line-height: 1;letter-spacing: -.055em;}.section-heading p{color: var(--muted);font-size: 1.08rem;}.problem{display: grid;grid-template-columns: 1.2fr .8fr;gap: 28px;align-items: stretch;}.problem-copy, .quote-card{padding: 30px;border-radius: 22px;background: white;box-shadow: var(--shadow);}.problem-copy{font-size: clamp(1.2rem, 2vw, 1.55rem);line-height: 1.35;}.quote-card{display: flex;align-items: center;color: white;background: linear-gradient(145deg, #2f6fe5, #6a3fca);font-size: 1.2rem;font-weight: 700;}.steps{display: grid;grid-template-columns: repeat(4, 1fr);gap: 14px;}.step{min-height: 240px;padding: 24px;border-radius: 20px;color: white;box-shadow: var(--shadow);}.step:nth-child(1){background: var(--blue);}.step:nth-child(2){background: var(--purple);}.step:nth-child(3){background: var(--amber);color: #2c220b;}.step:nth-child(4){background: var(--green);}.step-number{display: block;margin-bottom: 30px;font-size: 2.6rem;font-weight: 900;line-height: 1;opacity: .72;}.step h3{margin-bottom: 8px;font-size: 1.25rem;}.step p{margin-bottom: 0;}.workspace{margin-top: 18px;padding: 26px;border: 1px solid var(--line);border-radius: 20px;background: white;}.workspace strong{color: var(--violet);}.style-grid{display: grid;grid-template-columns: repeat(3, 1fr);gap: 16px;}.style-card{display: block;min-height: 190px;padding: 22px;border-radius: 19px;color: white;text-decoration: none;box-shadow: var(--shadow);transition: transform .2s ease;}.style-card:hover{transform: translateY(-4px);}.style-card h3{margin: 0 0 8px;font-size: 1.45rem;}.style-card .demo{display:block;margin-top:16px;font-weight:800;font-size:.9rem;}.style-card p{margin: 0;color: rgba(255,255,255,.82);}.style-card:nth-child(1){background: linear-gradient(145deg, #111936, #6736d2);}.style-card:nth-child(2){background: #9b332b;}.style-card:nth-child(3){background: #102426;}.style-card:nth-child(4){background: #242424;}.style-card:nth-child(5){background: #ef7861;color: #301b21;}.style-card:nth-child(5) p{color: #542f32;}.style-card:nth-child(6){background: #d9e0eb;color: #1a2536;}.style-card:nth-child(6) p{color: #526076;}.format-grid{display: grid;grid-template-columns: repeat(5, 1fr);gap: 12px;}.format{padding: 22px 15px;border-radius: 16px;color: white;text-align: center;font-weight: 800;box-shadow: var(--shadow);}.format:nth-child(1){background: #3478f6;}.format:nth-child(2){background: #8057dc;}.format:nth-child(3){background: #e39824;}.format:nth-child(4){background: #34a16d;}.format:nth-child(5){background: #dc5d68;}.terminal{overflow: hidden;border-radius: 18px;color: #e8f1ed;background: #121923;box-shadow: var(--shadow);}.terminal-bar{display: flex;gap: 7px;padding: 15px 18px;border-bottom: 1px solid #283442;background: #1a2431;}.dot{width: 10px;height: 10px;border-radius: 50%;background: #ee6c64;}.dot:nth-child(2){background: #f3bf4d;}.dot:nth-child(3){background: #5cc77a;}pre{overflow-x: auto;margin: 0;padding: 25px;font: .88rem/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;white-space: pre-wrap;overflow-wrap: anywhere;}.terminal .green{color: #72e3a0;}.terminal .blue{color: #73c7ff;}.limits{display: grid;grid-template-columns: repeat(3, 1fr);gap: 16px;}.limit{padding: 24px;border: 1px solid var(--line);border-radius: 18px;background: white;}.limit h3{margin-bottom: 8px;}.faq{display: grid;grid-template-columns: 1fr 1fr;gap: 14px 30px;}.faq-item{padding: 20px 0;border-top: 2px solid var(--ink);}.faq-item h3{margin-bottom: 7px;font-size: 1.08rem;}.faq-item p{margin-bottom: 0;color: var(--muted);}footer{color: #dce0f4;background: #10162d;}.footer-inner{display: flex;justify-content: space-between;gap: 25px;padding: 28px 0;font-size: .9rem;}footer a{color: white;}@media (max-width: 760px){.wrap, .section{width: min(100% - 28px, 1120px);}.hero-inner{padding-bottom: 62px;}nav{margin-bottom: 58px;}h1{font-size: clamp(3rem, 15vw, 5rem);}.problem, .steps, .style-grid, .limits, .faq{grid-template-columns: 1fr;}.format-grid{grid-template-columns: repeat(2, 1fr);}.format:last-child{grid-column: span 2;}.step{min-height: auto;}.footer-inner{display: block;}.footer-inner p{margin-bottom: 8px;}}
+</style>
+</head>
+<body>
+
+  <header class="hero">
+    <div class="wrap hero-inner">
+      <nav aria-label="Main navigation">
+        <div class="brand">Artifact<span>Smith</span></div>
+        <a class="nav-link" href="https://github.com/vrijsinghani/Artifactsmith" rel="noopener noreferrer nofollow" target="_blank">GitHub</a>
+      </nav>
+
+      <span class="eyebrow">Built with ArtifactSmith</span>
+      <h1>Your agents did good work. Stop getting it back as a wall of chat text.</h1>
+      <p class="hero-copy">ArtifactSmith is an open-source, self-hosted MCP server that turns agent output into web pages, PDFs, Word docs and spreadsheets. Private until you share. Revocable links. MIT.</p>
+      <div class="actions">
+        <a class="button button-light" href="https://github.com/vrijsinghani/Artifactsmith" rel="noopener noreferrer nofollow" target="_blank">View on GitHub</a>
+        <a class="button button-ghost" href="https://artifactsmith.neuralami.ai/try" rel="noopener noreferrer nofollow" target="_blank">Try it before you install</a>
+        <a class="button button-ghost" href="https://artifactsmith.neuralami.ai/s/8764hbpn3dtfiqp9/" rel="noopener noreferrer nofollow" target="_blank">See a live demo</a>
+      </div>
+      <p class="note">This page was written and rendered by ArtifactSmith itself, in its bold style, and published as a share link.</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="problem-title">The problem</h2>
+      </div>
+      <div class="problem">
+        <div class="problem-copy">
+          <p>Agents do real work, then hand it back as chat text: useful, but hard to read, hard to share, and impossible to take back.</p>
+          <p>ArtifactSmith gives your own agents a real page you can look at, share, and pull back later, on your own server.</p>
+        </div>
+        <div class="quote-card">Meta's Muse artifacts showed a better way: the agent hands you a real page you can look at, share, and pull back later.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="works-title">How it works</h2>
+        <p>Four steps take an agent request from private build to revocable share link.</p>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <span class="step-number">01</span>
+          <h3>Create</h3>
+          <p>The agent calls <code>create</code> with the user's request (<code>verbatim_request</code>) and its notes (<code>source_content</code> or <code>source_files</code>). ArtifactSmith writes and renders the document. The build is private. Already have a finished page? <code>publish</code> stores it with no model call.</p>
+        </article>
+        <article class="step">
+          <span class="step-number">02</span>
+          <h3>Edit</h3>
+          <p><code>edit</code> makes a new version from the latest one. Every artifact is versioned.</p>
+        </article>
+        <article class="step">
+          <span class="step-number">03</span>
+          <h3>Share</h3>
+          <p><code>share</code> creates a public <code>/s/</code> link for one exact version.</p>
+        </article>
+        <article class="step">
+          <span class="step-number">04</span>
+          <h3>Unshare</h3>
+          <p><code>unshare</code> makes that link return 404, any time.</p>
+        </article>
+      </div>
+      <div class="workspace">
+        <p><strong>Workspaces:</strong> tokens belong to one workspace and carry a permission set (create, read, edit, publish, export, share, delete). Knowing an artifact id from another workspace does not grant access. Tokens are stored as SHA-256 hashes.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="styles-title">Six styles</h2>
+        <p>Each card links to a live share link.</p>
+      </div>
+      <div class="style-grid">
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/8764hbpn3dtfiqp9/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>bold</h3>
+          <p>Dark navy-to-violet hero, huge white headline, saturated cards.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/hjuve9f54jqjcwcv/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>editorial</h3>
+          <p>Magazine feature, serif headline, thin rules, one deep red accent.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/5d9u9rth7ete55i8/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>terminal</h3>
+          <p>Dark mode, monospace, neon green and cyan, sections as terminal windows.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/tc2aciqyfgqxbugx/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>swiss</h3>
+          <p>White grid, huge black grotesque type, signal orange on numbers and rules.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/sq8fgpxy5bth98qe/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>playful</h3>
+          <p>Cream page, candy-colored rounded cards, thick outlines, offset shadows.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+        <a class="style-card" href="https://artifactsmith.neuralami.ai/s/44mswkknyq4rvznt/" rel="noopener noreferrer nofollow" target="_blank">
+          <h3>house</h3>
+          <p>The default quiet page; white, one accent, boldness in one place.</p>
+          <span class="demo">Open live demo →</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="formats-title">Five formats</h2>
+        <p>Downloads open offline and do not phone home.</p>
+      </div>
+      <div class="format-grid">
+        <div class="format">HTML</div>
+        <div class="format">Markdown</div>
+        <div class="format">PDF</div>
+        <div class="format">DOCX</div>
+        <div class="format">XLSX</div>
+      </div>
+      <p class="note" style="color: var(--muted);margin-top: 18px;">HTML is a sanitized, self-contained page. PDF uses WeasyPrint. DOCX uses python-docx. XLSX uses openpyxl.</p>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="quickstart-title">Quickstart</h2>
+        <p>Set up the server, then point your MCP client at the API and send the token as a bearer header.</p>
+      </div>
+      <div class="terminal">
+        <div class="terminal-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <pre><span class="green">cp .env.example .env</span>
+<span class="green"># Set OPENAI_API_KEY (or AM_LLM_KEY).</span>
+<span class="green">./scripts/ensure-local-env.sh</span>
+<span class="green">docker compose up -d --build</span>
+<span class="green">docker compose exec server artifactsmith token add --name agent --workspace alpha</span></pre>
+      </div>
+      <p style="margin:22px 0 12px;font-weight:700;">Then point your MCP client at <code>{AM_API_URL}/mcp</code> (API port 8780) and send the token as a bearer header:</p>
+      <div class="terminal">
+        <div class="terminal-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <pre><span class="blue">URL:    {AM_API_URL}/mcp</span>
+<span class="blue">Header: Authorization: Bearer &lt;your-token&gt;</span></pre>
+      </div>
+      <p class="note" style="color: var(--muted);margin-top: 18px;">Works with any OpenAI-compatible model endpoint (default model gpt-4o-mini). Published image: ghcr.io/vrijsinghani/artifactsmith:0.1.0 (linux/amd64).</p>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="limits-title">Honest limits</h2>
+      </div>
+      <div class="limits">
+        <article class="limit">
+          <h3>Pages are static</h3>
+          <p>Scripts are stripped (CSP script-src 'none').</p>
+        </article>
+        <article class="limit">
+          <h3>No collaboration</h3>
+          <p>There are no comments or collaboration.</p>
+        </article>
+        <article class="limit">
+          <h3>Self-hosted</h3>
+          <p>You self-host it. To see it work before installing, I run a copy at <a href="https://artifactsmith.neuralami.ai/try">artifactsmith.neuralami.ai/try</a>. The share links on this page are the demo.</p>
+        </article>
+        <article class="limit">
+          <h3>Your model key</h3>
+          <p>You bring your own model key.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading">
+        <h2 id="faq-title">FAQ</h2>
+      </div>
+      <div class="faq">
+        <article class="faq-item">
+          <h3>How is it different from other self-hosted artifact servers?</h3>
+          <p>Most publish HTML or Markdown the agent already wrote. ArtifactSmith takes the request plus the agent's sources and does the writing and rendering itself, adds named styles, PDF/DOCX/XLSX output and per-workspace tokens.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Is my content private?</h3>
+          <p>Yes. Builds stay private until you call share, and unshare kills the link. The process sends no usage data anywhere.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Which clients work?</h3>
+          <p>Any MCP client: Claude Code, Codex, OpenCode, Hermes and others.</p>
+        </article>
+        <article class="faq-item">
+          <h3>What does it cost?</h3>
+          <p>It's free and MIT-licensed. You pay only for your own model calls and hosting.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Is it secure?</h3>
+          <p>Preview pages run on their own cookieless origin; private-network links and likely secrets fail the build. It went through an independent audit (Semgrep, Bandit, gitleaks, pip-audit, Trivy) and a written threat model.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <p>MIT license · GitHub: <a href="https://github.com/vrijsinghani/Artifactsmith" rel="noopener noreferrer nofollow" target="_blank">https://github.com/vrijsinghani/Artifactsmith</a> · Built with ArtifactSmith.</p>
+    </div>
+  </footer>
+
+</body>
+</html>

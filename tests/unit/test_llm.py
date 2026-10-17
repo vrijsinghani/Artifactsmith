@@ -304,7 +304,7 @@ async def test_trial_input_over_the_cap_is_refused(monkeypatch):
     _install_transport(monkeypatch, handler)
     cap = llm.set_output_cap(16_000)
     try:
-        with pytest.raises(llm.LLMError, match="trial input is too large"):
+        with pytest.raises(llm.LLMError, match="this input is too large"):
             await llm.call_chat("m", "sys", "x" * (200_000 * 4 + 1))
     finally:
         llm.reset_output_cap(cap)

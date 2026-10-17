@@ -8,6 +8,8 @@ Agents call it to turn their work into documents: web pages, PDFs, Word files, s
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
+Want to see it work before installing?  I run a copy you can point your MCP client at: https://artifactsmith.neuralami.ai/try (email for a token, capped at 20 builds, runs on my server).
+
 ## Why I built this
 
 My agents did good work and then handed it back as a wall of chat text. Useful, sure. Fun to read? Not so much.
@@ -328,7 +330,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_EDIT_PATCH_TIMEOUT_S` | `45` | Seconds for the edit patch call. A timeout falls back to a full rewrite. |
 | `AM_MAX_BUILDS` | `2` | Concurrent workers. A hosted trial uses at most one of these slots. |
 | `AM_BUILDS_PER_HOUR` | `20` | Per-token quota for internal tokens. Trial tokens use `AM_TRIAL_BUILDS_PER_HOUR`. |
-| `AM_TRIAL_ENABLED` | `false` | Open `/trial` sign-up and allow trial builds. `false` closes both immediately. |
+| `AM_TRIAL_ENABLED` | `false` | Open the hosted try-it page (`/try`, old `/trial`) and allow its builds. `false` closes both immediately. |
 | `AM_TRIAL_EMAIL_VERIFY` | `true` | Email a one-time link before showing the token. `false` shows it on submit and records the address as unverified. |
 | `AM_TRIAL_BUILD_LIMIT` | `20` | Lifetime builds for one trial token. |
 | `AM_TRIAL_BUILDS_PER_HOUR` | `10` | Hourly limit for a trial token. Does not change `AM_BUILDS_PER_HOUR`. |
@@ -337,7 +339,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_TRIAL_MODEL` | `anthropic/claude-haiku-5-5` | Model for every trial build. The caller's model name is ignored. |
 | `AM_TRIAL_MAX_OUTPUT_TOKENS` | `16000` | Output cap sent on trial model calls. |
 | `AM_TRIAL_SIGNUPS_PER_IP` / `AM_TRIAL_SIGNUP_WINDOW_S` | `3` / `86400` | Sign-up attempts per IPv4 address or IPv6 `/48` per window. |
-| `AM_TRIAL_SIGNUPS_PER_DAY` | `300` | Minted trials per UTC day. After that, `/trial` says today's trial spots are taken, back at 00:00 UTC. |
+| `AM_TRIAL_SIGNUPS_PER_DAY` | `300` | Minted sign-ups per UTC day. After that, `/try` says no more hosted tokens today, back at 00:00 UTC. |
 | `AM_TRIAL_LINK_TTL_S` | `1800` | Magic-link lifetime, in seconds. |
 | `AM_TRIAL_RETENTION_DAYS` | `30` | Delete a trial workspace this many days after its last build. |
 | `AM_TRIAL_ABUSE_EMAIL` | empty | Mailto on the trial page footer. Empty omits the link. |
@@ -357,11 +359,11 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 
 Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empty `AM_STORE_KEY` and `AM_STORE_SECRET`. The storage image is `rustfs/rustfs:1.0.1` (pinned by digest in `compose.yaml`).
 
-## Hosted trial
+## Running a hosted try-it page
 
-Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/trial` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). The `Message-ID` domain is the domain of `AM_SMTP_FROM`. Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop (`mcp-remote`), Claude Code (HTTP), Cursor, and a generic MCP client. The Desktop snippet puts the bearer value in `AUTH_HEADER` so a space is not an argument. Cursor uses a URL and headers, with no command arguments. Each snippet says `YOUR_TOKEN`. The page also names Claude Desktop's Customize → Connectors → Add custom connector route, with that same public MCP URL and an Authorization request header. The page states the free-build count from `AM_TRIAL_BUILD_LIMIT`. When `AM_API_URL` is a public `https` origin, that same page carries an Open Graph and Twitter card for `{AM_API_URL}/trial`. The image is `{AM_API_URL}/static/og-trial.png` and needs no token. A loopback or private `AM_API_URL` omits the tags. The page stays `noindex`. One normalized address gets one trial. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected. Sign-up attempts from one IPv6 network share a `/48`. My pages login stays a `/64`. At most `AM_TRIAL_SIGNUPS_PER_DAY` trials are minted per UTC day (default 300). After that, `/trial` says today's trial spots are taken, back at 00:00 UTC.
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/try` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). `GET /trial` redirects to `/try`. `POST /trial` and `/trial/verify` stay so an open form or a link already sent still works. The `Message-ID` domain is the domain of `AM_SMTP_FROM`. Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop (`mcp-remote`), Claude Code (HTTP), Cursor, and a generic MCP client. The Desktop snippet puts the bearer value in `AUTH_HEADER` so a space is not an argument. Cursor uses a URL and headers, with no command arguments. Each snippet says `YOUR_TOKEN`. The page also names Claude Desktop's Customize → Connectors → Add custom connector route, with that same public MCP URL and an Authorization request header. The page states the build cap from `AM_TRIAL_BUILD_LIMIT`. When `AM_API_URL` is a public `https` origin, that same page carries an Open Graph and Twitter card for `{AM_API_URL}/try`. The image is `{AM_API_URL}/static/og-trial.png` and needs no token. A loopback or private `AM_API_URL` omits the tags. The page stays `noindex`. One normalized address gets one token. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected. Sign-up attempts from one IPv6 network share a `/48`. My pages login stays a `/64`. At most `AM_TRIAL_SIGNUPS_PER_DAY` tokens are minted per UTC day (default 300). After that, `/try` says no more hosted tokens today, back at 00:00 UTC.
 
-Trial builds always use `AM_TRIAL_MODEL` and cannot call `publish`. A trial token's tool list omits `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily spend cap is reached, the error is `trial capacity reached for today, resets at 00:00 UTC`. A used-up trial points at the self-host README. Share links for a trial last at most 30 days. The served page adds `noindex` even when the page already has a robots meta that does not say noindex, and an abuse footer that stays visible if the page hides footers. Idle trial workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
+Hosted builds always use `AM_TRIAL_MODEL` and cannot call `publish`. A hosted token's tool list omits `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily spend cap is reached, the error is `the hosted copy hit today's limit, back at 00:00 UTC`. A used-up token points at the GitHub repo. Share links for a hosted token last at most 30 days. The served page adds `noindex` even when the page already has a robots meta that does not say noindex, and a footer that links the repo and stays visible if the page hides footers. Idle hosted workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
 
 ## Security
 

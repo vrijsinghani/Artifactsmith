@@ -63,7 +63,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 artifactsmith = ["py.typed"]
-"artifactsmith.web" = ["static/og-trial.png"]
+"artifactsmith.web" = ["static/og-trial.png", "static/home.html"]
 
 [tool.ruff]
 target-version = "py311"

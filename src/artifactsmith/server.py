@@ -611,7 +611,7 @@ class BearerAuth:
 class ApiApp:
     """MCP bearer API, plus the pages on this same origin.
 
-    /app/, /trial/, and the exact card path are not wrapped in BearerAuth.
+    /app/, /, /try, /trial/, and the exact card path are not wrapped in BearerAuth.
     The preview origin never mounts them.
     """
 
@@ -626,6 +626,9 @@ class ApiApp:
             if (
                 path == "/app"
                 or path.startswith("/app/")
+                or path == "/"
+                or path == "/try"
+                or path == "/try/"
                 or path == "/trial"
                 or path.startswith("/trial/")
                 or path == _CARD_PATH

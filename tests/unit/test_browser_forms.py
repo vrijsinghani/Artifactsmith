@@ -90,7 +90,8 @@ def test_chromium_submits_trial_and_login_forms(monkeypatch):
     monkeypatch.setattr("artifactsmith.web.trial_pages.send_magic_link", fake_send)
     with _chromium(monkeypatch) as (page, origin, svc):
         page.goto(origin + "/trial")
-        assert f"{int(CFG.trial_build_limit)} free builds" in page.content()
+        assert "Try it before you install" in page.content()
+        assert "Open source, MIT" in page.content()
         page.locator("#email").fill("person@example.com")
         page.get_by_role("button", name="Email me a link").click()
         page.get_by_text("sign-up link is on its way").wait_for()
@@ -98,7 +99,7 @@ def test_chromium_submits_trial_and_login_forms(monkeypatch):
 
         page.goto(box["url"])
         page.get_by_role("button", name="Show my token").click()
-        page.get_by_text("Your trial token").wait_for()
+        page.get_by_text("Your token").wait_for()
         fits = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1")
         assert fits
         assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 1
@@ -123,7 +124,7 @@ def test_chromium_submits_trial_and_login_forms(monkeypatch):
         page.goto(origin + "/trial")
         page.locator("#email").fill("other@example.com")
         page.get_by_role("button", name="Show my token").click()
-        page.get_by_text("Your trial token").wait_for()
+        page.get_by_text("Your token").wait_for()
         assert "form expired" not in page.content().lower()
         assert "sign-up link is on its way" not in page.content()
         assert page.locator("input[readonly]").input_value().startswith("asmb_")

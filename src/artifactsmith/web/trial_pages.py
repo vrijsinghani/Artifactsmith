@@ -1,4 +1,4 @@
-"""Self-serve /trial pages. The token is shown once. The snippet uses a placeholder."""
+"""Hosted /try page. The token is shown once. The snippet uses a placeholder."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from ..config import CFG
@@ -19,6 +19,8 @@ from ..service import Service
 from ..trial import (
     CLOSED,
     MAIL_UNAVAILABLE,
+    REPO,
+    SHARE_DAYS,
     SPOTS_TAKEN,
     TrialMailError,
     consume_link,
@@ -42,11 +44,16 @@ _COOKIE = "am_trial_csrf"
 
 
 def _cookie_kwargs() -> dict[str, Any]:
-    return {"path": "/trial", "httponly": True, "secure": bool(CFG.cookie_secure), "samesite": "strict"}
+    # Path / covers /try and /trial/verify. Those routes share no longer prefix.
+    return {"path": "/", "httponly": True, "secure": bool(CFG.cookie_secure), "samesite": "strict"}
 
 
-_CARD_TITLE = "ArtifactSmith"
-_CARD_DESCRIPTION = "Agent output in, real page or PDF out. 20 free builds."
+_PAGE_TITLE = "Try ArtifactSmith before you install"
+_CARD_TITLE = "ArtifactSmith: open-source MCP server for agent output"
+_CARD_DESCRIPTION = (
+    "My agents kept handing me walls of chat text.  This turns it into real pages and PDFs.  "
+    "MIT.  Try it before you install."
+)
 
 
 def _public_https_origin(api_url: str) -> str | None:
@@ -81,7 +88,7 @@ def _card_head(api_url: str) -> str:
     origin = _public_https_origin(api_url)
     if origin is None:
         return ""
-    page = origin + "/trial"
+    page = origin + "/try"
     image = origin + _CARD_PATH
     tags = (
         _meta("property", "og:title", _CARD_TITLE),
@@ -98,7 +105,7 @@ def _card_head(api_url: str) -> str:
 
 def _html(body: str, nonce: str, status: int = 200) -> HTMLResponse:
     return HTMLResponse(
-        _shell("ArtifactSmith trial", body, nonce, head=_card_head(CFG.api_url)),
+        _shell(_PAGE_TITLE, body, nonce, head=_card_head(CFG.api_url)),
         status_code=status,
         headers=security_headers(nonce),
     )
@@ -165,14 +172,25 @@ def _client_snippets(api_url: str) -> str:
     return "".join(parts)
 
 
+def _notice(message: str, *, error: bool = False) -> str:
+    kind = " class=error" if error else ""
+    return f"<h1>ArtifactSmith</h1><p{kind}>{escape(message)}</p>"
+
+
 def _form(csrf: str, message: str = "") -> str:
     note = f'<p class="error">{escape(message)}</p>' if message else ""
     builds = int(CFG.trial_build_limit)
     return (
-        "<h1>Start a trial</h1>"
-        f"<p class=muted>One workspace, {builds} free builds, on the house model.</p>"
+        "<h1>Try it before you install</h1>"
+        "<p>ArtifactSmith is an open-source MCP server. Your agent sends it the request and its notes, "
+        "and gets back a web page, PDF, Word doc or spreadsheet.</p>"
+        f'<p>Source and install: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a> '
+        "(Open source, MIT)</p>"
+        "<p>I run a copy here so you can see it work first. Enter an email and you get a token "
+        "for Claude Desktop, Cursor or any MCP client. It runs on my server and Claude Haiku 5.5, "
+        f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
         f"{note}"
-        '<form method=post action="/trial">'
+        '<form method=post action="/try">'
         f'<input type=hidden name=csrf value="{escape(csrf, quote=True)}">'
         "<label for=email>Email</label>"
         "<input id=email name=email type=email autocomplete=email required maxlength=254>"
@@ -187,7 +205,7 @@ def _submit_label() -> str:
 
 def _confirm(csrf: str, code: str) -> str:
     return (
-        "<h1>Show your trial token</h1>"
+        "<h1>Show your token</h1>"
         "<p>This link stays valid until you continue.</p>"
         '<form method=post action="/trial/verify">'
         f'<input type=hidden name=csrf value="{escape(csrf, quote=True)}">'
@@ -199,10 +217,11 @@ def _confirm(csrf: str, code: str) -> str:
 
 def _token_page(raw: str, workspace: str) -> str:
     return (
-        "<h1>Your trial token</h1>"
+        "<h1>Your token</h1>"
         "<p>Copy it now. It is not shown again.</p>"
         f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
         f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
+        f'<p>Like it?  Run your own: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a></p>'
         "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
         f"<p>{_connector_line(CFG.api_url)}</p>"
         f"{_client_snippets(CFG.api_url)}"
@@ -213,35 +232,66 @@ def _token_page(raw: str, workspace: str) -> str:
 def _show_token(svc: Service, digest: str, nonce: str, *, verified: bool) -> HTMLResponse:
     minted = mint_trial(svc.db, digest, verified=verified)
     if minted is None:
-        return _html("<h1>Trial</h1><p>This email already has a trial. The token was shown once.</p>", nonce)
+        return _html(_notice("This email already has a token.  It was shown once."), nonce)
     raw, workspace = minted
     return _html(_token_page(raw, workspace), nonce)
 
 
+_HOME_FILE = "static/home.html"
+_HOME_CSP = (
+    "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
+    "img-src data:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+)
+
+
+def _home_page(_request: Request) -> Response:
+    data = importlib.resources.files("artifactsmith.web").joinpath(_HOME_FILE).read_bytes()
+    return Response(
+        data,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": _HOME_CSP,
+        },
+    )
+
+
+def _to_try(_request: Request) -> Response:
+    return RedirectResponse("/try", status_code=301)
+
+
+def _unavailable(svc: Service, nonce: str) -> HTMLResponse | None:
+    if not CFG.trial_enabled:
+        return _html(_notice(CLOSED), nonce)
+    if signup_day_full(svc.db):
+        return _html(_notice(SPOTS_TAKEN), nonce)
+    return None
+
+
 def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
-    async def trial_get(request: Request) -> Response:
+    async def try_get(_request: Request) -> Response:
         svc: Service | None = current()
         if svc is None:
             return HTMLResponse("not ready", status_code=503)
         nonce = new_nonce()
-        if not CFG.trial_enabled:
-            return _html("<h1>Trial</h1><p>Trial sign-up is closed.</p>", nonce)
-        if signup_day_full(svc.db):
-            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
+        blocked = _unavailable(svc, nonce)
+        if blocked is not None:
+            return blocked
         csrf = issue_csrf()
         response = _html(_form(csrf), nonce)
         response.set_cookie(_COOKIE, csrf, max_age=int(CFG.csrf_ttl_s), **_cookie_kwargs())
         return response
 
-    async def trial_post(request: Request) -> Response:
+    async def try_post(request: Request) -> Response:
         svc = current()
         if svc is None:
             return HTMLResponse("not ready", status_code=503)
         nonce = new_nonce()
-        if not CFG.trial_enabled:
-            return _html("<h1>Trial</h1><p>Trial sign-up is closed.</p>", nonce)
-        if signup_day_full(svc.db):
-            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
+        blocked = _unavailable(svc, nonce)
+        if blocked is not None:
+            return blocked
         form = await request.form()
         posted = _field(form, "csrf")
         if (
@@ -249,12 +299,10 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
             or not tokens_match(posted, request.cookies.get(_COOKIE, ""))
             or not csrf_signature_ok(posted)
         ):
-            return _html("<h1>Trial</h1><p class=error>The form expired. Load the page again.</p>", nonce, status=403)
+            return _html(_notice("The form expired. Load the page again.", error=True), nonce, status=403)
         ip = signup_key(client_host(request))
         if signup_blocked(svc.db, ip):
-            return _html(
-                "<h1>Trial</h1><p class=error>Too many sign-ups from this network today.</p>", nonce, status=429
-            )
+            return _html(_notice("Too many sign-ups from this network today.", error=True), nonce, status=429)
         try:
             normalized = normalize_email(_field(form, "email"))
         except ValueError:
@@ -264,7 +312,7 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
             return response
         note_signup(svc.db, ip)
         if is_disposable(normalized):
-            return _html("<h1>Trial</h1><p class=error>Use a regular email address.</p>", nonce, status=400)
+            return _html(_notice("Use a regular email address.", error=True), nonce, status=400)
         digest = email_hash(normalized)
         if not CFG.trial_email_verify:
             return _show_token(svc, digest, nonce, verified=False)
@@ -272,7 +320,7 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         try:
             send_magic_link(normalized, link_url(raw))
         except TrialMailError:
-            return _html(f"<h1>Trial</h1><p class=error>{escape(MAIL_UNAVAILABLE)}</p>", nonce, status=503)
+            return _html(_notice(MAIL_UNAVAILABLE, error=True), nonce, status=503)
         return _html(
             "<h1>Check your inbox</h1><p>If that address can receive mail, a sign-up link is on its way.</p>", nonce
         )
@@ -282,13 +330,12 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         if svc is None:
             return HTMLResponse("not ready", status_code=503)
         nonce = new_nonce()
-        if not CFG.trial_enabled:
-            return _html(f"<h1>Trial</h1><p>{escape(CLOSED)}</p>", nonce)
-        if signup_day_full(svc.db):
-            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
+        blocked = _unavailable(svc, nonce)
+        if blocked is not None:
+            return blocked
         code = request.query_params.get("code", "")
         if not link_pending(svc.db, code):
-            return _html("<h1>Trial</h1><p class=error>That link is invalid or already used.</p>", nonce, status=400)
+            return _html(_notice("That link is invalid or already used.", error=True), nonce, status=400)
         csrf = issue_csrf()
         response = _html(_confirm(csrf, code), nonce)
         response.set_cookie(_COOKIE, csrf, max_age=int(CFG.csrf_ttl_s), **_cookie_kwargs())
@@ -300,10 +347,9 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         if svc is None:
             return HTMLResponse("not ready", status_code=503)
         nonce = new_nonce()
-        if not CFG.trial_enabled:
-            return _html(f"<h1>Trial</h1><p>{escape(CLOSED)}</p>", nonce)
-        if signup_day_full(svc.db):
-            return _html(f"<h1>Trial</h1><p>{escape(SPOTS_TAKEN)}</p>", nonce)
+        blocked = _unavailable(svc, nonce)
+        if blocked is not None:
+            return blocked
         form = await request.form()
         posted = _field(form, "csrf")
         if (
@@ -311,15 +357,20 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
             or not tokens_match(posted, request.cookies.get(_COOKIE, ""))
             or not csrf_signature_ok(posted)
         ):
-            return _html("<h1>Trial</h1><p class=error>The form expired. Load the page again.</p>", nonce, status=403)
+            return _html(_notice("The form expired. Load the page again.", error=True), nonce, status=403)
         digest = consume_link(svc.db, _field(form, "code"))
         if digest is None:
-            return _html("<h1>Trial</h1><p class=error>That link is invalid or already used.</p>", nonce, status=400)
+            return _html(_notice("That link is invalid or already used.", error=True), nonce, status=400)
         return _show_token(svc, digest, nonce, verified=True)
 
     return [
-        Route("/trial", trial_get, methods=["GET"]),
-        Route("/trial", trial_post, methods=["POST"]),
+        Route("/", _home_page, methods=["GET"]),
+        Route("/try", try_get, methods=["GET"]),
+        Route("/try", try_post, methods=["POST"]),
+        Route("/try/", _to_try, methods=["GET"]),
+        Route("/trial", _to_try, methods=["GET"]),
+        Route("/trial/", _to_try, methods=["GET"]),
+        Route("/trial", try_post, methods=["POST"]),
         Route("/trial/verify", verify_get, methods=["GET"]),
         Route("/trial/verify", verify_post, methods=["POST"]),
         Route(_CARD_PATH, _card_image, methods=["GET"]),
