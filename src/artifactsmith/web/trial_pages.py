@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.resources
+import ipaddress
 import json
 from collections.abc import Callable
 from html import escape
 from typing import Any
+from urllib.parse import urlparse
 
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, Response
@@ -42,8 +45,75 @@ def _cookie_kwargs() -> dict[str, Any]:
     return {"path": "/trial", "httponly": True, "secure": bool(CFG.cookie_secure), "samesite": "strict"}
 
 
+_CARD_TITLE = "ArtifactSmith"
+_CARD_DESCRIPTION = "Agent output in, real page or PDF out. 20 free builds."
+
+
+def _public_https_origin(api_url: str) -> str | None:
+    """https origin whose host is a DNS name. http, userinfo, any IP, and localhost stay off the card."""
+    parsed = urlparse(api_url.strip())
+    host = parsed.hostname
+    if parsed.scheme != "https" or not host or parsed.username or parsed.password:
+        return None
+    if host.lower() == "localhost" or host.lower().endswith(".localhost"):
+        return None
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return None
+    origin = f"https://{host}"
+    if parsed.port:
+        origin += f":{parsed.port}"
+    return origin
+
+
+def _meta(attr: str, name: str, content: str) -> str:
+    return f'<meta {attr}="{escape(name, quote=True)}" content="{escape(content, quote=True)}">'
+
+
+_CARD_FILE = "static/og-trial.png"
+_CARD_PATH = "/static/og-trial.png"
+
+
+def _card_head(api_url: str) -> str:
+    origin = _public_https_origin(api_url)
+    if origin is None:
+        return ""
+    page = origin + "/trial"
+    image = origin + _CARD_PATH
+    tags = (
+        _meta("property", "og:title", _CARD_TITLE),
+        _meta("property", "og:description", _CARD_DESCRIPTION),
+        _meta("property", "og:url", page),
+        _meta("property", "og:image", image),
+        _meta("name", "twitter:card", "summary_large_image"),
+        _meta("name", "twitter:title", _CARD_TITLE),
+        _meta("name", "twitter:description", _CARD_DESCRIPTION),
+        _meta("name", "twitter:image", image),
+    )
+    return "".join(tags)
+
+
 def _html(body: str, nonce: str, status: int = 200) -> HTMLResponse:
-    return HTMLResponse(_shell("ArtifactSmith trial", body, nonce), status_code=status, headers=security_headers(nonce))
+    return HTMLResponse(
+        _shell("ArtifactSmith trial", body, nonce, head=_card_head(CFG.api_url)),
+        status_code=status,
+        headers=security_headers(nonce),
+    )
+
+
+def _card_png() -> bytes:
+    return importlib.resources.files("artifactsmith.web").joinpath(_CARD_FILE).read_bytes()
+
+
+async def _card_image(_request: Request) -> Response:
+    return Response(
+        _card_png(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 def _field(form: Any, name: str) -> str:
@@ -252,4 +322,5 @@ def trial_routes(current: Callable[[], Service | None]) -> list[Route]:
         Route("/trial", trial_post, methods=["POST"]),
         Route("/trial/verify", verify_get, methods=["GET"]),
         Route("/trial/verify", verify_post, methods=["POST"]),
+        Route(_CARD_PATH, _card_image, methods=["GET"]),
     ]

@@ -731,6 +731,82 @@ def _verify(client: TestClient, url: str):
     return client.post("/trial/verify", data={"csrf": csrf, "code": code})
 
 
+def test_trial_page_advertises_a_public_card(trial_http):
+    client, _box = trial_http
+    page = client.get("/trial")
+    assert page.status_code == 200
+    text = page.text
+    assert 'property="og:title" content="ArtifactSmith"' in text
+    assert 'property="og:description" content="Agent output in, real page or PDF out. 20 free builds."' in text
+    assert 'property="og:url" content="https://trial.example/trial"' in text
+    assert 'property="og:image" content="https://trial.example/static/og-trial.png"' in text
+    assert 'name="twitter:card" content="summary_large_image"' in text
+    assert 'name="twitter:title" content="ArtifactSmith"' in text
+    assert 'name="twitter:description" content="Agent output in, real page or PDF out. 20 free builds."' in text
+    assert 'name="twitter:image" content="https://trial.example/static/og-trial.png"' in text
+    assert "content=noindex" in text
+    assert "127.0.0.1" not in text
+    assert "localhost" not in text
+    assert "192.168." not in text
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:8780", "https://192.168.0.8", "https://localhost"])
+def test_trial_page_omits_preview_tags_for_a_private_origin(trial_http, monkeypatch, origin):
+    monkeypatch.setattr(CFG, "api_url", origin)
+    client, _box = trial_http
+    page = client.get("/trial")
+    assert page.status_code == 200
+    assert "og:url" not in page.text
+    assert "og:image" not in page.text
+    assert "content=noindex" in page.text
+
+
+def test_my_pages_login_has_no_trial_card(svc, monkeypatch):
+    monkeypatch.setattr(CFG, "allowed_hosts", ["127.0.0.1:8780", "localhost:8780"])
+    monkeypatch.setattr(CFG, "api_url", "https://trial.example")
+    server.SVC = svc
+    try:
+        client = TestClient(server.ApiApp(), base_url="https://127.0.0.1:8780")
+        page = client.get("/app/login")
+    finally:
+        server.SVC = None
+    assert page.status_code == 200
+    assert "og:image" not in page.text
+    assert "summary_large_image" not in page.text
+
+
+def test_trial_card_is_a_public_png(trial_http):
+    client, _box = trial_http
+    image = client.get("/static/og-trial.png")
+    assert image.status_code == 200
+    assert image.headers["content-type"].startswith("image/png")
+    assert "www-authenticate" not in image.headers
+    assert image.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image.content[12:16] == b"IHDR"
+    width = int.from_bytes(image.content[16:20], "big")
+    height = int.from_bytes(image.content[20:24], "big")
+    assert (width, height) == (1200, 630)
+    assert "public" in image.headers["cache-control"]
+
+
+def test_trial_card_rejects_a_foreign_host(svc, monkeypatch):
+    monkeypatch.setattr(CFG, "allowed_hosts", ["127.0.0.1:8780"])
+    server.SVC = svc
+    try:
+        bad = TestClient(server.ApiApp(), base_url="http://evil.example")
+        denied = bad.get("/static/og-trial.png")
+    finally:
+        server.SVC = None
+    assert denied.status_code == 400
+
+
+def test_other_static_paths_are_not_public(trial_http):
+    client, _box = trial_http
+    other = client.get("/static/other.png")
+    assert other.status_code == 401
+    assert "www-authenticate" in other.headers
+
+
 def test_magic_link_shows_the_token_once(trial_http, svc):
     client, box = trial_http
     csrf = _csrf(client)
