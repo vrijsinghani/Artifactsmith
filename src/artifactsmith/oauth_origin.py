@@ -15,9 +15,6 @@ from .renderers.safety import _host_is_private
 DEFAULT_REDIRECTS = (
     "https://claude.ai/api/mcp/auth_callback,"
     "https://chatgpt.com/connector_platform_oauth_redirect,"
-    "https://chatgpt.com/connector/oauth/*,"
-    "https://chatgpt.com/aip/g-*/oauth/callback,"
-    "https://chat.openai.com/aip/g-*/oauth/callback,"
     "http://127.0.0.1:*/callback,"
     "http://localhost:*/callback"
 )
@@ -89,17 +86,34 @@ def _loopback_uri(uri: str, host: str) -> bool:
 
 
 def _star_match(pattern: str, uri: str) -> bool:
+    """One wildcard segment. ``?``, ``#``, and ``%`` never match."""
+    if any(ch in uri for ch in ("?", "#", "%")):
+        return False
     if pattern.count("*") != 1:
         return False
     left, right = pattern.split("*", 1)
-    if "/" in left.split("://", 1)[-1] and left.endswith("/"):
-        middle = "[^/]+"
-    else:
-        middle = "[^/]+"
     try:
-        return re.fullmatch(re.escape(left) + middle + re.escape(right), uri) is not None
+        return re.fullmatch(re.escape(left) + r"[A-Za-z0-9_-]+" + re.escape(right), uri) is not None
     except re.error:
         return False
+
+
+def form_source(redirect_uri: str) -> str:
+    """CSP form-action host for one allowlisted redirect. Empty when it has no origin."""
+    parsed = urlparse(redirect_uri)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower()
+    if scheme == "http" and host == "127.0.0.1":
+        return "http://127.0.0.1:*"
+    if scheme == "http" and host == "localhost":
+        return "http://localhost:*"
+    if scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+        return ""
+    origin = f"{scheme}://{host}"
+    default = 443 if scheme == "https" else 80
+    if parsed.port and parsed.port != default:
+        origin += f":{parsed.port}"
+    return origin
 
 
 def redirect_allowed(uri: str, patterns: list[str] | None = None) -> bool:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -15,9 +16,18 @@ import artifactsmith.server as server
 from artifactsmith.config import CFG, ConfigError, _demo_pair, _oauth_static_client
 from artifactsmith.oauth_demo import DEMO_ARTIFACT, DEMO_TOKEN_ID, ensure
 from artifactsmith.oauth_grants import resolve_bearer
+from artifactsmith.oauth_http import issuer
 from artifactsmith.oauth_origin import redirect_allowed
 from artifactsmith.service import AMError, Service
-from artifactsmith.trial import email_hash, mint_trial, normalize_email
+from artifactsmith.trial import (
+    day_spend_micros,
+    email_hash,
+    mint_trial,
+    normalize_email,
+    purge_idle_trials,
+    settle,
+    utc_day,
+)
 
 CLAUDE = "https://claude.ai/api/mcp/auth_callback"
 CHATGPT = "https://chatgpt.com/connector_platform_oauth_redirect"
@@ -41,7 +51,9 @@ def test_static_client_id_rejects_spaces(monkeypatch):
 def test_redirect_allowlist_matches_the_published_callbacks():
     assert redirect_allowed(CLAUDE)
     assert redirect_allowed(CHATGPT)
-    assert redirect_allowed("https://chatgpt.com/connector/oauth/cb_123")
+    assert not redirect_allowed("https://chatgpt.com/connector/oauth/cb_123")
+    assert not redirect_allowed("https://chatgpt.com/aip/g-abc/oauth/callback")
+    assert not redirect_allowed("https://chat.openai.com/aip/g-abc/oauth/callback")
     assert redirect_allowed("http://127.0.0.1:3456/callback")
     assert redirect_allowed("http://localhost:9/callback")
     assert not redirect_allowed("http://127.0.0.1:3456/steal")
@@ -155,9 +167,10 @@ def test_metadata_advertises_dcr_not_cimd(oauth_http):
     assert resource.json() == suffixed.json()
     assert resource.json()["resource"] == "https://trial.example/mcp"
     denied = client.post("/mcp", headers={"Accept": "application/json, text/event-stream"})
-    assert 'resource_metadata="https://trial.example/.well-known/oauth-protected-resource"' in denied.headers[
-        "www-authenticate"
-    ]
+    assert (
+        'resource_metadata="https://trial.example/.well-known/oauth-protected-resource"'
+        in denied.headers["www-authenticate"]
+    )
 
 
 def test_new_email_gets_a_code_and_can_call_mcp(oauth_http, svc):
@@ -283,7 +296,9 @@ def test_refresh_rotation_and_revoke(oauth_http):
     assert gone.status_code == 401
     fresh_verifier, fresh_csrf = _start(client)
     fresh_code = _code_from(
-        client.post("/oauth/authorize", data={"csrf": fresh_csrf, "email": "revoke@example.com"}, follow_redirects=False)
+        client.post(
+            "/oauth/authorize", data={"csrf": fresh_csrf, "email": "revoke@example.com"}, follow_redirects=False
+        )
     )
     minted = _exchange(client, fresh_code, fresh_verifier).json()
     revoked = client.post("/oauth/revoke", data={"token": minted["access_token"]})
@@ -382,8 +397,16 @@ def test_demo_password_uses_the_sample_token_and_its_own_cap(oauth_http, svc, mo
     assert principal["id"] == DEMO_TOKEN_ID
     first = svc.create(principal, slug="review", display_name="Review", verbatim_request="show the page")
     assert first["builds_remaining"] == 0
-    spent = svc.db.one("SELECT COALESCE(SUM(actual_micros), 0) AS n FROM trial_reservations")
-    assert int(spent["n"]) == 0
+    held = svc.db.one(
+        "SELECT reserved_micros, actual_micros FROM trial_reservations WHERE token_id=?",
+        DEMO_TOKEN_ID,
+    )
+    assert int(held["reserved_micros"]) > 0
+    assert held["actual_micros"] is None
+    settle(svc.db, first["job_id"], [(12, 8, True)])
+    assert svc.db.one("SELECT input_tokens FROM trial_usage WHERE job_id=?", first["job_id"])["input_tokens"] == 12
+    with svc.db.tx() as conn:
+        assert day_spend_micros(conn, utc_day(time.time())) == 0
     with pytest.raises(AMError, match="you've used the 1 review builds"):
         svc.create(principal, slug="review-2", display_name="Review 2", verbatim_request="show the page")
 
@@ -406,8 +429,7 @@ def test_revoked_hosted_token_rejects_the_oauth_access_token(oauth_http, svc):
 def test_static_bearer_still_passes_the_gate(oauth_http, svc):
     raw = "asmb_staticbearer"
     svc.db.exec(
-        "INSERT INTO tokens (id, token_hash, name, workspace, perms, created_at, revoked_at) "
-        "VALUES (?,?,?,?,?,?,NULL)",
+        "INSERT INTO tokens (id, token_hash, name, workspace, perms, created_at, revoked_at) VALUES (?,?,?,?,?,?,NULL)",
         "tok_static",
         hashlib.sha256(raw.encode()).hexdigest(),
         "agent",
@@ -430,5 +452,218 @@ def test_privacy_page_is_a_draft(oauth_http):
     assert page.status_code == 200
     assert "Draft for owner approval." in page.text
     assert "SHA-256" in page.text
-    assert "Claude Haiku 5.5" in page.text
+    assert CFG.trial_model in page.text
+    assert "Claude Haiku 5.5" not in page.text
+    assert "Your IP address is kept for up to a day for rate limits." in page.text
+    assert "Sign-in tokens are stored only as hashes." in page.text
     assert "trial" not in page.text.lower()
+
+
+def _authorize(client: TestClient, redirect: str):
+    _verifier, challenge = _pkce()
+    return client.get(
+        "/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": "artifactsmith",
+            "redirect_uri": redirect,
+            "state": "state-1",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        },
+    )
+
+
+def test_form_action_names_the_redirect_origin(oauth_http):
+    client, _box = oauth_http
+    claude = _authorize(client, CLAUDE)
+    csrf = re.search(r'name=csrf value="([^"]+)"', claude.text).group(1)
+    again = client.post(
+        "/oauth/authorize",
+        data={"csrf": csrf, "email": "not-an-email"},
+        follow_redirects=False,
+    )
+    chatgpt = _authorize(client, CHATGPT)
+    loop = _authorize(client, "http://127.0.0.1:9/callback")
+    local = _authorize(client, "http://localhost:9/callback")
+    assert "form-action 'self' https://claude.ai;" in claude.headers["content-security-policy"]
+    assert "form-action 'self' https://claude.ai;" in again.headers["content-security-policy"]
+    assert "form-action 'self' https://chatgpt.com;" in chatgpt.headers["content-security-policy"]
+    assert "form-action 'self' http://127.0.0.1:*;" in loop.headers["content-security-policy"]
+    assert "form-action 'self' http://localhost:*;" in local.headers["content-security-policy"]
+    for page in (claude, again, chatgpt, loop, local):
+        assert "form-action *" not in page.headers["content-security-policy"]
+
+
+def test_confirm_form_action_names_the_redirect_origin(oauth_http, svc, monkeypatch):
+    monkeypatch.setattr(CFG, "trial_email_verify", True)
+    client, box = oauth_http
+    _verifier, csrf = _start(client)
+    waited = client.post(
+        "/oauth/authorize",
+        data={"csrf": csrf, "email": "confirm-csp@example.com"},
+        follow_redirects=False,
+    )
+    assert waited.status_code == 200
+    opened = client.get(box["url"].split("https://trial.example")[1])
+    assert "form-action 'self' https://claude.ai;" in opened.headers["content-security-policy"]
+
+
+def test_private_origin_does_not_redirect_with_an_internal_host(oauth_http, monkeypatch):
+    monkeypatch.setattr(CFG, "api_url", "http://10.1.1.1:8780")
+    assert issuer() == ""
+    client, _box = oauth_http
+    page = _authorize(client, CLAUDE)
+    assert page.status_code == 400
+    assert "location" not in page.headers
+    assert "OAuth sign-in is not available on this copy." in page.text
+    assert "10.1.1.1" not in page.text
+
+
+def test_token_endpoint_stops_at_the_limit(oauth_http):
+    client, _box = oauth_http
+    for _ in range(8):
+        failed = client.post(
+            "/oauth/token",
+            data={"grant_type": "authorization_code", "client_id": "missing", "code": "x"},
+        )
+        assert failed.status_code == 400
+    blocked = client.post(
+        "/oauth/token",
+        data={"grant_type": "authorization_code", "client_id": "missing", "code": "x"},
+    )
+    assert blocked.status_code == 429
+    assert blocked.json()["error"] == "slow_down"
+    assert blocked.headers["retry-after"]
+
+
+def test_dcr_day_cap_and_authorize_get_cap(oauth_http, svc, monkeypatch):
+    monkeypatch.setattr("artifactsmith.oauth_http.REGISTER_DAY_CAP", 1)
+    client, _box = oauth_http
+    first = client.post("/oauth/register", json={"redirect_uris": [CLAUDE], "token_endpoint_auth_method": "none"})
+    second = client.post("/oauth/register", json={"redirect_uris": [CLAUDE], "token_endpoint_auth_method": "none"})
+    assert first.status_code == 201
+    assert second.status_code == 429
+    monkeypatch.setattr("artifactsmith.web.oauth_pages.AUTHORIZE_LIMIT", 2)
+    assert _authorize(client, CLAUDE).status_code == 200
+    assert _authorize(client, CLAUDE).status_code == 200
+    assert _authorize(client, CLAUDE).status_code == 429
+
+
+def test_hosted_token_proves_the_existing_account(oauth_http, svc):
+    client, _box = oauth_http
+    raw, _workspace = mint_trial(svc.db, email_hash(normalize_email("owner@example.com")), verified=True)
+    assert raw is not None
+    owner = svc.db.one("SELECT token_id FROM trial_signups WHERE email_hash=?", email_hash("owner@example.com"))
+    verifier, csrf = _start(client)
+    issued = client.post(
+        "/oauth/authorize",
+        data={"csrf": csrf, "email": "other@example.com", "hosted_token": raw},
+        follow_redirects=False,
+    )
+    access = _exchange(client, _code_from(issued), verifier).json()["access_token"]
+    assert resolve_bearer(svc.db, access)["id"] == owner["token_id"]
+    _verifier, csrf = _start(client)
+    wrong = client.post(
+        "/oauth/authorize",
+        data={"csrf": csrf, "email": "other@example.com", "hosted_token": "asmb_wrong"},
+        follow_redirects=False,
+    )
+    assert wrong.status_code == 400
+    assert "asmb_wrong" not in wrong.text
+    assert "That sign-in did not work." in wrong.text
+    revoked, _workspace = mint_trial(svc.db, email_hash(normalize_email("revoked@example.com")), verified=True)
+    svc.db.exec(
+        "UPDATE tokens SET revoked_at=1 WHERE id=?",
+        svc.db.one("SELECT token_id FROM trial_signups WHERE email_hash=?", email_hash("revoked@example.com"))[
+            "token_id"
+        ],
+    )
+    csrf = re.search(r'name=csrf value="([^"]+)"', wrong.text).group(1)
+    denied = client.post(
+        "/oauth/authorize",
+        data={"csrf": csrf, "email": "other@example.com", "hosted_token": revoked},
+        follow_redirects=False,
+    )
+    assert denied.status_code == 400
+    assert revoked not in denied.text
+    assert (
+        svc.db.one("SELECT COUNT(*) AS n FROM login_attempts WHERE kind='oauth_token_login' AND ip!='global'")["n"] == 2
+    )
+
+
+def test_wildcard_segments_reject_query_fragment_and_encoding(monkeypatch):
+    monkeypatch.setattr(CFG, "oauth_redirects", "https://chatgpt.com/connector/oauth/*")
+    assert redirect_allowed("https://chatgpt.com/connector/oauth/cb_123")
+    assert not redirect_allowed("https://chatgpt.com/connector/oauth/x?next=https:")
+    assert not redirect_allowed("https://chatgpt.com/connector/oauth/x#frag")
+    assert not redirect_allowed("https://chatgpt.com/connector/oauth/%2e%2e")
+    assert not redirect_allowed("https://chatgpt.com/connector/oauth/a/b")
+
+
+def test_expired_oauth_rows_are_purged(oauth_http, svc):
+    now = time.time()
+    old = now - 2 * 86400
+    svc.db.exec(
+        "INSERT INTO oauth_pending (id_hash, client_id, redirect_uri, state, challenge, scope, resource, "
+        "created_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "pend-old",
+        "artifactsmith",
+        CLAUDE,
+        "s",
+        "c" * 43,
+        "artifactsmith",
+        "",
+        old,
+        old,
+    )
+    svc.db.exec(
+        "INSERT INTO oauth_links (code_hash, pending_hash, expires_at) VALUES (?,?,?)",
+        "link-old",
+        "pend-old",
+        old,
+    )
+    svc.db.exec(
+        "INSERT INTO oauth_grants (code_hash, client_id, redirect_uri, challenge, token_id, scope, resource, "
+        "expires_at) VALUES (?,?,?,?,?,?,?,?)",
+        "grant-old",
+        "old-client",
+        CLAUDE,
+        "c" * 43,
+        "tok_x",
+        "artifactsmith",
+        "",
+        old,
+    )
+    svc.db.exec(
+        "INSERT INTO oauth_tokens (id, family_id, access_hash, refresh_hash, client_id, token_id, scope, "
+        "access_expires_at, refresh_expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "oat_old",
+        "fam",
+        "access-old",
+        "refresh-old",
+        "old-client",
+        "tok_x",
+        "artifactsmith",
+        old,
+        old,
+    )
+    svc.db.exec(
+        "INSERT INTO oauth_clients (client_id, redirect_json, auth_method, created_at) VALUES (?,?,?,?)",
+        "old-client",
+        '["https://claude.ai/api/mcp/auth_callback"]',
+        "none",
+        now - 40 * 86400,
+    )
+    svc.db.exec(
+        "UPDATE oauth_clients SET created_at=? WHERE client_id=?",
+        now - 40 * 86400,
+        CFG.oauth_static_client_id,
+    )
+    purge_idle_trials(svc.db, svc.store, now=now)
+    assert svc.db.one("SELECT 1 AS n FROM oauth_pending WHERE id_hash='pend-old'") is None
+    assert svc.db.one("SELECT 1 AS n FROM oauth_links WHERE code_hash='link-old'") is None
+    assert svc.db.one("SELECT 1 AS n FROM oauth_grants WHERE code_hash='grant-old'") is None
+    assert svc.db.one("SELECT 1 AS n FROM oauth_tokens WHERE id='oat_old'") is None
+    assert svc.db.one("SELECT 1 AS n FROM oauth_clients WHERE client_id='old-client'") is None
+    assert svc.db.one("SELECT client_id FROM oauth_clients WHERE client_id=?", CFG.oauth_static_client_id)

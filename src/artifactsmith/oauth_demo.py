@@ -11,7 +11,7 @@ from typing import Any
 from .config import CFG, ConfigError
 from .db import DB
 from .store import Store
-from .trial import TRIAL_PERMS, email_hash, normalize_email, utc_day
+from .trial import TRIAL_PERMS, email_hash, normalize_email
 
 DEMO_TOKEN_ID = "tok_oauth_demo"
 DEMO_WORKSPACE = "oauth-demo"
@@ -44,16 +44,6 @@ def password_matches(got: str) -> bool:
     return secrets.compare_digest(left, right)
 
 
-def reserve(conn: Any, job_id: str, when: float, token_id: str) -> None:
-    """Count a review build without adding to the shared daily spend."""
-    conn.execute(
-        "INSERT INTO trial_reservations "
-        "(job_id, token_id, day, reserved_micros, actual_micros, settled_at, created_at, counts_build) "
-        "VALUES (?,?,?,0,0,?,?,1)",
-        (job_id, token_id, utc_day(when), when, when),
-    )
-
-
 def ensure(db: DB, store: Store) -> None:
     """Create the fixed token and sample page when the demo account is configured."""
     if not CFG.oauth_demo_email.strip() and not CFG.oauth_demo_password:
@@ -84,7 +74,7 @@ def ensure(db: DB, store: Store) -> None:
             )
         else:
             conn.execute(
-                "UPDATE tokens SET email_hash=?, kind='demo', revoked_at=NULL, workspace=? WHERE id=?",
+                "UPDATE tokens SET email_hash=?, kind='demo', workspace=? WHERE id=?",
                 (digest, DEMO_WORKSPACE, DEMO_TOKEN_ID),
             )
         conn.execute("DELETE FROM trial_signups WHERE token_id=?", (DEMO_TOKEN_ID,))
@@ -101,8 +91,7 @@ def _insert_sample(conn: Any, now: float) -> None:
         (DEMO_ARTIFACT, DEMO_WORKSPACE, "sample-page", "Sample page", "web_static", "html", "demo", now, now),
     )
     conn.execute(
-        "INSERT INTO jobs (id, artifact_id, version, client, status, created_at, finished_at) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO jobs (id, artifact_id, version, client, status, created_at, finished_at) VALUES (?,?,?,?,?,?,?)",
         ("job_oauth_demo", DEMO_ARTIFACT, 1, DEMO_TOKEN_ID, "done", now, now),
     )
     conn.execute(
@@ -127,4 +116,3 @@ def _insert_sample(conn: Any, now: float) -> None:
             now,
         ),
     )
-

@@ -43,11 +43,15 @@ def new_nonce() -> str:
     return secrets.token_urlsafe(16)
 
 
-def security_headers(nonce: str) -> dict[str, str]:
+def security_headers(nonce: str, form_action: str = "") -> dict[str, str]:
+    """Page CSP. ``form_action`` is one extra origin. A bare ``*`` is ignored."""
+    loopback = form_action in {"http://127.0.0.1:*", "http://localhost:*"}
+    exact = form_action.startswith(("https://", "http://")) and "*" not in form_action and " " not in form_action
+    extra = " " + form_action if loopback or exact else ""
     csp = (
         "default-src 'none'; script-src 'none'; "
         f"style-src 'nonce-{nonce}'; img-src 'none'; font-src 'none'; connect-src 'none'; "
-        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+        f"form-action 'self'{extra}; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
     )
     return {
         "Content-Security-Policy": csp,

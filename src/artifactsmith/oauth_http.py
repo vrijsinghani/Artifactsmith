@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
-from .config import CFG
 from .oauth_grants import exchange_code, refresh_grant, revoke_token
 from .oauth_origin import public_origin, redirect_allowed, resource_url
 from .oauth_store import (
     MAX_REDIRECTS,
+    REGISTER_DAY_CAP,
+    REGISTER_LIMIT,
+    REGISTER_WINDOW_S,
     SCOPE,
     GrantError,
     client_row,
+    clients_today,
     note_failure,
     register_client,
     retry_after,
@@ -26,11 +29,8 @@ _GRANTS = {"authorization_code", "refresh_token"}
 
 
 def issuer() -> str:
-    origin = public_origin()
-    if origin:
-        return origin
-    parsed = urlparse(CFG.api_url.strip())
-    return f"{parsed.scheme}://{parsed.netloc}"
+    """Public issuer, or empty when this copy must not publish a host."""
+    return public_origin() or ""
 
 
 def redirect_to(uri: str, params: dict[str, str]) -> RedirectResponse:
@@ -117,21 +117,22 @@ async def register(request: Request) -> Response:
     from .server import _svc
 
     db = _svc().db
-    wait = retry_after(db, "oauth_register", _ip(request))
+    ip = _ip(request)
+    wait = retry_after(db, "oauth_register", ip, limit=REGISTER_LIMIT, window_s=REGISTER_WINDOW_S)
     if wait:
         return _limited(wait)
+    note_failure(db, "oauth_register", ip)
+    if clients_today(db) >= REGISTER_DAY_CAP:
+        return _limited(3600)
     try:
         body = await request.json()
     except (json.JSONDecodeError, ValueError):
-        note_failure(db, "oauth_register", _ip(request))
         return _oauth_error("invalid_client_metadata")
     if not isinstance(body, dict):
-        note_failure(db, "oauth_register", _ip(request))
         return _oauth_error("invalid_client_metadata")
     try:
         redirects = _register_body(body)
     except GrantError as exc:
-        note_failure(db, "oauth_register", _ip(request))
         return _oauth_error(exc.error)
     client_id = register_client(db, redirects)
     return _json(
@@ -155,6 +156,9 @@ async def token(request: Request) -> Response:
     from .server import _svc
 
     db = _svc().db
+    wait = retry_after(db, "oauth_token", _ip(request))
+    if wait:
+        return _limited(wait)
     form = await request.form()
     if _form_value(form, "client_secret"):
         return _oauth_error("invalid_client")

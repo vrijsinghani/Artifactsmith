@@ -1,4 +1,4 @@
-"""Email and review-password steps for the OAuth sign-in page."""
+"""Email, review-password, and hosted-token steps for the OAuth sign-in page."""
 
 from __future__ import annotations
 
@@ -20,9 +20,12 @@ from ..oauth_store import (
     issue_link,
     link_pending,
     note_failure,
+    pair_note,
+    pair_wait,
     pending_row,
     remember_email,
     retry_after,
+    set_link_token,
     token_for_email,
 )
 from ..service import Service
@@ -41,6 +44,9 @@ from .oauth_pages import (
 from .pages import _shell, esc, new_nonce, security_headers
 from .session import csrf_signature_ok, issue_csrf, same_origin, tokens_match
 
+_BUSY = "Too many sign-in attempts. Wait and try again."
+_TOKEN_NO = "That sign-in did not work."
+
 
 async def authorize_post(request: Request) -> Response:
     svc = _current(request)
@@ -57,18 +63,34 @@ async def authorize_post(request: Request) -> Response:
         or pending_row(svc.db, pending_raw) is None
     ):
         return _notice("The form expired. Start the sign-in again.", nonce, 403)
+    hosted = _field(form, "hosted_token").strip()
+    if hosted:
+        return _hosted(svc, request, nonce, pending_raw, hosted)
     try:
         normalized = trial.normalize_email(_field(form, "email"))
     except ValueError:
-        return _again(nonce, pending_raw, "Enter a valid email address.")
+        return _again(svc, nonce, pending_raw, "Enter a valid email address.")
     if email_is_demo(normalized):
-        return _demo(svc, nonce, pending_raw, _field(form, "password"))
+        return _demo(svc, request, nonce, pending_raw, _field(form, "password"))
     return _person(svc, request, nonce, pending_raw, normalized)
 
 
-def _demo(svc: Service, nonce: str, pending_raw: str, password: str) -> Response:
+def _limited(nonce: str, wait: int) -> Response:
+    response = _notice(_BUSY, nonce, 429)
+    response.headers["Retry-After"] = str(wait)
+    return response
+
+
+def _demo(svc: Service, request: Request, nonce: str, pending_raw: str, password: str) -> Response:
+    if not CFG.trial_enabled:
+        return _notice(trial.CLOSED, nonce)
+    ip = client_ip(request)
+    wait = pair_wait(svc.db, "oauth_demo", ip)
+    if wait:
+        return _limited(nonce, wait)
     if not password_matches(password):
-        return _again(nonce, pending_raw, "That password is wrong.")
+        pair_note(svc.db, "oauth_demo", ip)
+        return _again(svc, nonce, pending_raw, "That password is wrong.")
     try:
         code, redirect_uri, state = issue_code(svc.db, digest(pending_raw), DEMO_TOKEN_ID)
     except GrantError as exc:
@@ -76,14 +98,38 @@ def _demo(svc: Service, nonce: str, pending_raw: str, password: str) -> Response
     return redirect_to(redirect_uri, {"code": code, "state": state, "iss": issuer()})
 
 
+def _hosted(svc: Service, request: Request, nonce: str, pending_raw: str, raw: str) -> Response:
+    ip = client_ip(request)
+    wait = pair_wait(svc.db, "oauth_token_login", ip)
+    if wait:
+        return _limited(nonce, wait)
+    row = svc.db.one(
+        "SELECT id FROM tokens WHERE token_hash=? AND revoked_at IS NULL AND kind='trial'",
+        digest(raw),
+    )
+    if row is None:
+        pair_note(svc.db, "oauth_token_login", ip)
+        return _again(svc, nonce, pending_raw, _TOKEN_NO)
+    try:
+        code, redirect_uri, state = issue_code(svc.db, digest(pending_raw), str(row["id"]))
+    except GrantError as exc:
+        return _grant_page(exc, nonce)
+    return redirect_to(redirect_uri, {"code": code, "state": state, "iss": issuer()})
+
+
 def _person(svc: Service, request: Request, nonce: str, pending_raw: str, normalized: str) -> Response:
+    pending = pending_row(svc.db, pending_raw)
+    if pending is None:
+        return _notice("The form expired. Start the sign-in again.", nonce, 403)
     email_hash = trial.email_hash(normalized)
+    locked = str(pending["email_hash"]) if pending.get("email_hash") else ""
+    if locked and locked != email_hash:
+        return _notice("Start the sign-in again.", nonce, 403)
     existing = token_for_email(svc.db, email_hash)
     if existing is not None:
         if existing["revoked_at"] is not None:
             return _notice("This sign-in is closed.", nonce)
-        remember_email(svc.db, digest(pending_raw), email_hash, str(existing["id"]))
-        return _mail(svc, request, nonce, pending_raw, normalized)
+        return _mail(svc, request, nonce, pending_raw, normalized, email_hash, str(existing["id"]))
     if not CFG.trial_enabled:
         return _notice(trial.CLOSED, nonce)
     if trial.signup_day_full(svc.db):
@@ -95,23 +141,25 @@ def _person(svc: Service, request: Request, nonce: str, pending_raw: str, normal
         return _notice("Use a regular email address.", nonce)
     trial.note_signup(svc.db, ip)
     if CFG.trial_email_verify:
-        remember_email(svc.db, digest(pending_raw), email_hash, None)
-        return _mail(svc, request, nonce, pending_raw, normalized)
+        return _mail(svc, request, nonce, pending_raw, normalized, email_hash, None)
     minted = trial.mint_trial(svc.db, email_hash, verified=False)
     if minted is None:
-        remember_email(svc.db, digest(pending_raw), email_hash, None)
-        return _mail(svc, request, nonce, pending_raw, normalized)
+        return _mail(svc, request, nonce, pending_raw, normalized, email_hash, None)
     row = token_for_email(svc.db, email_hash)
     if row is None:
         return _notice("This sign-in is closed.", nonce)
-    try:
-        code, redirect_uri, state = issue_code(svc.db, digest(pending_raw), str(row["id"]))
-    except GrantError as exc:
-        return _grant_page(exc, nonce)
-    return redirect_to(redirect_uri, {"code": code, "state": state, "iss": issuer()})
+    return _issue(svc, nonce, pending_raw, str(row["id"]))
 
 
-def _mail(svc: Service, request: Request, nonce: str, pending_raw: str, normalized: str) -> Response:
+def _mail(
+    svc: Service,
+    request: Request,
+    nonce: str,
+    pending_raw: str,
+    normalized: str,
+    email_hash: str,
+    token_id: str | None,
+) -> Response:
     origin = public_origin()
     if origin is None:
         return _notice("Sign-in email is not available.", nonce)
@@ -120,27 +168,31 @@ def _mail(svc: Service, request: Request, nonce: str, pending_raw: str, normaliz
         response = _notice("Too many sign-in emails from this network. Wait and try again.", nonce, 429)
         response.headers["Retry-After"] = str(wait)
         return response
-    raw = issue_link(svc.db, digest(pending_raw))
+    remember_email(svc.db, digest(pending_raw), email_hash, token_id)
+    raw = issue_link(svc.db, digest(pending_raw), email_hash, token_id)
     url = f"{origin}/oauth/confirm?code={quote(raw)}"
     try:
-        trial.send_magic_link(
-            normalized,
-            url,
-            intro="Open this link to finish signing in. It works once.",
-        )
+        trial.send_magic_link(normalized, url, intro="Open this link to finish signing in. It works once.")
     except trial.TrialMailError as exc:
         note_failure(svc.db, "oauth_mail", client_ip(request))
         return _notice(exc.args[0] if exc.args else trial.MAIL_UNAVAILABLE, nonce)
     note_failure(svc.db, "oauth_mail", client_ip(request))
-    return _html(
-        "<h1>Check your email</h1><p>Open the sign-in link in this browser. It works once.</p>",
-        nonce,
-    )
+    return _html("<h1>Check your email</h1><p>Open the sign-in link in this browser. It works once.</p>", nonce)
 
 
-def _again(nonce: str, pending_raw: str, message: str) -> HTMLResponse:
+def _issue(svc: Service, nonce: str, pending_raw: str, token_id: str) -> Response:
+    try:
+        code, redirect_uri, state = issue_code(svc.db, digest(pending_raw), token_id)
+    except GrantError as exc:
+        return _grant_page(exc, nonce)
+    return redirect_to(redirect_uri, {"code": code, "state": state, "iss": issuer()})
+
+
+def _again(svc: Service, nonce: str, pending_raw: str, message: str) -> HTMLResponse:
+    row = pending_row(svc.db, pending_raw)
+    uri = str(row["redirect_uri"]) if row else ""
     csrf = issue_csrf()
-    return _stamp(_html(_form(csrf, message), nonce, 400), pending_raw, csrf)
+    return _stamp(_html(_form(csrf, message), nonce, 400, uri), pending_raw, csrf)
 
 
 def _grant_page(exc: GrantError, nonce: str) -> HTMLResponse:
@@ -158,7 +210,7 @@ async def confirm_get(request: Request) -> Response:
     if not link_pending(svc.db, raw):
         return _notice("This link is not valid.", nonce)
     try:
-        peek_confirm(svc.db, raw, request.cookies.get(PENDING_COOKIE, ""))
+        pending = peek_confirm(svc.db, raw, request.cookies.get(PENDING_COOKIE, ""))
     except GrantError as exc:
         if exc.error == "browser":
             return _notice("Open this link in the browser where you started sign-in.", nonce)
@@ -172,7 +224,7 @@ async def confirm_get(request: Request) -> Response:
         f'<input type=hidden name=code value="{esc(raw)}">'
         "<button class=primary type=submit>Continue</button></form>"
     )
-    response = _html(body, nonce)
+    response = _html(body, nonce, redirect_uri=str(pending["redirect_uri"]))
     response.set_cookie(CSRF_COOKIE, csrf, max_age=int(CFG.csrf_ttl_s), **_cookie_kwargs())
     return response
 
@@ -185,8 +237,10 @@ async def confirm_post(request: Request) -> Response:
     form = await request.form()
     posted = _field(form, "csrf")
     raw = _field(form, "code")
-    if not same_origin(request) or not tokens_match(posted, request.cookies.get(CSRF_COOKIE, "")) or not csrf_signature_ok(
-        posted
+    if (
+        not same_origin(request)
+        or not tokens_match(posted, request.cookies.get(CSRF_COOKIE, ""))
+        or not csrf_signature_ok(posted)
     ):
         return _notice("The form expired. Open the link again.", nonce, 403)
     cookie = request.cookies.get(PENDING_COOKIE, "")
@@ -215,13 +269,11 @@ def _mint_for_confirm(svc: Service, pending: dict[str, Any]) -> str | None:
         return trial.SPOTS_TAKEN
     if not CFG.trial_enabled:
         return trial.CLOSED
-    minted = trial.mint_trial(svc.db, email_hash, verified=True)
+    trial.mint_trial(svc.db, email_hash, verified=True)
     row = token_for_email(svc.db, email_hash)
-    if minted is None and row is None:
+    if row is None or row["revoked_at"] is not None:
         return "This sign-in is closed."
-    if row is None:
-        return "This sign-in is closed."
-    remember_email(svc.db, str(pending["id_hash"]), email_hash, str(row["id"]))
+    set_link_token(svc.db, str(pending["link_hash"]), str(row["id"]))
     return None
 
 
@@ -236,13 +288,13 @@ def privacy(_request: Request) -> Response:
         "<p class=error>Draft for owner approval.</p>"
         "<p>This page is a draft. The person who runs this copy has not approved it yet.</p>"
         "<p>A sign-in stores a SHA-256 hash of the normalized email, not the email itself.</p>"
+        "<p>Sign-in tokens are stored only as hashes.</p>"
         "<p>A build stores the request text, the notes sent with it, and the generated files.</p>"
         f"<p>Idle hosted workspaces are deleted after {days} days.</p>"
         f"<p>A share link lasts {esc(share_text)}.</p>"
-        "<p>Pages are written by Claude Haiku 5.5.</p>"
+        f"<p>Pages are written by {esc(CFG.trial_model)}.</p>"
+        "<p>Your IP address is kept for up to a day for rate limits.</p>"
         "<p>This copy does not sell the data and does not show ads.</p>"
         f"<p>To ask for deletion, write to {esc(contact)}.</p>"
     )
     return HTMLResponse(_shell("Privacy", body, nonce), status_code=200, headers=security_headers(nonce))
-
-

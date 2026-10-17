@@ -7,6 +7,7 @@ import hashlib
 import json
 import secrets
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from .config import CFG
@@ -19,6 +20,13 @@ REFRESH_TTL = 30 * 86400
 PENDING_TTL = 1800
 MAX_REDIRECTS = 8
 SCOPE = "artifactsmith"
+PENDING_PER_IP = 20
+AUTHORIZE_LIMIT = 60
+REGISTER_LIMIT = 10
+REGISTER_WINDOW_S = 3600
+REGISTER_DAY_CAP = 500
+GLOBAL_FAILURES = 20
+ATTEMPT_KEEP_S = 86400
 
 
 class GrantError(Exception):
@@ -95,22 +103,33 @@ def save_pending(
     challenge: str,
     scope: str,
     resource: str,
+    client_ip: str,
 ) -> str:
     raw = secrets.token_urlsafe(24)
     now = time.time()
-    db.exec(
-        "INSERT INTO oauth_pending (id_hash, client_id, redirect_uri, state, challenge, scope, resource, "
-        "email_hash, token_id, created_at, expires_at) VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?)",
-        digest(raw),
-        client_id,
-        redirect_uri,
-        state,
-        challenge,
-        scope,
-        resource,
-        now,
-        now + PENDING_TTL,
-    )
+    with db.tx() as conn:
+        conn.execute(
+            "INSERT INTO oauth_pending (id_hash, client_id, redirect_uri, state, challenge, scope, resource, "
+            "email_hash, token_id, created_at, expires_at, client_ip) VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?,?)",
+            (
+                digest(raw),
+                client_id,
+                redirect_uri,
+                state,
+                challenge,
+                scope,
+                resource,
+                now,
+                now + PENDING_TTL,
+                client_ip[:200],
+            ),
+        )
+        rows = conn.execute(
+            "SELECT id_hash FROM oauth_pending WHERE client_ip=? ORDER BY created_at DESC, id_hash DESC",
+            (client_ip[:200],),
+        ).fetchall()
+        for old in rows[PENDING_PER_IP:]:
+            conn.execute("DELETE FROM oauth_pending WHERE id_hash=?", (old["id_hash"],))
     return raw
 
 
@@ -132,16 +151,29 @@ def remember_email(db: DB, pending_hash: str, email_hash: str, token_id: str | N
     )
 
 
-def issue_link(db: DB, pending_hash: str) -> str:
+def issue_link(db: DB, pending_hash: str, email_hash: str, token_id: str | None) -> str:
+    """Bind the link to the email and token resolved for this send."""
     raw = secrets.token_urlsafe(32)
     now = time.time()
     db.exec(
-        "INSERT INTO oauth_links (code_hash, pending_hash, expires_at, used_at) VALUES (?,?,?,NULL)",
+        "INSERT INTO oauth_links (code_hash, pending_hash, expires_at, used_at, email_hash, token_id) "
+        "VALUES (?,?,?,NULL,?,?)",
         digest(raw),
         pending_hash,
         now + int(CFG.trial_link_ttl_s),
+        email_hash,
+        token_id,
     )
     return raw
+
+
+def set_link_token(db: DB, code_hash: str, token_id: str) -> None:
+    """Fill a link that was mailed before its token existed. Never replace one already set."""
+    db.exec(
+        "UPDATE oauth_links SET token_id=? WHERE code_hash=? AND token_id IS NULL",
+        token_id,
+        code_hash,
+    )
 
 
 def link_pending(db: DB, raw: str) -> bool:
@@ -151,9 +183,18 @@ def link_pending(db: DB, raw: str) -> bool:
     return row is not None and row["used_at"] is None and float(row["expires_at"]) >= time.time()
 
 
-def retry_after(db: DB, kind: str, key: str) -> int:
-    cutoff = time.time() - int(CFG.login_window_s)
-    db.exec("DELETE FROM login_attempts WHERE created_at<?", cutoff)
+def retry_after(
+    db: DB,
+    kind: str,
+    key: str,
+    *,
+    limit: int | None = None,
+    window_s: int | None = None,
+) -> int:
+    window = int(CFG.login_window_s if window_s is None else window_s)
+    cap = int(CFG.login_limit if limit is None else limit)
+    db.exec("DELETE FROM login_attempts WHERE created_at<?", time.time() - ATTEMPT_KEEP_S)
+    cutoff = time.time() - window
     count = db.one(
         "SELECT COUNT(*) AS n FROM login_attempts WHERE kind=? AND ip=? AND created_at>=?",
         kind,
@@ -161,7 +202,7 @@ def retry_after(db: DB, kind: str, key: str) -> int:
         cutoff,
     )
     n = int(count["n"]) if count else 0
-    if n < int(CFG.login_limit):
+    if n < cap:
         return 0
     oldest = db.one(
         "SELECT MIN(created_at) AS t FROM login_attempts WHERE kind=? AND ip=? AND created_at>=?",
@@ -170,7 +211,49 @@ def retry_after(db: DB, kind: str, key: str) -> int:
         cutoff,
     )
     start = float(oldest["t"]) if oldest and oldest["t"] is not None else time.time()
-    return max(1, int(start + int(CFG.login_window_s) - time.time()) + 1)
+    return max(1, int(start + window - time.time()) + 1)
+
+
+def pair_wait(db: DB, kind: str, ip: str) -> int:
+    """Seconds to wait when this IP or the global ceiling is already full."""
+    return max(retry_after(db, kind, ip), retry_after(db, kind, "global", limit=GLOBAL_FAILURES))
+
+
+def pair_note(db: DB, kind: str, ip: str) -> None:
+    note_failure(db, kind, ip)
+    note_failure(db, kind, "global")
+
+
+def clients_today(db: DB) -> int:
+    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    row = db.one(
+        "SELECT COUNT(*) AS n FROM oauth_clients WHERE created_at>=? AND client_id!=?",
+        start,
+        CFG.oauth_static_client_id,
+    )
+    return int(row["n"]) if row else 0
+
+
+def purge_expired(db: DB, now: float) -> None:
+    """Drop OAuth rows a day after they expire, and idle dynamic clients after 30 days."""
+    cutoff = now - 86400
+    db.exec("DELETE FROM oauth_pending WHERE expires_at<?", cutoff)
+    db.exec("DELETE FROM oauth_links WHERE expires_at<?", cutoff)
+    db.exec("DELETE FROM oauth_grants WHERE expires_at<?", cutoff)
+    db.exec("DELETE FROM oauth_tokens WHERE refresh_expires_at<?", cutoff)
+    idle = now - 30 * 86400
+    rows = db.all(
+        "SELECT client_id FROM oauth_clients WHERE created_at<? AND client_id!=?",
+        idle,
+        CFG.oauth_static_client_id,
+    )
+    for row in rows:
+        client_id = str(row["client_id"])
+        if db.one("SELECT 1 AS n FROM oauth_grants WHERE client_id=?", client_id):
+            continue
+        if db.one("SELECT 1 AS n FROM oauth_tokens WHERE client_id=?", client_id):
+            continue
+        db.exec("DELETE FROM oauth_clients WHERE client_id=?", client_id)
 
 
 def note_failure(db: DB, kind: str, key: str) -> None:

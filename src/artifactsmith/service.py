@@ -290,8 +290,10 @@ class Service:
         self.db = DB(CFG.db_path)
         self.store = Store()
         from .oauth_demo import ensure as ensure_oauth_demo
+        from .oauth_store import ensure_static_client
 
         ensure_oauth_demo(self.db, self.store)
+        ensure_static_client(self.db)
         # Internal jobs are preferred. A second trial job waits so one slot stays free.
         self.internal_q: asyncio.Queue[str] = asyncio.Queue()
         self.trial_q: asyncio.Queue[str] = asyncio.Queue()
@@ -394,6 +396,8 @@ class Service:
 
     def _check_quota(self, c: Any, principal: dict[str, Any]) -> None:
         if principal.get("demo"):
+            if not CFG.trial_enabled:
+                raise AMError(trial.CLOSED)
             limit = int(CFG.oauth_demo_build_limit)
             total = c.execute(trial.COUNTED_BUILDS_SQL, (principal["id"],)).fetchone()["n"]
             if int(total) >= limit:
@@ -430,12 +434,7 @@ class Service:
             raise AMError(f"quota: {hour_limit} builds/hour reached")
 
     def _hold_trial(self, c: Any, principal: dict[str, Any], jid: str, when: float) -> None:
-        if principal.get("demo"):
-            from .oauth_demo import reserve as reserve_demo
-
-            reserve_demo(c, jid, when, str(principal["id"]))
-            return
-        if not principal.get("trial"):
+        if not principal.get("trial") and not principal.get("demo"):
             return
         try:
             trial.reserve(c, jid, when, str(principal["id"]))
@@ -516,6 +515,8 @@ class Service:
     def _resolve_model(self, principal: dict[str, Any], model: str | None) -> str:
         """Trial and review builds ignore the caller's model name."""
         if principal.get("demo"):
+            if not CFG.trial_enabled:
+                raise AMError(trial.CLOSED)
             if not MODEL_RE.match(CFG.trial_model):
                 raise AMError("hosted model is not configured")
             return CFG.trial_model

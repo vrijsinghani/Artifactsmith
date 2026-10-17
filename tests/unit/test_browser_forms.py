@@ -1,7 +1,9 @@
-"""A real Chromium submits the trial form and the My pages login form."""
+"""A real Chromium submits the trial form, the My pages login form, and OAuth."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import socket
 import subprocess
@@ -9,7 +11,9 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import urlencode
 
 import uvicorn
 from playwright.sync_api import Page, sync_playwright
@@ -131,3 +135,53 @@ def test_chromium_submits_trial_and_login_forms(monkeypatch):
         assert box == sent
         row = svc.db.one("SELECT verified FROM trial_signups WHERE verified=0")
         assert row is not None and row["verified"] == 0
+        _oauth_redirects_away(page, origin, monkeypatch)
+
+
+def _oauth_redirects_away(page: Page, origin: str, monkeypatch) -> None:
+    """Headless Chromium must leave /oauth/authorize for an allowlisted loopback callback."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"arrived")
+
+        def log_message(self, fmt: str, *args: object) -> None:
+            return
+
+    callback = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=callback.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = int(callback.server_address[1])
+        verifier = "b" * 50
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        redirect = f"http://127.0.0.1:{port}/callback"
+        query = urlencode(
+            {
+                "response_type": "code",
+                "client_id": "artifactsmith",
+                "redirect_uri": redirect,
+                "state": "state-1",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
+        monkeypatch.setattr(CFG, "api_url", "https://trial.example")
+        monkeypatch.setattr(CFG, "trial_email_verify", False)
+        opened = page.goto(origin + "/oauth/authorize?" + query)
+        assert opened is not None
+        policy = opened.headers.get("content-security-policy", "")
+        assert "form-action 'self' http://127.0.0.1:*" in policy
+        assert "form-action *" not in policy
+        page.locator("#email").fill("oauth-browser@example.com")
+        page.get_by_role("button", name="Continue").click()
+        page.wait_for_url(f"http://127.0.0.1:{port}/callback**", timeout=15000)
+        assert "/oauth/authorize" not in page.url
+        assert "code=" in page.url
+        assert "arrived" in page.content()
+    finally:
+        callback.shutdown()
+        thread.join(timeout=5)

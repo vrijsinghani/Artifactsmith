@@ -1261,7 +1261,7 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert "Tell the agent to pass its notes as source_content." in landing
     assert "Claude.ai custom connectors sign in with OAuth." in landing
     assert "ChatGPT personal plans cannot add a custom MCP server." in landing
-    assert "Free and Plus can use a directory listing." in landing
+    assert "Free and Plus can use a directory listing." not in landing
     assert "any MCP client" not in landing
     assert "free builds" not in landing
     assert "free trial" not in landing

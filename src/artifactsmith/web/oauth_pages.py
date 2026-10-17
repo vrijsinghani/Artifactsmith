@@ -11,17 +11,26 @@ from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
 
 from ..config import CFG
-from ..oauth_demo import ensure
 from ..oauth_http import issuer, metadata, protected_resource, redirect_to, register, revoke, token
-from ..oauth_origin import client_redirect_ok, public_origin, redirect_allowed, resource_matches, resource_url
+from ..oauth_origin import (
+    client_redirect_ok,
+    form_source,
+    public_origin,
+    redirect_allowed,
+    resource_matches,
+    resource_url,
+)
 from ..oauth_store import (
+    AUTHORIZE_LIMIT,
     SCOPE,
     client_redirects,
     client_row,
-    ensure_static_client,
+    note_failure,
+    retry_after,
     save_pending,
 )
 from ..service import Service
+from .client_addr import client_ip
 from .pages import _shell, esc, new_nonce, security_headers
 from .session import issue_csrf
 
@@ -34,8 +43,12 @@ def _cookie_kwargs() -> dict[str, Any]:
     return {"httponly": True, "secure": bool(CFG.cookie_secure), "samesite": "lax", "path": "/"}
 
 
-def _html(body: str, nonce: str, status: int = 200) -> HTMLResponse:
-    return HTMLResponse(_shell("Sign in", body, nonce), status_code=status, headers=security_headers(nonce))
+def _html(body: str, nonce: str, status: int = 200, redirect_uri: str = "") -> HTMLResponse:
+    return HTMLResponse(
+        _shell("Sign in", body, nonce),
+        status_code=status,
+        headers=security_headers(nonce, form_source(redirect_uri)),
+    )
 
 
 def _notice(message: str, nonce: str, status: int = 400) -> HTMLResponse:
@@ -70,9 +83,11 @@ def _form(csrf: str, message: str = "") -> str:
         '<form method=post action="/oauth/authorize">'
         f'<input type=hidden name=csrf value="{esc(csrf)}">'
         "<label for=email>Email</label>"
-        '<input id=email name=email type=email autocomplete=username required maxlength=254>'
+        "<input id=email name=email type=email autocomplete=username required maxlength=254>"
         "<label for=password>Password</label>"
-        '<input id=password name=password type=password autocomplete=current-password maxlength=200>'
+        "<input id=password name=password type=password autocomplete=current-password maxlength=200>"
+        "<label for=hosted_token>Already have a token? Paste it.</label>"
+        "<input id=hosted_token name=hosted_token type=password autocomplete=off maxlength=200>"
         "<button class=primary type=submit>Continue</button></form>"
     )
 
@@ -95,9 +110,16 @@ async def authorize_get(request: Request) -> Response:
     svc = _current(request)
     if svc is None:
         return HTMLResponse("not ready", status_code=503)
-    ensure_static_client(svc.db)
-    ensure(svc.db, svc.store)
     nonce = new_nonce()
+    if public_origin() is None:
+        return _notice("OAuth sign-in is not available on this copy.", nonce)
+    ip = client_ip(request)
+    wait = retry_after(svc.db, "oauth_authorize", ip, limit=AUTHORIZE_LIMIT)
+    if wait:
+        response = _notice("Too many sign-in attempts. Wait and try again.", nonce, 429)
+        response.headers["Retry-After"] = str(wait)
+        return response
+    note_failure(svc.db, "oauth_authorize", ip)
     client_id = _query(request, "client_id")
     redirect_uri = _query(request, "redirect_uri")
     row = client_row(svc.db, client_id)
@@ -122,9 +144,10 @@ async def authorize_get(request: Request) -> Response:
         challenge=_query(request, "code_challenge"),
         scope=scope or SCOPE,
         resource=resource or "",
+        client_ip=ip,
     )
     csrf = issue_csrf()
-    return _stamp(_html(_consent(redirect_uri) + _form(csrf), nonce), pending, csrf)
+    return _stamp(_html(_consent(redirect_uri) + _form(csrf), nonce, redirect_uri=redirect_uri), pending, csrf)
 
 
 def _authorize_problem(request: Request, redirect_uri: str, state: str) -> Response | None:

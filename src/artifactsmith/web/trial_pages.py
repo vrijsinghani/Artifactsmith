@@ -227,8 +227,7 @@ def _form(csrf: str, message: str = "") -> str:
         "It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
         "<p>Claude.ai custom connectors sign in with OAuth. ChatGPT personal plans cannot add a custom "
-        "MCP server. A ChatGPT Business, Enterprise, or Edu admin can add it. Free and Plus can use a "
-        "directory listing.</p>"
+        "MCP server. A ChatGPT Business, Enterprise, or Edu admin can add it.</p>"
         "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f"{note}"
         '<form method=post action="/try">'

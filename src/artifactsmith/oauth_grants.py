@@ -45,16 +45,15 @@ def _live_token(conn: Any, token_id: str) -> bool:
     return row is not None and row["revoked_at"] is None
 
 
-def issue_code(db: DB, pending_hash: str, token_id: str | None = None) -> tuple[str, str, str]:
+def issue_code(db: DB, pending_hash: str, token_id: str) -> tuple[str, str, str]:
     """Return the raw code, redirect URI, and state. Deletes the pending row."""
+    if not token_id:
+        raise GrantError("expired")
     with db.tx() as conn:
         pending = conn.execute("SELECT * FROM oauth_pending WHERE id_hash=?", (pending_hash,)).fetchone()
         if pending is None or float(pending["expires_at"]) < time.time():
             raise GrantError("expired")
-        chosen = token_id or (str(pending["token_id"]) if pending["token_id"] else "")
-        if not chosen:
-            raise GrantError("expired")
-        if not _live_token(conn, chosen):
+        if not _live_token(conn, token_id):
             raise GrantError("closed")
         code = secrets.token_urlsafe(32)
         now = time.time()
@@ -66,7 +65,7 @@ def issue_code(db: DB, pending_hash: str, token_id: str | None = None) -> tuple[
                 pending["client_id"],
                 pending["redirect_uri"],
                 pending["challenge"],
-                chosen,
+                token_id,
                 pending["scope"],
                 pending["resource"],
                 now + CODE_TTL,
@@ -95,7 +94,11 @@ def peek_confirm(db: DB, link_raw: str, cookie_raw: str) -> dict[str, Any]:
     pending = db.one("SELECT * FROM oauth_pending WHERE id_hash=?", link["pending_hash"])
     if pending is None or float(pending["expires_at"]) < time.time():
         raise GrantError("expired")
-    return pending
+    found = dict(pending)
+    found["email_hash"] = link["email_hash"]
+    found["token_id"] = link["token_id"]
+    found["link_hash"] = digest(link_raw)
+    return found
 
 
 def confirm_link(db: DB, link_raw: str, cookie_raw: str) -> tuple[str, str, str]:
@@ -119,13 +122,9 @@ def confirm_link(db: DB, link_raw: str, cookie_raw: str) -> tuple[str, str, str]
         )
         if cur.rowcount != 1:
             raise GrantError("expired")
-        token_id = str(pending["token_id"]) if pending["token_id"] else ""
+        token_id = str(link["token_id"]) if link["token_id"] else ""
         if not token_id:
-            email_hash = str(pending["email_hash"] or "")
-            found = conn.execute("SELECT token_id FROM trial_signups WHERE email_hash=?", (email_hash,)).fetchone()
-            if found is None:
-                raise GrantError("mint")
-            token_id = str(found["token_id"])
+            raise GrantError("mint")
         if not _live_token(conn, token_id):
             raise GrantError("closed")
         code = secrets.token_urlsafe(32)

@@ -118,9 +118,10 @@ def cap_micros() -> int:
 
 
 def day_spend_micros(conn: Any, day: str) -> int:
+    """Shared UTC-day spend. The directory review token is stored and settled, then left out."""
     row = conn.execute(
         "SELECT COALESCE(SUM(CASE WHEN actual_micros IS NULL THEN reserved_micros ELSE actual_micros END), 0) AS n "
-        "FROM trial_reservations WHERE day=?",
+        "FROM trial_reservations WHERE day=? AND IFNULL(token_id, '') != 'tok_oauth_demo'",
         (day,),
     ).fetchone()
     return int(row["n"] if row else 0)
@@ -439,4 +440,7 @@ def purge_idle_trials(db: Any, store: Any, *, now: float | None = None) -> int:
 
         drop_for_token(db, str(token["id"]))
         removed += 1
+    from .oauth_store import purge_expired
+
+    purge_expired(db, stamp)
     return removed
