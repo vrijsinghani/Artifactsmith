@@ -1146,6 +1146,10 @@ def test_home_page_links_the_repo_then_try(trial_http):
         "https://artifactsmith.neuralami.ai/try"
     )
     assert "Try it before you install" in text
+    assert "Claude.ai (any plan, web or phone):" in text
+    assert "https://artifactsmith.neuralami.ai/mcp" in text
+    assert "ChatGPT personal plans cannot add a custom MCP server yet." in text
+    assert "Any MCP client" not in text
     lowered = text.lower()
     assert "trial" not in lowered
     assert "free builds" not in lowered
@@ -1259,8 +1263,18 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert "Open source, MIT" in landing
     assert f"capped at {int(CFG.trial_build_limit)} builds" in landing
     assert "Tell the agent to pass its notes as source_content." in landing
-    assert "Claude.ai custom connectors sign in with OAuth." in landing
-    assert "ChatGPT personal plans cannot add a custom MCP server." in landing
+    assert "Claude.ai (any plan, web or phone):" in landing
+    assert "https://artifactsmith.neuralami.ai/mcp" in landing
+    assert "Sign in with your email." in landing
+    assert "Claude Desktop, Claude Code, and Cursor use a token." in landing
+    assert "ChatGPT personal plans cannot add a custom MCP server yet." in landing
+    assert "add it via OAuth." in landing
+    assert landing.index("https://github.com/vrijsinghani/Artifactsmith") < landing.index(
+        "https://artifactsmith.neuralami.ai/mcp"
+    )
+    assert landing.index("https://artifactsmith.neuralami.ai/mcp") < landing.index(
+        "Claude Desktop, Claude Code, and Cursor use a token."
+    )
     assert "Free and Plus can use a directory listing." not in landing
     assert "any MCP client" not in landing
     assert "free builds" not in landing

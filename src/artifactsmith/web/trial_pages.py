@@ -222,12 +222,15 @@ def _form(csrf: str, message: str = "") -> str:
         " · "
         '<a href="https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/">PDF checklist</a>'
         "</p>"
-        "<p>I run a copy here so you can see it work first. Enter an email and you get a token "
-        "for Claude Desktop, Cursor, or another client that sends an Authorization header. "
+        "<p>Claude.ai (any plan, web or phone): Settings → Connectors → Add custom connector. "
+        'Paste <a href="https://artifactsmith.neuralami.ai/mcp">https://artifactsmith.neuralami.ai/mcp</a>. '
+        "Connect. Sign in with your email.</p>"
+        "<p>Claude Desktop, Claude Code, and Cursor use a token. "
+        "I run a copy here so you can see it work first. Enter an email and the next page shows where the token goes. "
         "It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
-        "<p>Claude.ai custom connectors sign in with OAuth. ChatGPT personal plans cannot add a custom "
-        "MCP server. A ChatGPT Business, Enterprise, or Edu admin can add it.</p>"
+        "<p>ChatGPT personal plans cannot add a custom MCP server yet. "
+        "A ChatGPT Business, Enterprise, or Edu admin can add it via OAuth.</p>"
         "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f"{note}"
         '<form method=post action="/try">'
