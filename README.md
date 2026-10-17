@@ -10,6 +10,8 @@ It's for people who run their own agents and want artifacts like the ones in Mus
 
 Try it before you install: https://artifactsmith.neuralami.ai/try. I run a copy you can point your MCP client at (email for a token, capped at 20 builds, runs on my server).
 
+Examples, no sign-up: [comparison page](https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/) · [status page with a chart](https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/) · [PDF checklist](https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/)
+
 ## What it does
 
 ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Markdown), share, and revoke documents. It works with any OpenAI-compatible model endpoint. Meta's Muse artifacts are a real page you can look at, share, and pull back later.

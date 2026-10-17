@@ -184,6 +184,13 @@ def _form(csrf: str, message: str = "") -> str:
         "<h1>Try it before you install</h1>"
         "<p>ArtifactSmith is an open-source MCP server. Your agent sends it the request and its notes, "
         "and gets back a web page, PDF, Word doc or spreadsheet.</p>"
+        "<p>Examples, no sign-up: "
+        '<a href="https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/">comparison page</a>'
+        " · "
+        '<a href="https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/">status page with a chart</a>'
+        " · "
+        '<a href="https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/">PDF checklist</a>'
+        "</p>"
         f'<p>Source and install: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a> '
         "(Open source, MIT)</p>"
         "<p>I run a copy here so you can see it work first. Enter an email and you get a token "

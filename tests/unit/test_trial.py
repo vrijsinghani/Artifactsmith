@@ -736,6 +736,17 @@ def _verify(client: TestClient, url: str):
     return client.post("/trial/verify", data={"csrf": csrf, "code": code})
 
 
+def test_try_page_links_public_examples(trial_http):
+    client, _box = trial_http
+    page = client.get("/try")
+    assert page.status_code == 200
+    text = page.text
+    assert "https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/" in text
+    assert "https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/" in text
+    assert "https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/" in text
+    assert text.index("Examples, no sign-up:") < text.index('<form method=post action="/try">')
+
+
 def test_trial_page_advertises_a_public_card(trial_http):
     client, _box = trial_http
     page = client.get("/trial")
