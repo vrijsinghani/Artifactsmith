@@ -194,6 +194,7 @@ class Config:
     trial_enabled: bool = field(default_factory=lambda: _setting_bool("AM_TRIAL_ENABLED", False))
     trial_email_verify: bool = field(default_factory=lambda: _setting_bool("AM_TRIAL_EMAIL_VERIFY", True))
     trial_build_limit: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILD_LIMIT", 20, minimum=1))
+    trial_free_needs_input: int = field(default_factory=lambda: _setting_int("AM_TRIAL_FREE_NEEDS_INPUT", 5, minimum=0))
     trial_builds_per_hour: int = field(default_factory=lambda: _setting_int("AM_TRIAL_BUILDS_PER_HOUR", 10, minimum=1))
     trial_daily_usd: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_DAILY_USD", "10"))
     trial_price_in: str = field(default_factory=lambda: _setting_decimal("AM_TRIAL_PRICE_IN", "0.10"))

@@ -394,7 +394,8 @@ class Service:
             if not CFG.trial_enabled:
                 raise AMError(trial.CLOSED)
             # Reservations survive delete. Counting jobs would hand the builds back.
-            # needs_input sets counts_build=0. Those rows still count for the hourly limit.
+            # The first AM_TRIAL_FREE_NEEDS_INPUT needs_input rows set counts_build=0.
+            # Those rows still count for the hourly limit. Later needs_input rows count.
             total = c.execute(trial.COUNTED_BUILDS_SQL, (principal["id"],)).fetchone()["n"]
             if int(total) >= int(CFG.trial_build_limit):
                 raise AMError(trial.quota_error())
@@ -1365,6 +1366,8 @@ class Service:
         out["share"] = self._share_state(a["id"], version)
         if principal.get("trial"):
             out["builds_remaining"] = self._builds_remaining(principal)
+            if v["status"] == "needs_input":
+                out["free_retries_left"] = trial.free_retries_left(self.db, str(principal["id"]))
         if v["status"] == "done" and v.get("model") == builder.PUBLISHED_MODEL:
             recorded = await asyncio.to_thread(self._manifest, a, v)
             if isinstance(recorded, dict) and "safety_changes" in recorded:

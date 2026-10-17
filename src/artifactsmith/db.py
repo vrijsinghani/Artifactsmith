@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .config import CFG
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY,
@@ -207,10 +209,7 @@ class DB:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN created_at REAL")
         if hold_cols and "counts_build" not in hold_cols:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN counts_build INTEGER NOT NULL DEFAULT 1")
-            self.conn.execute(
-                "UPDATE trial_reservations SET counts_build=0 "
-                "WHERE job_id IN (SELECT id FROM jobs WHERE status='needs_input')"
-            )
+            self._waive_stored_needs_input()
         signup_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(trial_signups)").fetchall()}
         if signup_cols and "verified" not in signup_cols:
             self.conn.execute("ALTER TABLE trial_signups ADD COLUMN verified INTEGER NOT NULL DEFAULT 1")
@@ -223,6 +222,19 @@ class DB:
             "UPDATE versions SET format = ("
             "SELECT artifacts.format FROM artifacts WHERE artifacts.id = versions.artifact_id"
             ") WHERE format IS NULL"
+        )
+
+    def _waive_stored_needs_input(self) -> None:
+        """Waive at most AM_TRIAL_FREE_NEEDS_INPUT existing needs_input rows per token, oldest first."""
+        self.conn.execute(
+            "UPDATE trial_reservations SET counts_build=0 WHERE job_id IN ("
+            "SELECT job_id FROM ("
+            "SELECT r.job_id AS job_id, ROW_NUMBER() OVER ("
+            "PARTITION BY r.token_id ORDER BY COALESCE(r.created_at, j.created_at), r.job_id"
+            ") AS rn "
+            "FROM trial_reservations r JOIN jobs j ON j.id = r.job_id "
+            "WHERE j.status='needs_input') ranked WHERE rn <= ?)",
+            (int(CFG.trial_free_needs_input),),
         )
 
     @contextmanager
