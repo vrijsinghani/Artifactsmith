@@ -196,6 +196,7 @@ def _form(csrf: str, message: str = "") -> str:
         "<p>I run a copy here so you can see it work first. Enter an email and you get a token "
         "for Claude Desktop, Cursor or any MCP client. It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
+        "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f"{note}"
         '<form method=post action="/try">'
         f'<input type=hidden name=csrf value="{escape(csrf, quote=True)}">'
@@ -228,6 +229,7 @@ def _token_page(raw: str, workspace: str) -> str:
         "<p>Copy it now. It is not shown again.</p>"
         f'<p><input readonly value="{escape(raw, quote=True)}"></p>'
         f"<p class=muted>Workspace {escape(workspace)}. Builds left: {int(CFG.trial_build_limit)}.</p>"
+        "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f'<p>Run your own copy: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a></p>'
         "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
         f"<p>{_connector_line(CFG.api_url)}</p>"

@@ -21,6 +21,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- A hosted job that ends as `needs_input` does not reduce `builds_remaining`. The reservation stays, so the daily spend cap and the hourly limit still count it. A failed job still uses one build. The `create` tool and the `/try` token page tell the agent to pass its notes as `source_content`.
 - Hosted page, home page, and README copy uses plain sentences. The link-card description no longer tells an origin story.
 - The Claude Desktop trial snippet keeps the bearer token in `AUTH_HEADER`, so Windows Claude Desktop and Cursor do not split a space inside an mcp-remote argument. The Cursor snippet stays a URL plus headers. The token page names Claude Desktop's Add custom connector route.
 - The trial token page includes a Claude Desktop snippet that runs `mcp-remote`, and a Claude Code snippet that uses HTTP. Sign-in mail `Message-ID` uses the domain of `AM_SMTP_FROM`. Served trial pages add `noindex` even when another robots meta is already present. A trial token's tool list omits `publish`. Trial sign-ups group IPv6 clients by `/48`. My pages login stays `/64`.

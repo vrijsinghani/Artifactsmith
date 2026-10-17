@@ -142,7 +142,8 @@ CREATE TABLE IF NOT EXISTS trial_reservations (
   reserved_micros INTEGER NOT NULL,
   actual_micros INTEGER,
   settled_at REAL,
-  created_at REAL
+  created_at REAL,
+  counts_build INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS trial_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,6 +205,12 @@ class DB:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN token_id TEXT")
         if hold_cols and "created_at" not in hold_cols:
             self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN created_at REAL")
+        if hold_cols and "counts_build" not in hold_cols:
+            self.conn.execute("ALTER TABLE trial_reservations ADD COLUMN counts_build INTEGER NOT NULL DEFAULT 1")
+            self.conn.execute(
+                "UPDATE trial_reservations SET counts_build=0 "
+                "WHERE job_id IN (SELECT id FROM jobs WHERE status='needs_input')"
+            )
         signup_cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(trial_signups)").fetchall()}
         if signup_cols and "verified" not in signup_cols:
             self.conn.execute("ALTER TABLE trial_signups ADD COLUMN verified INTEGER NOT NULL DEFAULT 1")

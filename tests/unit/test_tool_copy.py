@@ -25,6 +25,7 @@ def test_tool_copy_opens_with_the_styled_page_choice():
     assert "styled automatically" in texts["publish"]
     assert "display_name" in texts["publish"]
     assert "slug stay" in texts["publish"]
-    assert "source_content" in texts["create"]
+    assert "Pass your notes as source_content" in texts["create"]
+    assert "Pass your notes as source_content" in texts["instructions"]
     assert "does not restyle the page you submitted" not in texts["publish"]
     assert "does not restyle the page you submitted" not in texts["readme"]

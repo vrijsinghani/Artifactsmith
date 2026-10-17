@@ -394,10 +394,8 @@ class Service:
             if not CFG.trial_enabled:
                 raise AMError(trial.CLOSED)
             # Reservations survive delete. Counting jobs would hand the builds back.
-            total = c.execute(
-                "SELECT COUNT(*) n FROM trial_reservations WHERE token_id=?",
-                (principal["id"],),
-            ).fetchone()["n"]
+            # needs_input sets counts_build=0. Those rows still count for the hourly limit.
+            total = c.execute(trial.COUNTED_BUILDS_SQL, (principal["id"],)).fetchone()["n"]
             if int(total) >= int(CFG.trial_build_limit):
                 raise AMError(trial.quota_error())
             hour_limit = int(CFG.trial_builds_per_hour)
@@ -423,7 +421,7 @@ class Service:
             raise AMError(exc.message) from exc
 
     def _builds_remaining(self, principal: dict[str, Any]) -> int:
-        row = self.db.one("SELECT COUNT(*) AS n FROM trial_reservations WHERE token_id=?", principal["id"])
+        row = self.db.one(trial.COUNTED_BUILDS_SQL, principal["id"])
         used = int(row["n"]) if row else 0
         return max(0, int(CFG.trial_build_limit) - used)
 
@@ -991,6 +989,8 @@ class Service:
                 "UPDATE versions SET status=?, publish_json=NULL WHERE artifact_id=? AND version=?",
                 (status, j["artifact_id"], j["version"]),
             )
+            if status == "needs_input":
+                trial.waive_build(c, jid)
         self.progress.pop(jid, None)
 
     def _fail(self, jid: str, err: str) -> None:

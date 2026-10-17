@@ -40,7 +40,7 @@ INSTRUCTIONS = (
     "publish skips the model and runs the same safety checks. An optional note is stored and shown by inspect. "
     "include_content on inspect reads that version's text back. Call status with wait (up to 90 seconds) "
     "until the job is done, failed, or needs_input, then show the card (title, version, preview_url, "
-    "assumptions). Pass the user's exact words in verbatim_request. Pass researched content in "
+    "assumptions). Pass the user's exact words in verbatim_request. Pass your notes as "
     "source_content or source_files. If a needed fact is missing, the job ends as needs_input with a short "
     "missing message and stores no file. create and publish do not publish a share link. share publishes a "
     "public link for one exact version (lifetime AM_SHARE_TTL_DAYS; 0 means until revoked). unshare revokes "
@@ -253,13 +253,15 @@ def create(
     Other formats ignore fast. An explicit mode still wins. A complete HTML source, or a request
     to publish that HTML as-is, stays full when mode is omitted. Mentioning HTML beside "unchanged" does not.
 
-    source_content (optional, up to 200 KB total with source_files) is researched material the page
-    is built from. The builder uses only the request plus this material for facts.
+    Pass your notes as source_content. source_content (optional, up to 200 KB total with
+    source_files) is those notes: the facts the page is built from. The builder uses only
+    verbatim_request plus source_content and source_files for facts.
 
     source_files (optional) is a list of {name, content} objects under the same 200 KB cap.
 
-    If a needed fact is missing, the job ends as needs_input with a short missing message and stores
-    no file. Call create again with the same slug after you supply the data.
+    If a needed fact is missing from those notes, the job ends as needs_input with a short missing
+    message and stores no file. Call create again with the same slug after you pass the notes as
+    source_content.
 
     create does not create a share link. When checks fail, the server retries the model once, so a
     failed build takes about twice as long to report as a clean one."""

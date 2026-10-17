@@ -130,7 +130,8 @@ def reserve(conn: Any, job_id: str, when: float, token_id: str) -> None:
     """Hold worst-case cost for this UTC day. Caller must already be inside a write transaction.
 
     ``token_id`` is what the lifetime and hourly limits count. Deleting an artifact
-    removes the job row and must not remove this one.
+    removes the job row and must not remove this one. ``counts_build`` stays 1 until
+    a needs_input outcome waives the lifetime count. The row still counts for spend.
     """
     day = utc_day(when)
     worst = worst_case_micros()
@@ -142,6 +143,17 @@ def reserve(conn: Any, job_id: str, when: float, token_id: str) -> None:
         "VALUES (?,?,?,?,NULL,NULL,?)",
         (job_id, token_id, day, worst, when),
     )
+
+
+COUNTED_BUILDS_SQL = "SELECT COUNT(*) AS n FROM trial_reservations WHERE token_id=? AND counts_build=1"
+
+
+def waive_build(conn: Any, job_id: str) -> None:
+    """A needs_input job does not use a hosted build.
+
+    The reservation stays, so the daily spend total and the hourly limit still include it.
+    """
+    conn.execute("UPDATE trial_reservations SET counts_build=0 WHERE job_id=?", (job_id,))
 
 
 def settle(db: Any, job_id: str, usage: list[tuple[int, int, bool]]) -> None:
