@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import tempfile
@@ -1111,7 +1112,9 @@ def test_fast_pages_fit_a_phone_width():
     port = probe.getsockname()[1]
     probe.close()
     # CI Chromium is a snap and cannot read /tmp. Home is visible to that snap.
-    with tempfile.TemporaryDirectory(dir=Path.home()) as td:
+    # Python 3.12 raises if Chrome still has files in profile/Default when this
+    # directory is removed. The layout checks have already run by then.
+    with tempfile.TemporaryDirectory(dir=Path.home(), ignore_cleanup_errors=True) as td:
         profile = Path(td) / "profile"
         profile.mkdir()
         proc = subprocess.Popen(
@@ -1128,6 +1131,7 @@ def test_fast_pages_fit_a_phone_width():
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         try:
             for _ in range(80):
@@ -1175,8 +1179,15 @@ def test_fast_pages_fit_a_phone_width():
                         except Exception:
                             pass
         finally:
-            proc.terminate()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                proc.terminate()
             try:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                proc.wait(timeout=3)
