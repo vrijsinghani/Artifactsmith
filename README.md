@@ -18,6 +18,8 @@ ArtifactSmith gives agents tools to create, edit, export (PDF, Word, Excel, Mark
 
 ![An example artifact: a one-page decision brief with a recommendation, a status scorecard and a bar chart](docs/images/example-artifact.png)
 
+Requirements: Docker Engine with the Compose plugin, and an OpenAI-compatible API key (or a local OpenAI-compatible endpoint).
+
 ## Quickstart
 
 ```bash
@@ -35,7 +37,68 @@ docker compose up -d --build
 docker compose exec server artifactsmith token add --name agent --workspace alpha
 ```
 
-The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself.
+`publish` stores a page you already wrote and does not call the model, so the next step works when the key is empty. Paste the token printed above, then run this. It prints a share URL.
+
+```bash
+export AM_TOKEN='paste-the-token'
+docker compose exec -T -e AM_TOKEN server python - <<'PY'
+import asyncio
+import json
+import os
+from datetime import timedelta
+
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+URL = "http://127.0.0.1:8780/mcp"
+PAGE = """# Pilot store brief
+
+The pilot store code is HARBOR-17. It is the identifier used on inventory, support, and rollout reports.
+"""
+
+
+def parse(result):
+    if result.structuredContent is not None:
+        return result.structuredContent
+    return json.loads(result.content[0].text)
+
+
+async def main():
+    headers = {"Authorization": "Bearer " + os.environ["AM_TOKEN"]}
+    async with streamablehttp_client(URL, headers=headers) as (read, write, _session):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            created = parse(
+                await session.call_tool(
+                    "publish",
+                    {"display_name": "Pilot store brief", "markdown": PAGE},
+                    read_timeout_seconds=timedelta(seconds=120),
+                )
+            )
+            done = parse(
+                await session.call_tool(
+                    "status",
+                    {"job_id": created["job_id"], "wait": 90},
+                    read_timeout_seconds=timedelta(seconds=120),
+                )
+            )
+            if done.get("status") != "done":
+                raise SystemExit(json.dumps(done))
+            shared = parse(
+                await session.call_tool(
+                    "share",
+                    {"artifact_id": created["artifact_id"]},
+                    read_timeout_seconds=timedelta(seconds=120),
+                )
+            )
+            print(shared["url"])
+
+
+asyncio.run(main())
+PY
+```
+
+The server reads `AM_LLM_BASE`, `AM_LLM_KEY` or `OPENAI_API_KEY`, and `AM_DEFAULT_MODEL` from `.env`. The default base is `https://api.openai.com`. A trailing `/v1` on the base is fine; the client appends `/v1/chat/completions` itself. `create` needs a key or a local OpenAI-compatible endpoint. With an empty key, a failed `create` reports that `OPENAI_API_KEY` / `AM_LLM_KEY` is empty.
 
 Host ports bind to `127.0.0.1`:
 
@@ -46,6 +109,59 @@ Host ports bind to `127.0.0.1`:
 ### Use the published image
 
 `ghcr.io/vrijsinghani/artifactsmith:0.1.0` is published for `linux/amd64` on each release. Building from source (the Compose steps above) stays the default.
+
+## Connect a client
+
+The MCP endpoint on this machine is `http://127.0.0.1:8780/mcp`. Send the token from `artifactsmith token add` as `Authorization: Bearer YOUR_TOKEN`. The header value starts with `Bearer `.
+
+Claude Desktop stores the config in `claude_desktop_config.json` (Settings → Developer → Edit Config). The snippet runs `npx` and `mcp-remote`, which needs Node.js. Restart Claude Desktop after saving.
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:8780/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+      "env": { "AUTH_HEADER": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+Claude Code stores `.mcp.json`, or run:
+
+```bash
+claude mcp add --transport http artifactsmith http://127.0.0.1:8780/mcp --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "type": "http",
+      "url": "http://127.0.0.1:8780/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+Cursor stores `~/.cursor/mcp.json`, or `.cursor/mcp.json` in the project.
+
+```json
+{
+  "mcpServers": {
+    "artifactsmith": {
+      "url": "http://127.0.0.1:8780/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+Example prompt: Create a one-page brief named Pilot store brief. Pass this as source_content: The pilot store code is HARBOR-17. It is the identifier used on inventory, support, and rollout reports.
+
+`artifactsmith stdio` can list tools on stdin and stdout and does not listen. It cannot use the object store or the model, so it cannot build or publish a page.
 
 ## Serving on your network or behind a proxy
 
@@ -115,7 +231,7 @@ When `AM_ALLOWED_HOSTS` lists only the public hostname, a local `curl http://127
 
 ### MCP client on another machine
 
-Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). Claude Desktop on this same machine can instead run `artifactsmith stdio`, which speaks MCP on stdin and stdout and does not listen. Example:
+Point the client at `{AM_API_URL}/mcp` and send the token as `Authorization: Bearer <token>` (the value printed once by `artifactsmith token add`). The header value starts with `Bearer `. `artifactsmith stdio` can list tools on stdin and stdout and does not listen. It cannot use the object store or the model, so it cannot build or publish a page. Example:
 
 ```text
 URL:    http://192.0.2.10:8780/mcp
@@ -361,7 +477,7 @@ Copy `.env.example` for a local file. `./scripts/ensure-local-env.sh` fills empt
 
 ## Running a hosted try-it page
 
-Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/try` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). `GET /trial` redirects to `/try`. `POST /trial` and `/trial/verify` stay so an open form or a link already sent still works. The `Message-ID` domain is the domain of `AM_SMTP_FROM`. Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop (`mcp-remote`), Claude Code (HTTP), Cursor, and a generic MCP client. The Desktop snippet puts the bearer value in `AUTH_HEADER` so a space is not an argument. Cursor uses a URL and headers, with no command arguments. Each snippet says `YOUR_TOKEN`. The page also names Claude Desktop's Customize → Connectors → Add custom connector route, with that same public MCP URL and an Authorization request header. The page states the build cap from `AM_TRIAL_BUILD_LIMIT`. When `AM_API_URL` is a public `https` origin, that same page carries an Open Graph and Twitter card for `{AM_API_URL}/try`. The image is `{AM_API_URL}/static/og-trial.png` and needs no token. A loopback or private `AM_API_URL` omits the tags. The page stays `noindex`. One normalized address gets one token. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected. Sign-up attempts from one IPv6 network share a `/48`. My pages login stays a `/64`. At most `AM_TRIAL_SIGNUPS_PER_DAY` tokens are minted per UTC day (default 300). After that, `/try` says no more hosted tokens today, back at 00:00 UTC.
+Set `AM_TRIAL_ENABLED=true` and point `AM_API_URL` at the public origin. With `AM_TRIAL_EMAIL_VERIFY` left at `true`, `/try` emails a one-time link (`AM_SMTP_HOST` and `AM_SMTP_FROM` are required; if either is empty, sign-up fails closed). `GET /trial` redirects to `/try`. `POST /trial` and `/trial/verify` stay so an open form or a link already sent still works. The `Message-ID` domain is the domain of `AM_SMTP_FROM`. Opening the link does not spend it. The "Show my token" button shows the workspace token once. Set `AM_TRIAL_EMAIL_VERIFY=false` to show that same page on submit and send no mail; the sign-up row stores `verified=0`. Either way the page includes config for Claude Desktop (`mcp-remote`), Claude Code (HTTP), Cursor, and a generic MCP client. The Desktop snippet puts the bearer value in `AUTH_HEADER` so a space is not an argument. Cursor uses a URL and headers, with no command arguments. Each snippet says `YOUR_TOKEN`. The page also names Claude Desktop's Customize → Connectors → Add custom connector route, with that same public MCP URL and an Authorization request header. The header value starts with Bearer. It names `claude_desktop_config.json`, `.mcp.json`, and `~/.cursor/mcp.json`, the `claude mcp add` command for that public MCP URL, and one example prompt that passes notes as `source_content`. The page states the build cap from `AM_TRIAL_BUILD_LIMIT`. When `AM_API_URL` is a public `https` origin, that same page carries an Open Graph and Twitter card for `{AM_API_URL}/try`. The image is `{AM_API_URL}/static/og-trial.png` and needs no token. A loopback or private `AM_API_URL` omits the tags. The page stays `noindex`. One normalized address gets one token. Gmail addresses ignore dots and `+tags`. Disposable domains are rejected. Sign-up attempts from one IPv6 network share a `/48`. My pages login stays a `/64`. At most `AM_TRIAL_SIGNUPS_PER_DAY` tokens are minted per UTC day (default 300). After that, `/try` says no more hosted tokens today, back at 00:00 UTC.
 
 Hosted builds always use `AM_TRIAL_MODEL` and cannot call `publish`. A hosted token's tool list omits `publish`. Responses include `builds_remaining`. Deleting an artifact does not return those builds. When the daily spend cap is reached, the error is `the hosted copy hit today's limit, back at 00:00 UTC`. A used-up token points at the GitHub repo. Share links for a hosted token last at most 30 days. The served page adds `noindex` even when the page already has a robots meta that does not say noindex, and a footer that links the repo and stays visible if the page hides footers. Idle hosted workspaces are deleted after `AM_TRIAL_RETENTION_DAYS` (default 30). That sweep runs at startup and then hourly.
 

@@ -140,10 +140,39 @@ def _server(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _connector_line(api_url: str) -> str:
-    """Anthropic's route for a public MCP server. One sentence, so it wraps on a phone."""
+    """Anthropic's route for a public MCP server. The header value is sent as typed."""
     return (
         "Claude Desktop: Customize → Connectors → Add custom connector, "
-        f"with URL {escape(_mcp_url(api_url))} and an Authorization request header."
+        f"with URL {escape(_mcp_url(api_url))} and an Authorization request header. "
+        "The header value starts with "
+        + escape('"Bearer "')
+        + ". Choose No sign in. The request-headers field is a beta and is not on every account."
+    )
+
+
+_EXAMPLE_PROMPT = (
+    "Create a one-page brief named Pilot store brief. "
+    "Pass this as source_content: The pilot store code is HARBOR-17. "
+    "It is the identifier used on inventory, support, and rollout reports."
+)
+
+
+def _claude_mcp_add(api_url: str) -> str:
+    return (
+        f'claude mcp add --transport http artifactsmith {_mcp_url(api_url)} --header "Authorization: Bearer YOUR_TOKEN"'
+    )
+
+
+def _client_setup(api_url: str) -> str:
+    """File locations, the Claude Code command, and one prompt that includes its notes."""
+    return (
+        "<h2>Where this goes</h2>"
+        "<p>Claude Desktop: Settings → Developer → Edit Config, file claude_desktop_config.json. "
+        "The snippet runs npx and mcp-remote, which needs Node.js. Restart Claude Desktop after saving.</p>"
+        "<p>Claude Code: file .mcp.json, or this command:</p>"
+        f"<pre>{escape(_claude_mcp_add(api_url))}</pre>"
+        "<p>Cursor: file ~/.cursor/mcp.json, or .cursor/mcp.json in the project.</p>"
+        f"<p>Example prompt: {escape(_EXAMPLE_PROMPT)}</p>"
     )
 
 
@@ -231,6 +260,7 @@ def _token_page(raw: str, workspace: str) -> str:
         f'<p>Run your own copy: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a></p>'
         "<p>Paste the token where the snippet says YOUR_TOKEN.</p>"
         f"<p>{_connector_line(CFG.api_url)}</p>"
+        f"{_client_setup(CFG.api_url)}"
         f"{_client_snippets(CFG.api_url)}"
         '<p><a href="/app/login">Open My pages</a></p>'
     )

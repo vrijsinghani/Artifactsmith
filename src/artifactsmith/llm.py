@@ -7,6 +7,7 @@ import contextvars
 import json
 import logging
 import re
+from urllib.parse import urlparse
 
 import httpx
 
@@ -109,6 +110,31 @@ class LLMError(RuntimeError):
     pass
 
 
+class MissingModelKey(LLMError):
+    """Empty model credential. The text is fixed and carries no key or host."""
+
+    message = "OPENAI_API_KEY / AM_LLM_KEY is empty"
+
+    def __init__(self) -> None:
+        super().__init__(self.message)
+
+
+def openai_key_missing(base: str, key: str) -> bool:
+    """True when the configured host is api.openai.com and no key is set."""
+    host = (urlparse(base).hostname or "").lower()
+    return (not key) and host == "api.openai.com"
+
+
+def _after_transport_error(exc: Exception, *, recorded: bool) -> Exception:
+    """Keep a transport failure from carrying a host into the client error."""
+    if not recorded:
+        _mark_unknown()
+    if isinstance(exc, httpx.HTTPError) and openai_key_missing(CFG.normalized_llm_base(), CFG.llm_key()):
+        log.warning("model transport failed with an empty key: %s", type(exc).__name__)
+        return MissingModelKey()
+    return exc
+
+
 # Reasoning effort is sent only when the model name is an o-series or gpt-5 model.
 # Other models omit the field. There is no probe request.
 _EFFORT_MODEL = re.compile(r"(?:^|[^A-Za-z0-9])(?:o[134]|gpt-5)(?:[^A-Za-z0-9]|$)")
@@ -132,6 +158,9 @@ def apply_effort(payload: dict[str, object], model: str, effort: str | None) -> 
 
 
 def _scrub_http_error(status: int, body: str) -> LLMError:
+    if status == 401 and not CFG.llm_key():
+        log.warning("LLM HTTP 401 with an empty model key")
+        return MissingModelKey()
     log.warning("LLM HTTP %s body_prefix=%r", status, body[:200])
     return LLMError(f"LLM HTTP {status}")
 
@@ -197,10 +226,11 @@ async def call_chat(model: str, system: str, user: str, timeout: float = 300, *,
         if not recorded:
             _mark_unknown()
         raise
-    except Exception:
-        if not recorded:
-            _mark_unknown()
-        raise
+    except Exception as exc:
+        mapped = _after_transport_error(exc, recorded=recorded)
+        if mapped is exc:
+            raise
+        raise mapped from None
     if status != 200:
         raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
     try:
@@ -248,10 +278,11 @@ async def call_responses(model: str, system: str, user: str, timeout: float = 30
         if not recorded:
             _mark_unknown()
         raise
-    except Exception:
-        if not recorded:
-            _mark_unknown()
-        raise
+    except Exception as exc:
+        mapped = _after_transport_error(exc, recorded=recorded)
+        if mapped is exc:
+            raise
+        raise mapped from None
     if status != 200:
         raise _scrub_http_error(status, body.decode("utf-8", errors="replace"))
     try:

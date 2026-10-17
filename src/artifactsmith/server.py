@@ -8,7 +8,6 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
@@ -22,6 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__, stdio_mode
 from .config import CFG
+from .llm import openai_key_missing
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .renderers import MIME, SOURCE_NAME
 from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
@@ -775,8 +775,7 @@ preview_app = Starlette(
 
 def missing_openai_key_warning(base: str, key: str) -> bool:
     """True when the configured LLM host is api.openai.com and no key is set."""
-    host = (urlparse(base).hostname or "").lower()
-    return (not key) and host == "api.openai.com"
+    return openai_key_missing(base, key)
 
 
 async def main() -> None:

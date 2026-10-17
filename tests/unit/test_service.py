@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
+import httpx
 import pytest
 
 from artifactsmith.builder import BuildError, BuildResult, NeedsInput
@@ -990,3 +992,121 @@ async def test_style_persists_across_edit_and_shows_in_status_inspect(svc, monke
     with pytest.raises(AMError, match="house, bold, editorial, playful, terminal, swiss"):
         svc.edit(p, artifact_id=created["artifact_id"], base_version=2, verbatim_request="nope", style="neon")
     assert seen == ["bold", "bold"]
+
+
+class _Denied:
+    def __init__(self, body: bytes, seen: list[str]) -> None:
+        self.status_code = 401
+        self._body = body
+        self._seen = seen
+
+    async def aiter_bytes(self):
+        yield self._body
+
+    async def aclose(self) -> None:
+        return None
+
+    async def __aenter__(self) -> _Denied:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+class _DeniedClient:
+    def __init__(self, body: bytes, seen: list[str]) -> None:
+        self._body = body
+        self._seen = seen
+
+    async def __aenter__(self) -> _DeniedClient:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def stream(self, _method: str, url: str, json: object = None, headers: object = None) -> _Denied:  # noqa: A002
+        self._seen.append(url)
+        return _Denied(self._body, self._seen)
+
+
+def _clear_model_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("OPENAI_API_KEY", "AM_LLM_KEY", "OPENAI_API_KEY_FILE", "AM_LLM_KEY_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _job_error(svc: Service, job_id: str) -> str:
+    row = svc.db.one("SELECT error, status FROM jobs WHERE id=?", job_id)
+    assert row is not None
+    assert row["status"] == "failed"
+    return str(row["error"])
+
+
+@pytest.mark.asyncio
+async def test_empty_model_key_names_the_cause_without_leaking(svc, monkeypatch):
+    planted = "sk-plantedkeyvalue"
+    host = "gateway.internal"
+    seen: list[str] = []
+    body = json.dumps({"error": {"message": f"{planted} at {host}"}}).encode()
+
+    def _client(**_kwargs: object) -> _DeniedClient:
+        return _DeniedClient(body, seen)
+
+    monkeypatch.setattr("artifactsmith.llm.httpx.AsyncClient", _client)
+    _clear_model_key(monkeypatch)
+    monkeypatch.setattr(CFG, "build_mode", "full")
+    monkeypatch.setattr(CFG, "fast_styles", frozenset())
+    monkeypatch.setattr(CFG, "llm_base", f"http://{host}:9")
+    principal = _principal()
+    created = svc.create(principal, slug="nokey", display_name="No key", kind="web_static", verbatim_request="page")
+    await svc._run_job(created["job_id"])
+    error = _job_error(svc, created["job_id"])
+    assert "OPENAI_API_KEY" in error
+    assert "AM_LLM_KEY" in error
+    assert planted not in error
+    assert host not in error
+    assert seen and host in seen[0]
+
+    seen.clear()
+    monkeypatch.setattr(CFG, "llm_base", "https://api.openai.com")
+    second = svc.create(
+        principal, slug="nokey-openai", display_name="No key openai", kind="web_static", verbatim_request="page"
+    )
+    await svc._run_job(second["job_id"])
+    openai_error = _job_error(svc, second["job_id"])
+    assert "OPENAI_API_KEY" in openai_error
+    assert "AM_LLM_KEY" in openai_error
+    assert seen and "api.openai.com" in seen[0]
+    assert planted not in openai_error
+    assert host not in openai_error
+    assert "api.openai.com" not in openai_error
+
+    class _Down:
+        async def __aenter__(self) -> _Down:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        def stream(self, _method: str, url: str, json: object = None, headers: object = None) -> object:  # noqa: A002
+            raise httpx.ConnectError(f"connect failed for {url} with {planted}")
+
+    monkeypatch.setattr("artifactsmith.llm.httpx.AsyncClient", lambda **_kwargs: _Down())
+    offline = svc.create(
+        principal, slug="nokey-offline", display_name="No key offline", kind="web_static", verbatim_request="page"
+    )
+    await svc._run_job(offline["job_id"])
+    offline_error = _job_error(svc, offline["job_id"])
+    assert "OPENAI_API_KEY" in offline_error
+    assert "AM_LLM_KEY" in offline_error
+    assert "api.openai.com" not in offline_error
+    assert planted not in offline_error
+
+    monkeypatch.setattr("artifactsmith.llm.httpx.AsyncClient", _client)
+    monkeypatch.setenv("OPENAI_API_KEY", planted)
+    monkeypatch.setattr(CFG, "llm_base", f"http://{host}:9")
+    third = svc.create(principal, slug="badkey", display_name="Bad key", kind="web_static", verbatim_request="page")
+    await svc._run_job(third["job_id"])
+    leaked = _job_error(svc, third["job_id"])
+    assert leaked == "build failed: LLMError"
+    assert planted not in leaked
+    assert host not in leaked

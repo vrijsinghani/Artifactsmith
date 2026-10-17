@@ -955,8 +955,9 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     pres = re.findall(r"<pre>(.*?)</pre>", page.text, re.S)
     titles = ("Claude Desktop", "Claude Code", "Cursor", "Generic MCP client")
     assert [f"<h2>{title}</h2>" in page.text for title in titles] == [True, True, True, True]
-    assert len(pres) == 4
-    desktop, code, cursor, _generic = pres
+    assert len(pres) == 5
+    command, desktop, code, cursor, _generic = pres
+    assert "claude mcp add --transport http artifactsmith https://trial.example/mcp" in unescape(command)
     desktop_cfg = json.loads(unescape(desktop))["mcpServers"]["artifactsmith"]
     assert desktop_cfg["args"][-2:] == ["--header", "Authorization:${AUTH_HEADER}"]
     assert desktop_cfg["env"]["AUTH_HEADER"] == "Bearer YOUR_TOKEN"
@@ -987,6 +988,31 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert again.status_code == 400
     assert "already used" in again.text
     assert svc.db.one("SELECT verified FROM trial_signups")["verified"] == 1
+
+
+def test_token_page_shows_claude_mcp_add(trial_http, monkeypatch):
+    client, _box = trial_http
+    monkeypatch.setattr(CFG, "trial_email_verify", False)
+    client.get("/try")
+    csrf = client.cookies.get("am_trial_csrf")
+    posted = client.post("/try", data={"csrf": csrf, "email": "mcp-add@example.com"})
+    text = unescape(posted.text)
+    assert posted.status_code == 200
+    assert (
+        'claude mcp add --transport http artifactsmith https://trial.example/mcp --header "Authorization: Bearer YOUR_TOKEN"'
+        in text
+    )
+    assert "claude_desktop_config.json" in text
+    assert ".mcp.json" in text
+    assert "~/.cursor/mcp.json" in text
+    assert "Node.js" in text
+    assert "The header value starts with" in text
+    assert '"Bearer "' in text
+    assert "Choose No sign in." in text
+    assert "Pass this as source_content: The pilot store code is HARBOR-17." in text
+    assert "free builds" not in text.lower()
+    assert "free trial" not in text.lower()
+    assert "127.0.0.1" not in posted.text
 
 
 def test_mcp_remote_args_do_not_contain_a_spaced_bearer():

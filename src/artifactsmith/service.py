@@ -1081,6 +1081,9 @@ class Service:
             self._fail(jid, str(e))
         except builder.BuildError as exc:
             self._fail(jid, _job_check_error(str(exc)))
+        except llm.MissingModelKey:
+            # Fixed text. Do not interpolate the exception: it must not carry a key or a host.
+            self._fail(jid, f"build failed: {llm.MissingModelKey.message}")
         except Exception as e:  # noqa: BLE001
             log.exception("build failed job=%s", jid)
             # Do not leak LLM/renderer/store internals to clients.

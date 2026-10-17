@@ -23,6 +23,7 @@ from .db import DB
 from .service import ALL_PERMS, WS_RE, write_audit
 
 _TOKEN_MIN = 24
+STORAGE_INIT_ATTEMPTS = 60
 
 
 def _make_db() -> DB:
@@ -172,20 +173,22 @@ def cmd_storage_init(args: argparse.Namespace) -> int:
     from .store import Store
 
     store = Store()
-    last = None
-    for attempt in range(60):
+    limit = STORAGE_INIT_ATTEMPTS
+    cause = "error"
+    for attempt in range(1, limit + 1):
+        # One line before the call so a hung attempt is visible. The cause stays a type name.
+        print(f"storage-init: attempt {attempt}/{limit}", file=sys.stderr, flush=True)
         try:
             created = store.ensure_bucket()
-            print(
-                json.dumps(
-                    {"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt + 1}
-                )
-            )
-            return 0
         except Exception as e:  # noqa: BLE001
-            last = str(e)
+            cause = type(e).__name__
+            if attempt == limit:
+                break
             time.sleep(1)
-    print(json.dumps({"error": f"object store not ready: {last}"}))
+            continue
+        print(json.dumps({"bucket": store.bucket, "created": created, "versioning": "enabled", "attempts": attempt}))
+        return 0
+    print(json.dumps({"error": "object store not ready", "attempts": limit, "cause": cause}))
     return 1
 
 

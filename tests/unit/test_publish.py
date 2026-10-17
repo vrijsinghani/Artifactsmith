@@ -697,6 +697,30 @@ def _version_format(svc: Service, artifact_id: str, version: int) -> str:
 
 
 @pytest.mark.asyncio
+async def test_publish_shares_with_an_empty_model_key(svc: Service, no_model: dict[str, int], monkeypatch) -> None:
+    for name in ("OPENAI_API_KEY", "AM_LLM_KEY", "OPENAI_API_KEY_FILE", "AM_LLM_KEY_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(CFG, "llm_base", "https://api.openai.com")
+    principal = _principal()
+    created = svc.publish(
+        principal,
+        display_name="Pilot store brief",
+        markdown=(
+            "# Pilot store brief\n\n"
+            "The pilot store code is HARBOR-17. "
+            "It is the identifier used on inventory, support, and rollout reports.\n"
+        ),
+    )
+    await svc._run_job(str(created["job_id"]))
+    assert no_model["n"] == 0
+    status = await svc.status(principal, job_id=str(created["job_id"]))
+    assert status["status"] == "done"
+    shared = svc.share(principal, str(created["artifact_id"]))
+    assert shared["state"] == "shared"
+    assert str(shared["url"]).startswith("http")
+
+
+@pytest.mark.asyncio
 async def test_publish_infers_markdown_when_format_is_omitted(svc: Service, no_model: dict[str, int]) -> None:
     from artifactsmith.markdown_view import markdown_share_html
 
