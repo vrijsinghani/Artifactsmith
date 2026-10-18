@@ -282,7 +282,14 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         "</style></head><body>",
         f"<h1>{_esc_text(title)}</h1>",
     ]
-    for b in blocks:
+    for index, b in enumerate(blocks):
+        if (
+            index == 0
+            and b.kind == "heading"
+            and b.level == 1
+            and b.text.strip().casefold() == title.strip().casefold()
+        ):
+            continue
         if b.kind == "heading":
             lvl = min(max(b.level, 1), 6)
             parts.append(f"<h{lvl}>{_inline_html(b.text)}</h{lvl}>")
