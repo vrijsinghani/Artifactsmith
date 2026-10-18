@@ -49,6 +49,10 @@ def _cookie_kwargs() -> dict[str, Any]:
 
 
 _PAGE_TITLE = "Try ArtifactSmith before you install"
+_PAGE_DESCRIPTION = (
+    "Open-source MCP server that turns agent output into web pages, PDFs, Word docs and spreadsheets "
+    "you can share and revoke."
+)
 _CARD_TITLE = "ArtifactSmith: open-source MCP server for agent output"
 _CARD_DESCRIPTION = (
     "Open-source MCP server (MIT) that turns agent output into web pages and PDFs "
@@ -91,6 +95,7 @@ def _card_head(api_url: str) -> str:
     page = origin + "/try"
     image = origin + _CARD_PATH
     tags = (
+        _meta("property", "og:site_name", "ArtifactSmith"),
         _meta("property", "og:title", _CARD_TITLE),
         _meta("property", "og:description", _CARD_DESCRIPTION),
         _meta("property", "og:url", page),
@@ -105,7 +110,12 @@ def _card_head(api_url: str) -> str:
 
 def _html(body: str, nonce: str, status: int = 200) -> HTMLResponse:
     return HTMLResponse(
-        _shell(_PAGE_TITLE, body, nonce, head=_card_head(CFG.api_url)),
+        _shell(
+            _PAGE_TITLE,
+            body,
+            nonce,
+            head=_meta("name", "description", _PAGE_DESCRIPTION) + _card_head(CFG.api_url),
+        ),
         status_code=status,
         headers=security_headers(nonce),
     )
