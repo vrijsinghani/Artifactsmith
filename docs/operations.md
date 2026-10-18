@@ -107,6 +107,10 @@ Header: Authorization: Bearer <token from artifactsmith token add>
 
 Glama's inspector builds with `uv sync` and then launches the server through `mcp-proxy`. Use Python 3.12 or 3.13 so the `brotli` wheel installs. On an interpreter with no wheel, install `build-essential` before `uv sync`. Python 3.15 has no `brotli` 1.2.0 wheel; without a compiler that `uv sync` still fails.
 
+Enter these in Glama's build settings:
+
+Base image: `python:3.13-slim-trixie`. `python:3.12-slim-trixie` also works. Both are Debian Trixie, like Glama's default build, and both get a `brotli` wheel. Do not use the 3.14 image from `docker/Dockerfile` here; that is the production image.
+
 Build step: `uv sync`
 
 Command: `mcp-proxy -- uv run artifactsmith stdio`
