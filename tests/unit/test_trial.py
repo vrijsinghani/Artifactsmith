@@ -1025,6 +1025,17 @@ def test_try_page_links_public_examples(trial_http):
     assert text.index("Examples, no sign-up:") < text.index('<form method=post action="/try">')
 
 
+def test_try_page_has_description_and_site_name(trial_http):
+    client, _box = trial_http
+    page = client.get("/try")
+    assert page.status_code == 200
+    assert (
+        'name="description" content="Open-source MCP server that turns agent output into web pages, '
+        'PDFs, Word docs and spreadsheets you can share and revoke."'
+    ) in page.text
+    assert 'property="og:site_name" content="ArtifactSmith"' in page.text
+
+
 def test_trial_page_advertises_a_public_card(trial_http):
     client, _box = trial_http
     page = client.get("/trial")
@@ -1142,6 +1153,10 @@ def test_home_page_links_the_repo_then_try(trial_http):
     page = client.get("/")
     assert page.status_code == 200
     text = page.text
+    assert (
+        'name="description" content="Open-source MCP server that turns agent output into web pages, '
+        'PDFs, Word docs and spreadsheets you can share and revoke."'
+    ) in text
     assert text.index("https://github.com/vrijsinghani/Artifactsmith") < text.index(
         "https://artifactsmith.neuralami.ai/try"
     )
