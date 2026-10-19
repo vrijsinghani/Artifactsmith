@@ -11,6 +11,7 @@ from typing import Annotated, Any
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -19,7 +20,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__, stdio_mode
-from .config import CFG
+from .config import CFG, _setting
 from .llm import openai_key_missing
 from .markdown_view import MarkdownViewError, is_markdown_primary, markdown_share_html
 from .oauth_grants import resolve_bearer
@@ -88,6 +89,16 @@ async def _list_tools_for_caller() -> list[Any]:
 
 mcp.list_tools = _list_tools_for_caller  # type: ignore[method-assign]
 mcp._mcp_server.list_tools()(_list_tools_for_caller)  # type: ignore[no-untyped-call]
+
+
+def _ann(title: str, *, read_only: bool, destructive: bool, open_world: bool) -> ToolAnnotations:
+    """OpenAI Apps hints. Each flag is an explicit boolean, not the SDK default."""
+    return ToolAnnotations(
+        title=title,
+        readOnlyHint=read_only,
+        destructiveHint=destructive,
+        openWorldHint=open_world,
+    )
 
 
 def _svc() -> Service:
@@ -178,7 +189,10 @@ def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]
         return {"error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create artifact",
+    annotations=_ann("Create artifact", read_only=False, destructive=False, open_world=False),
+)
 def create(
     ctx: Context[Any, Any, Any],
     verbatim_request: str,
@@ -286,7 +300,10 @@ def create(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Edit artifact",
+    annotations=_ann("Edit artifact", read_only=False, destructive=False, open_world=False),
+)
 def edit(
     ctx: Context[Any, Any, Any],
     artifact_id: str,
@@ -339,7 +356,10 @@ def edit(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Publish page",
+    annotations=_ann("Publish page", read_only=False, destructive=False, open_world=False),
+)
 def publish(
     ctx: Context[Any, Any, Any],
     html: str | None = None,
@@ -413,7 +433,10 @@ def publish(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Build status",
+    annotations=_ann("Build status", read_only=False, destructive=False, open_world=False),
+)
 async def status(
     ctx: Context[Any, Any, Any], artifact_id: str | None = None, job_id: str | None = None, wait: int = 0
 ) -> dict[str, Any]:
@@ -431,7 +454,10 @@ async def status(
         return {"error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List artifacts",
+    annotations=_ann("List artifacts", read_only=True, destructive=False, open_world=False),
+)
 def list_artifacts(
     ctx: Context[Any, Any, Any],
     workspace: str | None = None,
@@ -443,7 +469,10 @@ def list_artifacts(
     return _run(_svc().list, _principal(ctx), workspace=workspace, kind=kind, query=query, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Inspect artifact",
+    annotations=_ann("Inspect artifact", read_only=False, destructive=False, open_world=False),
+)
 def inspect(
     ctx: Context[Any, Any, Any],
     artifact_id: str,
@@ -464,7 +493,10 @@ def inspect(
     return _run(_svc().inspect, principal, artifact_id, version, include_content)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Export file",
+    annotations=_ann("Export file", read_only=True, destructive=False, open_world=False),
+)
 def export(
     ctx: Context[Any, Any, Any],
     artifact_id: Annotated[str, Field(description="Artifact to download. Required.")],
@@ -481,7 +513,10 @@ def export(
     return _run(_svc().export, _principal(ctx), artifact_id, version)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Share publicly",
+    annotations=_ann("Share publicly", read_only=False, destructive=False, open_world=True),
+)
 def share(
     ctx: Context[Any, Any, Any],
     artifact_id: Annotated[str, Field(description="Artifact to publish. Required.")],
@@ -525,7 +560,10 @@ def share(
     return _run(_svc().share, _principal(ctx), artifact_id, version, ttl_days, pin)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Revoke share link",
+    annotations=_ann("Revoke share link", read_only=False, destructive=True, open_world=False),
+)
 def unshare(
     ctx: Context[Any, Any, Any],
     artifact_id: Annotated[str, Field(description="Artifact whose public links should be revoked. Required.")],
@@ -547,14 +585,20 @@ def unshare(
     return _run(_svc().unshare, _principal(ctx), artifact_id, version)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Revoke preview links",
+    annotations=_ann("Revoke preview links", read_only=False, destructive=True, open_world=False),
+)
 def revoke_previews(ctx: Context[Any, Any, Any], artifact_id: str, version: int | None = None) -> dict[str, Any]:
     """Expire private /p/ preview links for an artifact (or one version). Token revocation and signing-key
     rotation do not expire these database-backed capabilities; call this explicitly."""
     return _run(_svc().revoke_previews, _principal(ctx), artifact_id, version)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Delete artifact",
+    annotations=_ann("Delete artifact", read_only=False, destructive=True, open_world=False),
+)
 def delete(
     ctx: Context[Any, Any, Any],
     artifact_id: Annotated[str, Field(description="Artifact to purge. Required.")],
@@ -579,13 +623,17 @@ def delete(
     return _run(_svc().delete, _principal(ctx), artifact_id, confirm_token)
 
 
+# Paths on the API app that never require a bearer token.
+_PUBLIC_API_PATHS = frozenset({"/healthz", "/.well-known/openai-apps-challenge"})
+
+
 # ---------------- bearer auth + per-token permissions for the API origin ----------------
 class BearerAuth:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] in ("/healthz",):
+        if scope["type"] != "http" or scope["path"] in _PUBLIC_API_PATHS:
             await self.app(scope, receive, send)
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
@@ -649,7 +697,21 @@ async def healthz(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "service": "artifactsmith", "version": __version__})
 
 
+def _openai_apps_challenge() -> str:
+    """Challenge token with surrounding whitespace removed. Empty means unset."""
+    return _setting("AM_OPENAI_APPS_CHALLENGE", "")
+
+
+async def openai_apps_challenge(_request: Request) -> Response:
+    """Plain-text domain check for the OpenAI Apps directory. No auth."""
+    token = _openai_apps_challenge()
+    if not token:
+        return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
+    return PlainTextResponse(token, media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
 mcp.custom_route("/healthz", methods=["GET"])(healthz)
+mcp.custom_route("/.well-known/openai-apps-challenge", methods=["GET"])(openai_apps_challenge)
 
 
 # ---------------- preview origin (separate port = separate origin; no cookies, strict CSP) ----------------
