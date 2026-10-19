@@ -1018,11 +1018,15 @@ def test_try_page_links_public_examples(trial_http):
     page = client.get("/try")
     assert page.status_code == 200
     text = page.text
-    assert "https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/" in text
-    assert "https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/" in text
-    assert "https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/" in text
-    assert text.index("Source and install:") < text.index("Examples, no sign-up:")
-    assert text.index("Examples, no sign-up:") < text.index('<form method=post action="/try">')
+    assert "https://artifactsmith.neuralami.ai/s/xsxxtwrvgev7fvc6/" in text
+    assert "https://artifactsmith.neuralami.ai/s/tjnjns5su7chqtuv/" in text
+    assert "https://artifactsmith.neuralami.ai/s/qift8jdku8ncbj73/" in text
+    assert "https://artifactsmith.neuralami.ai/s/s27y44saiqz8rycy/" in text
+    assert "https://artifactsmith.neuralami.ai/s/pfe9mq4yserk3dym/" in text
+    assert text.index("Source and install:") < text.index("<h2>Examples</h2>")
+    assert text.index("<h2>Examples</h2>") < text.index('<form method=post action="/try">')
+    for banned in ("trial", "free build", "no card"):
+        assert banned not in text[text.index("<h2>Examples</h2>") : text.index("</ul>")].lower()
 
 
 def test_try_page_has_description_and_site_name(trial_http):
@@ -1281,14 +1285,17 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert "Claude.ai: Customize → Connectors → + Add → Add custom connector." in landing
     assert "https://artifactsmith.neuralami.ai/mcp" in landing
     assert "sign in with your email." in landing
-    assert "Claude Desktop, Claude Code, and Cursor use a token." in landing
+    assert (
+        "Claude Desktop, Claude Code, and Cursor sign in with OAuth when they connect to "
+        "https://artifactsmith.neuralami.ai/mcp. A pasted token is the alternative."
+    ) in landing
     assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in landing
     assert "it signs in with OAuth." in landing
     assert landing.index("https://github.com/vrijsinghani/Artifactsmith") < landing.index(
         "https://artifactsmith.neuralami.ai/mcp"
     )
     assert landing.index("https://artifactsmith.neuralami.ai/mcp") < landing.index(
-        "Claude Desktop, Claude Code, and Cursor use a token."
+        "Claude Desktop, Claude Code, and Cursor sign in with OAuth"
     )
     assert "Free and Plus can use a directory listing." not in landing
     assert "any MCP client" not in landing

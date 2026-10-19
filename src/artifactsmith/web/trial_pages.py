@@ -225,18 +225,19 @@ def _form(csrf: str, message: str = "") -> str:
         "and gets back a web page, PDF, Word doc or spreadsheet.</p>"
         f'<p>Source and install: <a href="{REPO}">github.com/vrijsinghani/Artifactsmith</a> '
         "(Open source, MIT)</p>"
-        "<p>Examples, no sign-up: "
-        '<a href="https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/">comparison page</a>'
-        " · "
-        '<a href="https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/">status page with a chart</a>'
-        " · "
-        '<a href="https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/">PDF checklist</a>'
-        "</p>"
+        "<h2>Examples</h2><p>Built on the hosted copy from public sources (Ready.gov and the U.S. Bureau of Labor Statistics). The meeting notes are fictional. No sign-up needed to open them.</p><ul>"
+        '<li>Web page: <a href="https://artifactsmith.neuralami.ai/s/xsxxtwrvgev7fvc6/">Hurricane readiness checklist</a>, from Ready.gov guidance.</li>'
+        '<li>Chart report: <a href="https://artifactsmith.neuralami.ai/s/tjnjns5su7chqtuv/">U.S. jobs report in charts</a>, unemployment and payrolls, January 2024 to September 2026, from BLS data.</li>'
+        '<li>PDF: <a href="https://artifactsmith.neuralami.ai/s/qift8jdku8ncbj73/">U.S. labor market brief</a>, one page, September 2026, from BLS data.</li>'
+        '<li>Word document: <a href="https://artifactsmith.neuralami.ai/s/s27y44saiqz8rycy/">Kickoff meeting notes</a>, for a fictional library website project. Downloads a .docx.</li>'
+        '<li>Excel workbook: <a href="https://artifactsmith.neuralami.ai/s/pfe9mq4yserk3dym/">Unemployment and payrolls, 2024 to 2026</a>, monthly figures with a sources sheet. Downloads a .xlsx.</li>'
+        "</ul>"
         "<p>Claude.ai: Customize → Connectors → + Add → Add custom connector. "
         'Paste <a href="https://artifactsmith.neuralami.ai/mcp">https://artifactsmith.neuralami.ai/mcp</a>, '
         "select Connect, and sign in with your email. The connector then works in the Claude desktop and "
         "phone apps too. Free plans allow one custom connector. On Team and Enterprise plans an owner adds it first.</p>"
-        "<p>Claude Desktop, Claude Code, and Cursor use a token. "
+        "<p>Claude Desktop, Claude Code, and Cursor sign in with OAuth when they connect to "
+        "https://artifactsmith.neuralami.ai/mcp. A pasted token is the alternative. "
         "I run a copy here so you can see it work first. Enter an email and the next page shows where the token goes. "
         "It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"
