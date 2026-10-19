@@ -92,9 +92,15 @@ def _redirects(body: dict[str, Any]) -> list[str]:
         raise GrantError("invalid_redirect_uri")
     found: list[str] = []
     for item in raw:
-        if not isinstance(item, str) or not redirect_allowed(item):
+        if not isinstance(item, str):
             raise GrantError("invalid_redirect_uri")
-        found.append(item)
+        # RFC 7591 lets the server replace requested metadata. Keep the
+        # allowed callbacks and drop the rest, so a client that lists one
+        # web callback and one loopback callback (Cursor) can still sign in.
+        if redirect_allowed(item) and item not in found:
+            found.append(item)
+    if not found:
+        raise GrantError("invalid_redirect_uri")
     return found
 
 

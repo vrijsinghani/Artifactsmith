@@ -269,7 +269,7 @@ def test_refresh_rotation_and_revoke(oauth_http):
             "code_challenge_method": "S256",
         },
     )
-    assert "ChatGPT will receive the sign-in." in page.text
+    assert "you go back to ChatGPT." in page.text
     csrf = re.search(r'name=csrf value="([^"]+)"', page.text).group(1)
     code = _code_from(
         client.post("/oauth/authorize", data={"csrf": csrf, "email": "refresh@example.com"}, follow_redirects=False)
