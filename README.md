@@ -4,13 +4,21 @@ ArtifactSmith is an open source artifact server for AI agents.
 
 ![ArtifactSmith building the same page in five styles](docs/images/demo.gif)
 
+## Examples
+
+Built on the hosted copy from public sources (Ready.gov and the U.S. Bureau of Labor Statistics). The meeting notes are fictional. No sign-up needed to open them.
+
+- Web page: [Hurricane readiness checklist](https://artifactsmith.neuralami.ai/s/xsxxtwrvgev7fvc6/), from Ready.gov guidance.
+- Chart report: [U.S. jobs report in charts](https://artifactsmith.neuralami.ai/s/tjnjns5su7chqtuv/), unemployment and payrolls, January 2024 to September 2026, from BLS data.
+- PDF: [U.S. labor market brief](https://artifactsmith.neuralami.ai/s/qift8jdku8ncbj73/), one page, September 2026, from BLS data.
+- Word document: [Kickoff meeting notes](https://artifactsmith.neuralami.ai/s/s27y44saiqz8rycy/), for a fictional library website project. Downloads a .docx.
+- Excel workbook: [Unemployment and payrolls, 2024 to 2026](https://artifactsmith.neuralami.ai/s/pfe9mq4yserk3dym/), monthly figures with a sources sheet. Downloads a .xlsx.
+
 Agents call it to turn their work into documents: web pages, PDFs, Word files, spreadsheets and Markdown. Each artifact is versioned and stays private until someone shares it, and a shared link can be revoked at any time.
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
 Try it before you install: https://artifactsmith.neuralami.ai/try. I run a copy you can point your MCP client at (email for a token, capped at 20 builds, runs on my server).
-
-Examples, no sign-up: [comparison page](https://artifactsmith.neuralami.ai/s/b5svuvbu2urtqaxg/) · [status page with a chart](https://artifactsmith.neuralami.ai/s/7d3f7f6x5bnk4wz5/) · [PDF checklist](https://artifactsmith.neuralami.ai/s/i9m5kwwgik22djf5/)
 
 ## What it does
 
