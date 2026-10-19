@@ -126,6 +126,8 @@ Claude.ai: Customize → Connectors → + Add → Add custom connector. Paste ht
 
 ChatGPT Free, Go, and Plus cannot add a custom MCP server. Pro can add one with read and fetch access only, so it cannot build pages. A ChatGPT Business, Enterprise, or Edu admin can add it on the web; it signs in with OAuth.
 
+ChatGPT users can use it from OpenAI's Codex CLI instead: run `codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp`, then `codex mcp login artifactsmith`, and sign in with your email.
+
 Claude Desktop stores the config in `claude_desktop_config.json` (Settings → Developer → Edit Config). The snippet runs `npx` and `mcp-remote`, which needs Node.js. Restart Claude Desktop after saving.
 
 ```json
