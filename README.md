@@ -18,7 +18,7 @@ Agents call it to turn their work into documents: web pages, PDFs, Word files, s
 
 It's for people who run their own agents and want artifacts like the ones in Muse on their own servers.
 
-Try it before you install: https://artifactsmith.neuralami.ai/try. I run a copy you can point your MCP client at (email for a token, capped at 20 builds, runs on my server).
+Try it before you install: https://artifactsmith.neuralami.ai/try. I run a copy you can point your MCP client at. Claude.ai, Claude Desktop, Claude Code and Cursor sign in with OAuth using your email; a pasted token also works. It is capped at 20 builds and runs on my server.
 
 ## What it does
 
@@ -122,7 +122,7 @@ Host ports bind to `127.0.0.1`:
 
 Claude.ai: Customize → Connectors → + Add → Add custom connector. Paste https://artifactsmith.neuralami.ai/mcp, select Connect, and sign in with your email. The connector then works in the Claude desktop and phone apps too. Free plans allow one custom connector. On Team and Enterprise plans an owner adds it first.
 
-[github.com/vrijsinghani/Artifactsmith](https://github.com/vrijsinghani/Artifactsmith) is the copy you run yourself. Claude Desktop, Claude Code, and Cursor use a token there. The MCP endpoint on this machine is `http://127.0.0.1:8780/mcp`. Send the token from `artifactsmith token add` as `Authorization: Bearer YOUR_TOKEN`. The header value starts with `Bearer `.
+[github.com/vrijsinghani/Artifactsmith](https://github.com/vrijsinghani/Artifactsmith) is the copy you run yourself. On the hosted copy, Claude Desktop, Claude Code, and Cursor sign in with OAuth at https://artifactsmith.neuralami.ai/mcp. On your own copy they use a token. The MCP endpoint on this machine is `http://127.0.0.1:8780/mcp`. Send the token from `artifactsmith token add` as `Authorization: Bearer YOUR_TOKEN`. The header value starts with `Bearer `.
 
 ChatGPT Free, Go, and Plus cannot add a custom MCP server. Pro can add one with read and fetch access only, so it cannot build pages. A ChatGPT Business, Enterprise, or Edu admin can add it on the web; it signs in with OAuth.
 
