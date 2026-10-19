@@ -1168,6 +1168,11 @@ def test_home_page_links_the_repo_then_try(trial_http):
     assert "Claude.ai: Customize → Connectors → + Add → Add custom connector." in text
     assert "https://artifactsmith.neuralami.ai/mcp" in text
     assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in text
+    assert text.index("ChatGPT Free, Go, and Plus cannot add a custom MCP server.") < text.index(
+        "ChatGPT users can use it from OpenAI's Codex CLI instead:"
+    )
+    assert "codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp" in text
+    assert "codex mcp login artifactsmith" in text
     assert "Any MCP client" not in text
     lowered = text.lower()
     assert "trial" not in lowered
@@ -1290,6 +1295,11 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
         "https://artifactsmith.neuralami.ai/mcp. A pasted token is the alternative."
     ) in landing
     assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in landing
+    assert landing.index("ChatGPT Free, Go, and Plus cannot add a custom MCP server.") < landing.index(
+        "ChatGPT users can use it from OpenAI's Codex CLI instead:"
+    )
+    assert "codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp" in landing
+    assert "codex mcp login artifactsmith" in landing
     assert "it signs in with OAuth." in landing
     assert landing.index("https://github.com/vrijsinghani/Artifactsmith") < landing.index(
         "https://artifactsmith.neuralami.ai/mcp"

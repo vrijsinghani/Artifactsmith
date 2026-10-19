@@ -244,6 +244,9 @@ def _form(csrf: str, message: str = "") -> str:
         "<p>ChatGPT Free, Go, and Plus cannot add a custom MCP server. Pro can add one with read and fetch "
         "access only, so it cannot build pages. A ChatGPT Business, Enterprise, or Edu admin can add it on the web; "
         "it signs in with OAuth.</p>"
+        "<p>ChatGPT users can use it from OpenAI's Codex CLI instead: run "
+        "<code>codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp</code>, then "
+        "<code>codex mcp login artifactsmith</code>, and sign in with your email.</p>"
         "<p>Tell the agent to pass its notes as source_content. Facts the page needs have to be in those notes.</p>"
         f"{note}"
         '<form method=post action="/try">'

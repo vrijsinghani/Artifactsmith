@@ -55,9 +55,15 @@ def test_readme_states_requirements_client_setup_and_stdio_limits():
         "https://github.com/vrijsinghani/Artifactsmith"
     )
     assert connect.index("https://github.com/vrijsinghani/Artifactsmith") < connect.index("claude_desktop_config.json")
-    assert "Claude Desktop, Claude Code, and Cursor use a token there." in connect
+    assert "On your own copy they use a token." in connect
+    assert "sign in with OAuth at https://artifactsmith.neuralami.ai/mcp" in connect
     assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in connect
     assert "A ChatGPT Business, Enterprise, or Edu admin can add it on the web; it signs in with OAuth." in connect
+    assert connect.index("ChatGPT Free, Go, and Plus cannot add a custom MCP server.") < connect.index(
+        "ChatGPT users can use it from OpenAI's Codex CLI instead:"
+    )
+    assert "codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp" in connect
+    assert "codex mcp login artifactsmith" in connect
     assert "Free and Plus can use a directory listing." not in connect
     assert "Node.js" in connect
     assert "mcp-remote" in connect

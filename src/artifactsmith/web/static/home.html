@@ -195,8 +195,9 @@
         <article class="faq-item">
           <h3>Which clients work?</h3>
           <p>Claude.ai: Customize → Connectors → + Add → Add custom connector. Paste https://artifactsmith.neuralami.ai/mcp, select Connect, and sign in with your email. The connector then works in the Claude desktop and phone apps too. Free plans allow one custom connector. On Team and Enterprise plans an owner adds it first.</p>
-          <p><a href="https://github.com/vrijsinghani/Artifactsmith" rel="noopener noreferrer nofollow" target="_blank">github.com/vrijsinghani/Artifactsmith</a> is where Claude Desktop, Claude Code, and Cursor token setup is written. Those clients use a token.</p>
+          <p><a href="https://github.com/vrijsinghani/Artifactsmith" rel="noopener noreferrer nofollow" target="_blank">github.com/vrijsinghani/Artifactsmith</a> is the copy you run yourself, where Claude Desktop, Claude Code, and Cursor use a token. On this hosted copy they sign in with OAuth at https://artifactsmith.neuralami.ai/mcp, with a pasted token as the alternative.</p>
           <p>ChatGPT Free, Go, and Plus cannot add a custom MCP server. Pro can add one with read and fetch access only, so it cannot build pages. A ChatGPT Business, Enterprise, or Edu admin can add it on the web; it signs in with OAuth.</p>
+          <p>ChatGPT users can use it from OpenAI's Codex CLI instead: run <code>codex mcp add artifactsmith --url https://artifactsmith.neuralami.ai/mcp</code>, then <code>codex mcp login artifactsmith</code>, and sign in with your email.</p>
         </article>
         <article class="faq-item">
           <h3>What does it cost?</h3>
