@@ -30,6 +30,8 @@ Requirements: Docker Engine with the Compose plugin. A model key (OpenAI-compati
 
 ## Quickstart
 
+Cline follows [llms-install.md](llms-install.md).
+
 ```bash
 cp .env.example .env
 # Set OPENAI_API_KEY (or AM_LLM_KEY). Change AM_LLM_BASE / AM_DEFAULT_MODEL
