@@ -236,7 +236,8 @@ def _form(csrf: str, message: str = "") -> str:
         'Paste <a href="https://artifactsmith.neuralami.ai/mcp">https://artifactsmith.neuralami.ai/mcp</a>, '
         "select Connect, and sign in with your email. The connector then works in the Claude desktop and "
         "phone apps too. Free plans allow one custom connector. On Team and Enterprise plans an owner adds it first.</p>"
-        "<p>Claude Desktop, Claude Code, and Cursor use a token. "
+        "<p>Claude Desktop, Claude Code, and Cursor sign in with OAuth when they connect to "
+        "https://artifactsmith.neuralami.ai/mcp. A pasted token is the alternative. "
         "I run a copy here so you can see it work first. Enter an email and the next page shows where the token goes. "
         "It runs on my server and Claude Haiku 5.5, "
         f"capped at {builds} builds. Shared links last {int(SHARE_DAYS)} days.</p>"

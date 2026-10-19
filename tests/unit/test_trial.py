@@ -1285,14 +1285,17 @@ def test_magic_link_shows_the_token_once(trial_http, svc):
     assert "Claude.ai: Customize → Connectors → + Add → Add custom connector." in landing
     assert "https://artifactsmith.neuralami.ai/mcp" in landing
     assert "sign in with your email." in landing
-    assert "Claude Desktop, Claude Code, and Cursor use a token." in landing
+    assert (
+        "Claude Desktop, Claude Code, and Cursor sign in with OAuth when they connect to "
+        "https://artifactsmith.neuralami.ai/mcp. A pasted token is the alternative."
+    ) in landing
     assert "ChatGPT Free, Go, and Plus cannot add a custom MCP server." in landing
     assert "it signs in with OAuth." in landing
     assert landing.index("https://github.com/vrijsinghani/Artifactsmith") < landing.index(
         "https://artifactsmith.neuralami.ai/mcp"
     )
     assert landing.index("https://artifactsmith.neuralami.ai/mcp") < landing.index(
-        "Claude Desktop, Claude Code, and Cursor use a token."
+        "Claude Desktop, Claude Code, and Cursor sign in with OAuth"
     )
     assert "Free and Plus can use a directory listing." not in landing
     assert "any MCP client" not in landing
