@@ -15,9 +15,19 @@ from .renderers.safety import _host_is_private
 DEFAULT_REDIRECTS = (
     "https://claude.ai/api/mcp/auth_callback,"
     "https://chatgpt.com/connector_platform_oauth_redirect,"
+    "https://www.cursor.com/agents/mcp/oauth/callback,"
+    "cursor://anysphere.cursor-mcp/oauth/callback,"
+    "https://vscode.dev/redirect,"
     "http://127.0.0.1:*/callback,"
     "http://localhost:*/callback"
 )
+
+# Paths desktop clients use on a loopback redirect: Claude Code, Codex and
+# Cursor use /callback, mcp-remote and Gemini CLI /oauth/callback, VS Code /.
+LOOPBACK_PATHS = frozenset({"/callback", "/oauth/callback", "/"})
+
+# Non-web callback schemes allowed in the CSP form-action, by exact scheme.
+APP_SCHEMES = frozenset({"cursor"})
 
 _LOOPBACK = {
     "http://127.0.0.1:*/callback": "127.0.0.1",
@@ -82,7 +92,7 @@ def _loopback_uri(uri: str, host: str) -> bool:
         return False
     if (parsed.hostname or "").lower() != host:
         return False
-    return (parsed.path or "") == "/callback"
+    return (parsed.path or "/") in LOOPBACK_PATHS
 
 
 def _star_match(pattern: str, uri: str) -> bool:
@@ -107,6 +117,8 @@ def form_source(redirect_uri: str) -> str:
         return "http://127.0.0.1:*"
     if scheme == "http" and host == "localhost":
         return "http://localhost:*"
+    if scheme in APP_SCHEMES and redirect_allowed(redirect_uri):
+        return scheme + ":"
     if scheme not in ("http", "https") or not host or parsed.username or parsed.password:
         return ""
     origin = f"{scheme}://{host}"
@@ -146,7 +158,8 @@ def same_loopback(registered: str, requested: str) -> bool:
         return False
     if left.username or right.username or left.query or right.query or left.fragment or right.fragment:
         return False
-    return (left.path or "") == "/callback" and (right.path or "") == "/callback"
+    left_path = left.path or "/"
+    return left_path in LOOPBACK_PATHS and left_path == (right.path or "/")
 
 
 def client_redirect_ok(registered: list[str], requested: str) -> bool:

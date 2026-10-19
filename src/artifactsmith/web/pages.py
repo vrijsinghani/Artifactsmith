@@ -36,6 +36,7 @@ button.primary{background:var(--accent);color:#fff;border:0;font-weight:600;marg
 .pager{display:flex;gap:.5rem;margin:.5rem 0 1rem}
 .pager a{flex:1;text-align:center;padding:.55rem .7rem;border:1px solid var(--line);border-radius:8px;text-decoration:none}
 pre{margin:.4rem 0;padding:.7rem;background:#fff;border:1px solid var(--line);border-radius:8px;overflow-x:auto;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+details{margin:.7rem 0 0}summary{cursor:pointer;color:var(--accent)}
 """
 
 
@@ -46,8 +47,9 @@ def new_nonce() -> str:
 def security_headers(nonce: str, form_action: str = "") -> dict[str, str]:
     """Page CSP. ``form_action`` is one extra origin. A bare ``*`` is ignored."""
     loopback = form_action in {"http://127.0.0.1:*", "http://localhost:*"}
+    app = form_action in {"cursor:"}
     exact = form_action.startswith(("https://", "http://")) and "*" not in form_action and " " not in form_action
-    extra = " " + form_action if loopback or exact else ""
+    extra = " " + form_action if loopback or exact or app else ""
     csp = (
         "default-src 'none'; script-src 'none'; "
         f"style-src 'nonce-{nonce}'; img-src 'none'; font-src 'none'; connect-src 'none'; "

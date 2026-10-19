@@ -62,33 +62,45 @@ def _field(form: Any, name: str) -> str:
 
 def _consent(uri: str) -> str:
     host = (urlparse(uri).hostname or "").lower()
-    parts = [f"<p>This will sign in and send you back to {esc(uri)}</p>"]
     if host in {"127.0.0.1", "localhost"}:
-        parts.append("<p>This address is on your own computer.</p>")
-    if uri == "https://claude.ai/api/mcp/auth_callback":
-        parts.append("<p>Claude.ai will receive the sign-in.</p>")
-    if uri == "https://chatgpt.com/connector_platform_oauth_redirect" or uri.startswith(
+        who = "the app on your computer that asked to connect, such as Claude Code, Codex or Cursor"
+    elif uri == "https://claude.ai/api/mcp/auth_callback":
+        who = "Claude.ai"
+    elif uri == "https://chatgpt.com/connector_platform_oauth_redirect" or uri.startswith(
         "https://chatgpt.com/connector/oauth/"
     ):
-        parts.append("<p>ChatGPT will receive the sign-in.</p>")
-    return "".join(parts)
+        who = "ChatGPT"
+    elif uri.startswith(("cursor://", "https://www.cursor.com/")):
+        who = "Cursor"
+    elif uri == "https://vscode.dev/redirect":
+        who = "VS Code"
+    else:
+        who = "the app that asked to connect"
+    return f'<p>After you sign in, you go back to {esc(who)}.</p><p class="muted">Return address: {esc(uri)}</p>'
 
 
 def _form(csrf: str, message: str = "") -> str:
     note = f'<p class="error">{esc(message)}</p>' if message else ""
     return (
-        "<h1>Sign in</h1>"
-        "<p>Use the email for this hosted copy. A review password is only for the directory account.</p>"
+        "<h1>Sign in to ArtifactSmith</h1>"
+        "<p>Enter your email. If you are new, this creates your account on this hosted copy. "
+        "No password needed.</p>"
         f"{note}"
         '<form method=post action="/oauth/authorize">'
         f'<input type=hidden name=csrf value="{esc(csrf)}">'
         "<label for=email>Email</label>"
-        "<input id=email name=email type=email autocomplete=username required maxlength=254>"
-        "<label for=password>Password</label>"
-        "<input id=password name=password type=password autocomplete=current-password maxlength=200>"
-        "<label for=hosted_token>Already have a token? Paste it.</label>"
+        "<input id=email name=email type=email autocomplete=email maxlength=254>"
+        "<button class=primary type=submit>Continue</button>"
+        "<details><summary>Already have an ArtifactSmith token?</summary>"
+        "<label for=hosted_token>Token</label>"
         "<input id=hosted_token name=hosted_token type=password autocomplete=off maxlength=200>"
-        "<button class=primary type=submit>Continue</button></form>"
+        "<p class=muted>Paste it and press Continue. The email can stay empty.</p>"
+        "</details>"
+        "<details><summary>Directory reviewer</summary>"
+        "<label for=password>Review password</label>"
+        "<input id=password name=password type=password autocomplete=current-password maxlength=200>"
+        "</details>"
+        "</form>"
     )
 
 
@@ -147,7 +159,7 @@ async def authorize_get(request: Request) -> Response:
         client_ip=ip,
     )
     csrf = issue_csrf()
-    return _stamp(_html(_consent(redirect_uri) + _form(csrf), nonce, redirect_uri=redirect_uri), pending, csrf)
+    return _stamp(_html(_form(csrf) + _consent(redirect_uri), nonce, redirect_uri=redirect_uri), pending, csrf)
 
 
 def _authorize_problem(request: Request, redirect_uri: str, state: str) -> Response | None:
