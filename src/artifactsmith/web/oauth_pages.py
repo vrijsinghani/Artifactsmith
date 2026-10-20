@@ -196,7 +196,7 @@ def _current(request: Request) -> Service | None:
 
 
 def oauth_routes(current: Callable[[], Service | None]) -> list[Route]:
-    from .oauth_login import authorize_post, confirm_get, confirm_post, privacy
+    from .oauth_login import authorize_post, confirm_get, confirm_post, privacy, terms
 
     def bind(handler: Any) -> Any:
         async def wrapped(request: Request) -> Response:
@@ -221,4 +221,6 @@ def oauth_routes(current: Callable[[], Service | None]) -> list[Route]:
         Route("/oauth/confirm", bind(confirm_post), methods=["POST"]),
         Route("/privacy", privacy),
         Route("/privacy/", privacy),
+        Route("/terms", terms),
+        Route("/terms/", terms),
     ]

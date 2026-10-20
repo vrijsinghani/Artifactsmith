@@ -663,6 +663,8 @@ def _public_page(path: str) -> bool:
         "/trial",
         "/privacy",
         "/privacy/",
+        "/terms",
+        "/terms/",
         "/oauth/authorize",
         "/oauth/token",
         "/oauth/register",

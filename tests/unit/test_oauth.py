@@ -1,4 +1,4 @@
-"""OAuth authorization server, demo review account, and privacy draft."""
+"""OAuth authorization server, demo review account, privacy and terms pages."""
 
 from __future__ import annotations
 
@@ -446,17 +446,37 @@ def test_static_bearer_still_passes_the_gate(oauth_http, svc):
     assert denied.status_code == 401
 
 
-def test_privacy_page_is_a_draft(oauth_http):
+def test_privacy_page_is_final(oauth_http):
     client, _box = oauth_http
     page = client.get("/privacy")
     assert page.status_code == 200
-    assert "Draft for owner approval." in page.text
-    assert "SHA-256" in page.text
-    assert CFG.trial_model in page.text
-    assert "Claude Haiku 5.5" not in page.text
-    assert "Your IP address is kept for up to a day for rate limits." in page.text
-    assert "Sign-in tokens are stored only as hashes." in page.text
-    assert "trial" not in page.text.lower()
+    text = page.text
+    assert "draft" not in text.lower()
+    assert "Effective date:" in text
+    assert "SHA-256" in text
+    assert CFG.trial_model in text
+    assert "Namecheap" in text and "Cloudflare" in text
+    assert "not deleted on a schedule" in text
+    assert f"{int(CFG.trial_retention_days)} days" in text
+    assert "Neuralami" in text
+    assert "trial" not in text.lower()
+    assert client.get("/privacy/").status_code == 200
+
+
+def test_terms_page(oauth_http):
+    client, _box = oauth_http
+    page = client.get("/terms")
+    assert page.status_code == 200
+    text = page.text
+    assert "Terms of service" in text
+    assert "MIT License" in text
+    assert "as-is" in text
+    assert "Acceptable use" in text and "You own what you send" in text
+    assert "Liability" in text and "Neuralami" in text
+    assert 'href="/privacy"' in text
+    assert "draft" not in text.lower()
+    assert "trial" not in text.lower()
+    assert client.get("/terms/").status_code == 200
 
 
 def _authorize(client: TestClient, redirect: str):
