@@ -103,6 +103,8 @@ URL:    {AM_API_URL}/mcp
 Header: Authorization: Bearer <token from artifactsmith token add>
 ```
 
+Set `AM_OPENAI_APPS_CHALLENGE` to the OpenAI Apps challenge token so the API origin serves it as plain text at `GET /.well-known/openai-apps-challenge`; leave the variable unset or empty and that route returns 404.
+
 ## Glama
 
 Glama's inspector builds with `uv sync` and then launches the server through `mcp-proxy`. Use Python 3.12 or 3.13 so the `brotli` wheel installs. On an interpreter with no wheel, install `build-essential` before `uv sync`. Python 3.15 has no `brotli` 1.2.0 wheel; without a compiler that `uv sync` still fails.
