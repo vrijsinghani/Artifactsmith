@@ -69,7 +69,7 @@ Run `docker compose up -d` again after a change to `.env`.
 
 ## Verify
 
-Call the `status` tool. A reply that `artifact_id` is required means the server answered.
+Call the `status` tool with no arguments. An `artifact_id is required` error means the server answered.
 
 Then create a tiny web page with `create`. Pass `display_name`, `verbatim_request`, and `source_content`.
 
