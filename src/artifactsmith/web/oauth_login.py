@@ -277,24 +277,183 @@ def _mint_for_confirm(svc: Service, pending: dict[str, Any]) -> str | None:
     return None
 
 
+EFFECTIVE_DATE = "October 20, 2026"
+# Legal entity line. Vikas has not confirmed the legal name yet.
+OPERATOR = "Neuralami"
+CONTACT_EMAIL = "kai@neuralami.ai"
+
+
+def _contact() -> str:
+    return trial.abuse_email() or CONTACT_EMAIL
+
+
+def _model_line() -> str:
+    model = str(CFG.trial_model)
+    maker = {"anthropic": "Anthropic", "openai": "OpenAI", "chatgpt": "OpenAI", "google": "Google"}.get(
+        model.split("/", 1)[0].lower(), ""
+    )
+    return f"{maker} ({model})" if maker else model
+
+
+def _legal(title: str, sections: list[tuple[str, list[str]]], intro: str, nonce: str) -> Response:
+    parts = [f"<h1>{esc(title)}</h1>", f"<p>Effective date: {esc(EFFECTIVE_DATE)}</p>", f"<p>{intro}</p>"]
+    for head, items in sections:
+        parts.append(f"<h2>{esc(head)}</h2><ul>" + "".join(f"<li>{i}</li>" for i in items) + "</ul>")
+    return HTMLResponse(_shell(title, "".join(parts), nonce), status_code=200, headers=security_headers(nonce))
+
+
 def privacy(_request: Request) -> Response:
     nonce = new_nonce()
     days = int(CFG.trial_retention_days)
     share = int(CFG.share_ttl_days)
-    share_text = "until it is revoked" if share == 0 else f"{share} days"
-    contact = trial.abuse_email() or "the person who runs this copy"
-    body = (
-        "<h1>Privacy</h1>"
-        "<p class=error>Draft for owner approval.</p>"
-        "<p>This page is a draft. The person who runs this copy has not approved it yet.</p>"
-        "<p>A sign-in stores a SHA-256 hash of the normalized email, not the email itself.</p>"
-        "<p>Sign-in tokens are stored only as hashes.</p>"
-        "<p>A build stores the request text, the notes sent with it, and the generated files.</p>"
-        f"<p>Idle hosted workspaces are deleted after {days} days.</p>"
-        f"<p>A share link lasts {esc(share_text)}.</p>"
-        f"<p>Pages are written by {esc(CFG.trial_model)}.</p>"
-        "<p>Your IP address is kept for up to a day for rate limits.</p>"
-        "<p>This copy does not sell the data and does not show ads.</p>"
-        f"<p>To ask for deletion, write to {esc(contact)}.</p>"
+    share_text = (
+        "until you turn it off or delete the page" if share == 0 else f"for {share} days, or until you turn it off"
     )
-    return HTMLResponse(_shell("Privacy", body, nonce), status_code=200, headers=security_headers(nonce))
+    contact = esc(_contact())
+    intro = (
+        "This policy covers the hosted copy of ArtifactSmith at artifactsmith.neuralami.ai, run by "
+        f"{esc(OPERATOR)}. ArtifactSmith is open-source software. If you run your own copy, this policy "
+        "does not apply to it."
+    )
+    sections = [
+        (
+            "What we collect",
+            [
+                "Your email address, as a fingerprint. We keep a one-way SHA-256 hash of it, not the address. "
+                "When we send you a sign-in link, the address is used to send that one email and is not saved "
+                "in our database.",
+                "What you ask it to build: the request text, the notes or data your assistant sends with it, "
+                "and the pages and files it makes.",
+                "Sign-in records. Access keys and sign-in links are stored only as hashes. When you connect "
+                "from ChatGPT, Claude or another app, we keep that app's name, its return address and hashed keys.",
+                "Your IP address, for rate limits and abuse checks. It also appears in our server logs.",
+                "Activity records: a log of actions on pages (created, built, shared, deleted) with times and page IDs.",
+                "Cookies needed to sign in, stay signed in, block forged requests and remember your time zone. "
+                "No ad or analytics cookies.",
+            ],
+        ),
+        (
+            "How we use it",
+            [
+                "To build, store and show your pages and files, keep you signed in, stop abuse, limit costs "
+                "and fix problems.",
+                "We do not sell your data, show ads, or use your content to train AI models.",
+            ],
+        ),
+        (
+            "Who sees it",
+            [
+                f"AI model provider: your request and notes are sent to {esc(_model_line())} to write the page.",
+                "Namecheap (Private Email) receives your email address when we send you a sign-in link.",
+                "Cloudflare carries all traffic to the site, including your IP address.",
+                "Anyone with a share link can open that page until you turn the link off.",
+                "Authorities, if the law requires it.",
+                "Your files and database are on servers we run ourselves in the United States.",
+            ],
+        ),
+        (
+            "How long we keep it",
+            [
+                f"Pages and files: until you delete them. A hosted workspace with no activity for {days} days "
+                "is deleted with everything in it.",
+                f"Share links: {esc(share_text)}.",
+                "IP addresses used for rate limits: about one day.",
+                "Unused sign-in links: removed about a day after they expire.",
+                "App connections: removed about a day after they expire.",
+                "Your email fingerprint: kept after your workspace is deleted, so one email cannot start "
+                "over and over. Ask us and we will remove it.",
+                "Server logs (which include IP addresses), activity records and database backups taken "
+                "before updates: these are not deleted on a schedule today. They are kept until we delete "
+                "them, and backups may still hold pages you deleted.",
+            ],
+        ),
+        (
+            "Your choices",
+            [
+                "Delete a page: ask your assistant to delete it. This removes every version and share link.",
+                "Turn off a share link: ask your assistant to unshare it. It stops working right away.",
+                f"See or delete everything we hold: email {contact} from the address you signed in with. "
+                "We reply within 30 days.",
+                "Disconnect an app: remove ArtifactSmith in that app's settings, or ask us to revoke it.",
+            ],
+        ),
+        (
+            "Security",
+            [
+                "All traffic uses HTTPS. Keys, sign-in links and session cookies are stored only as hashes. "
+                "Each workspace is kept separate. No system is perfectly secure; if a breach affects you, we "
+                "will tell you.",
+            ],
+        ),
+        ("Children", ["ArtifactSmith is not for children under 13, and we do not knowingly collect their data."]),
+        ("Changes", ["If we change this policy, we post the new version here with a new date."]),
+        ("Contact", [f"{contact}, {esc(OPERATOR)}."]),
+    ]
+    return _legal("Privacy policy", sections, intro, nonce)
+
+
+def terms(_request: Request) -> Response:
+    nonce = new_nonce()
+    days = int(CFG.trial_retention_days)
+    contact = esc(_contact())
+    intro = (
+        "These terms cover the hosted copy of ArtifactSmith at artifactsmith.neuralami.ai, run by "
+        f"{esc(OPERATOR)}. By using it, you agree to them."
+    )
+    sections = [
+        (
+            "The software",
+            [
+                "ArtifactSmith is open-source software under the MIT License. You can get it at "
+                '<a href="https://github.com/vrijsinghani/Artifactsmith">github.com/vrijsinghani/Artifactsmith</a> '
+                "and run your own copy. These terms cover only our hosted copy, not your use of the code.",
+            ],
+        ),
+        (
+            "The hosted copy",
+            [
+                "It lets you see ArtifactSmith work before you install it. It is provided as-is, with no "
+                "warranty and no promise that it will be available, fast, or free of errors.",
+                f"We may limit usage, change features, or stop the hosted copy at any time. Workspaces with no "
+                f"activity for {days} days are deleted.",
+                "Keep your own copies of anything you need.",
+            ],
+        ),
+        (
+            "Acceptable use",
+            [
+                "Do not use it to break the law, or to make content that is illegal, infringes someone's "
+                "rights, harasses people, or sexualizes minors.",
+                "Do not use it for spam, phishing, malware, or pages that pretend to be someone else.",
+                "Do not try to get around limits, get into other people's workspaces, or overload the service.",
+            ],
+        ),
+        (
+            "Your content",
+            [
+                "You own what you send and what it makes for you. You give us permission to store, process "
+                "and show it only to run the service for you, including showing pages to anyone you share a "
+                "link with.",
+                "You are responsible for what you send and share, and for having the right to use it.",
+                "Pages are written by an AI model and can be wrong. Check them before you rely on them.",
+            ],
+        ),
+        (
+            "Ending use",
+            [
+                "You can stop at any time and ask us to delete your data.",
+                "We may suspend or delete accounts, pages or share links that break these terms, without notice.",
+            ],
+        ),
+        (
+            "Liability",
+            [
+                "To the extent the law allows, we are not liable for any indirect or consequential loss, or "
+                "for lost data or profits, from using the hosted copy. Our total liability is limited to US$100.",
+            ],
+        ),
+        ("Privacy", ['See our <a href="/privacy">privacy policy</a>.']),
+        ("Changes", ["If we change these terms, we post the new version here with a new date."]),
+        ("Contact", [f"{contact}, {esc(OPERATOR)}."]),
+    ]
+    return _legal("Terms of service", sections, intro, nonce)
