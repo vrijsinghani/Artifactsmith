@@ -287,12 +287,85 @@ def _contact() -> str:
     return trial.abuse_email() or CONTACT_EMAIL
 
 
+def _model_maker(model: str) -> str:
+    head = str(model).split("/", 1)[0].strip().lower()
+    named = {"anthropic": "Anthropic", "openai": "OpenAI", "chatgpt": "OpenAI", "google": "Google"}.get(head, "")
+    if named:
+        return named
+    if head.startswith("gpt-"):
+        return "OpenAI"
+    return ""
+
+
 def _model_line() -> str:
     model = str(CFG.trial_model)
-    maker = {"anthropic": "Anthropic", "openai": "OpenAI", "chatgpt": "OpenAI", "google": "Google"}.get(
-        model.split("/", 1)[0].lower(), ""
-    )
+    maker = _model_maker(model)
     return f"{maker} ({model})" if maker else model
+
+
+def _configured_share_days() -> int | None:
+    """Days a hand-made account's new share lasts. None means until it is turned off.
+
+    Same rule as Service._share_exp when the caller does not pass a shorter ttl:
+    AM_SHARE_TTL_DAYS, and AM_SHARE_TTL_MAX_DAYS when that ceiling is lower.
+    """
+    policy = int(CFG.share_ttl_days)
+    if policy <= 0:
+        return None
+    ceiling = max(1, int(CFG.share_ttl_max_days or 365))
+    return max(1, min(policy, ceiling))
+
+
+def _hosted_share_days() -> int:
+    """Days a hosted sign-up's new share lasts.
+
+    Service.share caps trial and demo principals at trial.SHARE_DAYS, and also
+    at a positive AM_SHARE_TTL_DAYS. The page shows the shorter of the two.
+    """
+    cap = int(trial.SHARE_DAYS)
+    configured = _configured_share_days()
+    if configured is None:
+        return cap
+    return min(cap, configured)
+
+
+def _lasts(days: int | None) -> str:
+    if days is None or days <= 0:
+        return "until you turn the link off"
+    unit = "day" if days == 1 else "days"
+    return f"{days} {unit}, or until you turn the link off"
+
+
+def _share_who() -> str:
+    hosted = _lasts(_hosted_share_days())
+    invited = _lasts(_configured_share_days())
+    return (
+        "Anyone with a share link can open that page. "
+        f"Links from hosted sign-ups last {hosted}. "
+        f"Links from accounts we set up for invited people last {invited}."
+    )
+
+
+def _share_kept() -> str:
+    hosted = _lasts(_hosted_share_days())
+    invited = _lasts(_configured_share_days())
+    return (
+        f"Share links from hosted sign-ups last {hosted}. "
+        f"Share links from accounts we set up for invited people last {invited}."
+    )
+
+
+def _invited_model_sentence() -> str:
+    maker = _model_maker(str(CFG.default_model))
+    if maker:
+        return f"Accounts we set up for invited people use {maker} models by default."
+    return "Accounts we set up for invited people use the configured model by default."
+
+
+_GATEWAY_LOGS = (
+    "A copy of each request sent to the model stays in the model gateway's logs after you delete the page. "
+    "Those logs are not deleted on a schedule today."
+)
 
 
 def _legal(title: str, sections: list[tuple[str, list[str]]], intro: str, nonce: str) -> Response:
@@ -305,10 +378,6 @@ def _legal(title: str, sections: list[tuple[str, list[str]]], intro: str, nonce:
 def privacy(_request: Request) -> Response:
     nonce = new_nonce()
     days = int(CFG.trial_retention_days)
-    share = int(CFG.share_ttl_days)
-    share_text = (
-        "until you turn it off or delete the page" if share == 0 else f"for {share} days, or until you turn it off"
-    )
     contact = esc(_contact())
     intro = (
         "This policy covers the hosted copy of ArtifactSmith at artifactsmith.neuralami.ai, run by "
@@ -344,9 +413,10 @@ def privacy(_request: Request) -> Response:
             "Who sees it",
             [
                 f"AI model provider: your request and notes are sent to {esc(_model_line())} to write the page.",
+                _invited_model_sentence(),
                 "Namecheap (Private Email) receives your email address when we send you a sign-in link.",
                 "Cloudflare carries all traffic to the site, including your IP address.",
-                "Anyone with a share link can open that page until you turn the link off.",
+                _share_who(),
                 "Authorities, if the law requires it.",
                 "Your files and database are on servers we run ourselves in the United States.",
             ],
@@ -356,7 +426,7 @@ def privacy(_request: Request) -> Response:
             [
                 f"Pages and files: until you delete them. A hosted workspace with no activity for {days} days "
                 "is deleted with everything in it.",
-                f"Share links: {esc(share_text)}.",
+                _share_kept(),
                 "IP addresses used for rate limits: about one day.",
                 "Unused sign-in links: removed about a day after they expire.",
                 "App connections: removed about a day after they expire.",
@@ -365,6 +435,7 @@ def privacy(_request: Request) -> Response:
                 "Server logs (which include IP addresses), activity records and database backups taken "
                 "before updates: these are not deleted on a schedule today. They are kept until we delete "
                 "them, and backups may still hold pages you deleted.",
+                _GATEWAY_LOGS,
             ],
         ),
         (
