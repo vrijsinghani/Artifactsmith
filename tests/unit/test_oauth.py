@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.testclient import TestClient
-from tests.unit.test_service import FakeStore
+from tests.unit.test_service import FakeStore, _mark_done, _principal
 
 import artifactsmith.server as server
 from artifactsmith.config import CFG, ConfigError, _demo_pair, _oauth_static_client
@@ -20,6 +20,7 @@ from artifactsmith.oauth_http import issuer
 from artifactsmith.oauth_origin import redirect_allowed
 from artifactsmith.service import AMError, Service
 from artifactsmith.trial import (
+    TRIAL_PERMS,
     day_spend_micros,
     email_hash,
     mint_trial,
@@ -444,6 +445,82 @@ def test_static_bearer_still_passes_the_gate(oauth_http, svc):
         headers={"Authorization": "Bearer asmb_other", "Accept": "application/json, text/event-stream"},
     )
     assert denied.status_code == 401
+
+
+def _signup(pid: str, *, demo: bool = False) -> dict:
+    return {
+        "id": pid,
+        "name": "signup",
+        "workspace": "alpha",
+        "perms": set(TRIAL_PERMS),
+        "trial": not demo,
+        "demo": demo,
+    }
+
+
+def _share_days(svc, principal: dict, slug: str) -> int | None:
+    created = svc.create(principal, slug=slug, display_name="Page", kind="web_static", verbatim_request="x")
+    aid = created["artifact_id"]
+    _mark_done(svc, aid, 1)
+    shared = svc.share(principal, aid)
+    if shared["lifetime"] == "until revoked":
+        return None
+    row = svc.db.one("SELECT created_at, expires_at FROM shares WHERE artifact_id=?", aid)
+    return int(round((row["expires_at"] - row["created_at"]) / 86400))
+
+
+def _lasts(days: int | None) -> str:
+    if days is None:
+        return "until you turn the link off"
+    unit = "day" if days == 1 else "days"
+    return f"{days} {unit}, or until you turn the link off"
+
+
+@pytest.mark.parametrize(("ttl", "ceiling"), [(0, 365), (14, 365), (90, 365), (90, 10)])
+def test_privacy_share_lines_match_share_expiry(oauth_http, svc, monkeypatch, ttl, ceiling):
+    monkeypatch.setattr(CFG, "share_ttl_days", ttl)
+    monkeypatch.setattr(CFG, "share_ttl_max_days", ceiling)
+    monkeypatch.setattr(CFG, "default_model", "chatgpt/gpt-test")
+    monkeypatch.setattr(CFG, "trial_daily_usd", "100")
+    monkeypatch.setattr(CFG, "trial_price_in", "0.10")
+    monkeypatch.setattr(CFG, "trial_price_out", "0.50")
+    hosted = _share_days(svc, _signup(f"tok_trial_{ttl}_{ceiling}"), f"trial-{ttl}-{ceiling}")
+    demo = _share_days(svc, _signup(f"tok_demo_{ttl}_{ceiling}", demo=True), f"demo-{ttl}-{ceiling}")
+    invited = _share_days(svc, _principal(pid=f"tok_inv_{ttl}_{ceiling}"), f"invited-{ttl}-{ceiling}")
+    assert hosted == demo
+    client, _box = oauth_http
+    text = client.get("/privacy").text
+    hosted_line = f"Links from hosted sign-ups last {_lasts(hosted)}."
+    invited_line = f"Links from accounts we set up for invited people last {_lasts(invited)}."
+    assert hosted_line in text
+    assert invited_line in text
+    assert f"Share links from hosted sign-ups last {_lasts(hosted)}." in text
+    assert f"Share links from accounts we set up for invited people last {_lasts(invited)}." in text
+    assert "until you turn it off or delete the page" not in text
+    assert "Anyone with a share link can open that page until you turn the link off." not in text
+
+
+def test_privacy_names_gateway_logs_and_invited_models(oauth_http, monkeypatch):
+    monkeypatch.setattr(CFG, "trial_model", "anthropic/claude-haiku-5-5")
+    monkeypatch.setattr(CFG, "default_model", "chatgpt/gpt-test")
+    client, _box = oauth_http
+    text = client.get("/privacy").text
+    logs_at = text.index("Server logs (which include IP addresses)")
+    gateway = (
+        "A copy of each request sent to the model stays in the model gateway's logs after you delete the page. "
+        "Those logs are not deleted on a schedule today."
+    )
+    assert text.index(gateway) > logs_at
+    assert "Accounts we set up for invited people use OpenAI models by default." in text
+    assert "gpt-test" not in text
+    assert "://" not in text
+    assert CFG.trial_model in text
+    monkeypatch.setattr(CFG, "default_model", "gpt-4o-mini")
+    assert "use OpenAI models by default." in client.get("/privacy").text
+    monkeypatch.setattr(CFG, "default_model", "custom-model")
+    plain = client.get("/privacy").text
+    assert "use the configured model by default." in plain
+    assert "custom-model" not in plain
 
 
 def test_privacy_page_is_final(oauth_http):

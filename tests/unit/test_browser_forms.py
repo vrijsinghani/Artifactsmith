@@ -93,6 +93,10 @@ def test_chromium_submits_trial_and_login_forms(monkeypatch):
 
     monkeypatch.setattr("artifactsmith.web.trial_pages.send_magic_link", fake_send)
     with _chromium(monkeypatch) as (page, origin, svc):
+        page.goto(origin + "/privacy")
+        assert "Privacy policy" in page.content()
+        fits = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1")
+        assert fits
         page.goto(origin + "/trial")
         assert "Try it before you install" in page.content()
         assert "Open source, MIT" in page.content()
