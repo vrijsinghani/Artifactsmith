@@ -13,7 +13,10 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY LICENSE NOTICE ./
 COPY licenses ./licenses
-RUN pip install --no-cache-dir . \
+# Base image pip 26.2.1 vendors certifi 2026.6.17 in pip/_vendor/bom.cdx.json.
+# Trivy reads that SBOM and flags GHSA-6q48-6c7w-9gw2. pip 26.2.2 vendors 2026.10.19.
+RUN pip install --no-cache-dir --upgrade 'pip==26.2.2' \
+    && pip install --no-cache-dir . \
     && useradd -u 10001 -m asm \
     && mkdir -p /data /secrets \
     && chown -R asm:asm /data /secrets
