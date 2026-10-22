@@ -451,6 +451,7 @@ Every setting also has a `NAME_FILE` variant that reads the value from a file.
 | `AM_FAST_STYLES` | empty | Comma-separated styles (`house`, `bold`, …) that default to `fast` when `create` omits `mode`. Empty keeps `AM_BUILD_MODE` for every style. An explicit `mode` still wins. A finished HTML source, or a request to publish that HTML as-is, stays `full` when `mode` is omitted. Mentioning HTML beside "unchanged" does not. Other formats and edits stay `full`. An unknown name fails at startup. |
 | `AM_SHARE_TTL_DAYS` | `30` | `0` means until revoked. |
 | `AM_SHARE_TTL_MAX_DAYS` | `365` | Cap on positive TTLs. |
+| `AM_SHARE_CREDIT` | `true` | Show a quiet "Made with ArtifactSmith" link on shared HTML pages. `false` hides it. Exports, previews, and stored files never include it. |
 | `AM_STORE_ENDPOINT` | (required) | S3-compatible object store. |
 | `AM_STORE_BUCKET` | `artifacts` | Bucket name. |
 | `AM_STORE_KEY` / `AM_STORE_SECRET` | (required) | Object-store credentials. |
@@ -504,7 +505,7 @@ Tokens are issued per workspace and stored as SHA-256 hashes. Knowing an artifac
 
 Permissions are `create`, `read`, `edit`, `publish`, `export`, `share`, and `delete`.
 
-Builds stay private until you call `share`. That creates a public `/s/…` URL that follows the latest done version. Pass `version` or `pin` to freeze one version on its own URL. `unshare` makes it return 404. `unshare` with a version revokes only that pin.
+Builds stay private until you call `share`. That creates a public `/s/…` URL that follows the latest done version. Pass `version` or `pin` to freeze one version on its own URL. `unshare` makes it return 404. `unshare` with a version revokes only that pin. A shared HTML page adds one quiet footer line, "Made with ArtifactSmith", linking to the GitHub repo. Set `AM_SHARE_CREDIT=false` to leave that line off. The line is not written into the stored file, a preview, or an export.
 
 Preview and share pages run on their own port, send no cookies, and set CSP `script-src 'none'` with `sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`.
 

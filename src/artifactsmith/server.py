@@ -27,6 +27,7 @@ from .oauth_grants import resolve_bearer
 from .oauth_origin import authenticate_header
 from .renderers import MIME, SOURCE_NAME
 from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
+from .share_credit import stamp_share_credit
 from .web.routes import build_pages
 from .web.trial_pages import _CARD_PATH
 
@@ -751,6 +752,14 @@ def _not_found() -> PlainTextResponse:
     return PlainTextResponse("not found", status_code=404, headers={"Cache-Control": "no-store"})
 
 
+def _view_html(aid: str, page: bytes, *, credit: bool) -> bytes:
+    """Trial chrome, then the share credit. Preview and raw bytes skip the credit."""
+    shown = _trial_chrome(aid, page)
+    if credit:
+        return stamp_share_credit(shown)
+    return shown
+
+
 async def _open_page(
     *,
     aid: str,
@@ -758,6 +767,7 @@ async def _open_page(
     sha: str | None,
     raw: bool,
     attachment: bool,
+    credit: bool = False,
 ) -> Response:
     try:
         data, ct, name, title, style = await asyncio.to_thread(_svc().read_primary_view, aid, version)
@@ -776,11 +786,14 @@ async def _open_page(
             logging.getLogger("artifactsmith").warning("markdown view refused artifact=%s version=%s", aid, version)
             return _not_found()
         return _serve(
-            _trial_chrome(aid, stamp_share_title(html, shown)), MIME["html"], SOURCE_NAME["html"], attachment=False
+            _view_html(aid, stamp_share_title(html, shown), credit=credit),
+            MIME["html"],
+            SOURCE_NAME["html"],
+            attachment=False,
         )
     if name.endswith(".html") or (ct or "").lower().startswith("text/html"):
         page = stamp_share_title(data, shown)
-        return _serve(_trial_chrome(aid, page), ct, name, attachment=False)
+        return _serve(_view_html(aid, page, credit=credit), ct, name, attachment=False)
     return _serve(data, ct, name, attachment=False)
 
 
@@ -827,6 +840,7 @@ async def shared(request: Request) -> Response:
         sha=sha,
         raw=raw,
         attachment=download,
+        credit=True,
     )
 
 

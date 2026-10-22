@@ -401,7 +401,7 @@ def test_shared_link_ok_and_revoked(svc):
     client = TestClient(server.preview_app)
     r = client.get(f"/s/{sid}/")
     assert r.status_code == 200
-    assert body in r.text
+    assert body.split("</body>", 1)[0] in r.text
     _assert_page_csp(r.headers.get("content-security-policy", ""))
     assert not r.cookies
     svc.db.exec("UPDATE shares SET revoked_at=? WHERE id=?", time.time(), sid)

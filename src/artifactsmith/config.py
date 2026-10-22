@@ -198,6 +198,8 @@ class Config:
     # Share lifetime. 0 = until revoked (far-future expiry). Positive capped by AM_SHARE_TTL_MAX_DAYS.
     share_ttl_days: int = field(default_factory=lambda: _setting_int("AM_SHARE_TTL_DAYS", 30, minimum=0))
     share_ttl_max_days: int = field(default_factory=lambda: _setting_int("AM_SHARE_TTL_MAX_DAYS", 365, minimum=1))
+    # Quiet "Made with ArtifactSmith" line on the HTML share view. Stored files and exports omit it.
+    share_credit: bool = field(default_factory=lambda: _setting_bool("AM_SHARE_CREDIT", True))
 
     # LLM adapter. AM_LLM_API=chat (default) or "responses". Base defaults to the standard OpenAI host.
     llm_api: str = field(default_factory=lambda: _setting("AM_LLM_API", "chat").lower())
