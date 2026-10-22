@@ -40,6 +40,16 @@ def test_cookie_secure_follows_the_public_url(monkeypatch: pytest.MonkeyPatch) -
     assert _cookie_secure() is False
 
 
+def test_share_credit_defaults_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AM_SHARE_CREDIT", raising=False)
+    assert Config().share_credit is True
+    monkeypatch.setenv("AM_SHARE_CREDIT", "false")
+    assert Config().share_credit is False
+    monkeypatch.setenv("AM_SHARE_CREDIT", "nope")
+    with pytest.raises(ConfigError, match="AM_SHARE_CREDIT"):
+        Config()
+
+
 def test_edit_patch_timeout_defaults_to_45(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AM_EDIT_PATCH_TIMEOUT_S", raising=False)
     assert Config().edit_patch_timeout_s == 45
