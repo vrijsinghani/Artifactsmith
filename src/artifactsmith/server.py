@@ -434,6 +434,7 @@ def publish(
     )
 
 
+# Not read-only: a done card inserts a private /p/ link. wait only polls. The insert is additive.
 @mcp.tool(
     title="Build status",
     annotations=_ann("Build status", read_only=False, destructive=False, open_world=False),
@@ -470,6 +471,7 @@ def list_artifacts(
     return _run(_svc().list, _principal(ctx), workspace=workspace, kind=kind, query=query, limit=limit)
 
 
+# Not read-only: a done card inserts a private /p/ link. include_content only reads stored text.
 @mcp.tool(
     title="Inspect artifact",
     annotations=_ann("Inspect artifact", read_only=False, destructive=False, open_world=False),
@@ -494,6 +496,7 @@ def inspect(
     return _run(_svc().inspect, principal, artifact_id, version, include_content)
 
 
+# Read-only: the 15-minute download URL is an HMAC, not a stored grant. The audit line does not grant access.
 @mcp.tool(
     title="Export file",
     annotations=_ann("Export file", read_only=True, destructive=False, open_world=False),
