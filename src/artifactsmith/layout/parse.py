@@ -332,20 +332,27 @@ class _Walker:
             if parsed is None:
                 self.notes.append("chart rendered as a table")
                 return _chart_as_table(tok.content or "")
-            kind, unit, labels, series = parsed
+            kind, unit, labels, series = parsed.kind, parsed.unit, parsed.labels, parsed.series
             rows = [
                 [Cell(label, label)] + [Cell(str(value), str(value)) for value in values]
                 for label, *values in _zip_series(labels, series)
             ]
             names = [Cell(name or "Value", name or "Value") for name, _vals in series]
+            attrs: dict[str, str] = {}
+            if parsed.x_title:
+                attrs["x"] = parsed.x_title
+            if parsed.y_title:
+                attrs["y"] = parsed.y_title
             return Block(
                 kind="chart",
                 plain=kind,
                 html=unit,
+                attrs=attrs,
                 headers=names,
                 rows=rows,
                 labels=tuple(labels),
                 numbers=tuple(series[0][1]),
+                series=tuple((name, tuple(vals)) for name, vals in series),
             )
         lang = info.split()[0] if info else ""
         attrs = {"lang": lang} if _LANG.fullmatch(lang) else {}
@@ -359,12 +366,15 @@ class _Walker:
         return Block(kind="html", html=source)
 
 
-def _zip_series(labels: list[str], series: list[tuple[str, list[float]]]) -> list[list[str]]:
+def _zip_series(labels: list[str], series: list[tuple[str, list[float | None]]]) -> list[list[str]]:
     rows: list[list[str]] = []
     for index, label in enumerate(labels):
         row = [label]
         for _name, values in series:
-            row.append(str(values[index]) if index < len(values) else "")
+            if index >= len(values) or values[index] is None:
+                row.append("—")
+            else:
+                row.append(str(values[index]))
         rows.append(row)
     return rows
 

@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- Fast-path charts draw an inline SVG with rounded axis ticks, gridlines, axis titles, a legend, and value labels on short series. Category labels thin, slant, or truncate instead of overlapping, and a missing point leaves a gap in a line. On a phone, tables wider than 4 columns or longer than 8 rows scroll sideways with the first column stuck; smaller tables stay cards.
 - Shared HTML pages show a quiet "Made with ArtifactSmith" footer linking to the GitHub repo. `AM_SHARE_CREDIT` (default `true`) turns it off. Exports, previews, and stored files do not include it.
 - MCP tools publish OpenAI Apps annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`, and a title). `GET /.well-known/openai-apps-challenge` returns `AM_OPENAI_APPS_CHALLENGE` as plain text, or 404 when that variable is unset or empty.
 - Cline can install ArtifactSmith from `llms-install.md`. The hosted server is listed first.

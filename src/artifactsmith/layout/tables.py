@@ -187,10 +187,12 @@ def _is_total_row(row: list[Cell]) -> bool:
 
 
 def render_table(block: Block) -> str:
-    """One table. Four or more columns stack on a phone unless ``phone=scroll``.
+    """One table. Small tables (up to 4 columns and 8 rows) become cards on a phone.
 
-    Narrower tables, and ``phone=scroll``, stay in the wrapper. The wrapper is
-    the scrollport, so the page itself does not scroll sideways.
+    Wider tables, and tables with more than 8 rows, scroll sideways inside the
+    wrapper. The first column sticks. ``phone=scroll`` always scrolls and
+    ``phone=stack`` always uses cards. The wrapper is the scrollport, so the
+    page itself does not scroll sideways.
     """
     headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
     width_guess = _width(headers, rows)
@@ -205,7 +207,15 @@ def render_table(block: Block) -> str:
     foot = rows[-1:] if marked_total and len(rows) > 1 else []
     numeric = _numeric_columns(body or rows, width)
     phone = block.attrs.get("phone") or ""
-    stack = phone != "scroll" and width >= 4
+    wide = width > 4 or len(rows) > 8
+    if phone == "stack":
+        stack, freeze = True, False
+    elif phone == "scroll" or wide:
+        stack, freeze = False, True
+    elif width >= 4:
+        stack, freeze = True, False
+    else:
+        stack, freeze = False, False
     names = ["asl-table"]
     if block.attrs.get("variant"):
         names.append("variant-" + block.attrs["variant"])
@@ -240,7 +250,11 @@ def render_table(block: Block) -> str:
         parts.append(_row(foot[0], width, headers, block.groups, numeric, rowhead, "td", total_line=True))
         parts.append("</tfoot>")
     parts.append("</table>")
-    wrap = "asl-table-wrap stack" if stack else "asl-table-wrap"
+    wrap = "asl-table-wrap"
+    if stack:
+        wrap += " stack"
+    if freeze:
+        wrap += " freeze"
     return f'<div class="{wrap}">{"".join(parts)}</div>'
 
 

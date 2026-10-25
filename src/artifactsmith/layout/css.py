@@ -199,7 +199,7 @@ tfoot td,tfoot th{font-weight:700;border-top:2px solid var(--ink)}
 .asl-code{padding:.85rem 1rem;overflow-x:auto;max-width:100%;box-sizing:border-box}
 .asl-code .lang{display:block;font-size:.75rem;color:var(--muted);margin-bottom:.3rem}
 .asl-code code{white-space:pre;font-family:ui-monospace,Menlo,Consolas,monospace}
-.asl-chart svg{width:100%;height:auto;display:block}
+.asl-chart svg{width:100%;max-width:40rem;height:auto;display:block;overflow:hidden}
 .asl-chart .bar{fill:var(--c0)}
 .asl-chart .line{fill:none;stroke:var(--c0);stroke-width:2px}
 .asl-chart .dot{fill:var(--c0)}
@@ -362,6 +362,28 @@ ul.asl-list.log>li::before{content:"$ ";color:var(--accent)}
 def _root(palette: dict[str, str]) -> str:
     body = "".join(f"--{key}:{value};" for key, value in palette.items())
     return f":root{{{body}}}"
+
+
+def sheet_extra() -> str:
+    """Chart strokes and the phone table scroller.
+
+    These rules are appended per page. Putting them in the shared sheet would
+    push the bold stylesheet over its 8192-byte cap.
+    """
+    return (
+        ".asl-chart .line.pie1{stroke:var(--c1);fill:none}"
+        ".asl-chart .line.pie2{stroke:var(--c2);fill:none}"
+        ".asl-chart .line.pie3{stroke:var(--c3);fill:none}"
+        ".asl-chart .line.pie4{stroke:var(--c4);fill:none}"
+        ".asl-chart .line.pie5{stroke:var(--c5);fill:none}"
+        "@media (max-width:40rem){"
+        ".asl-chart .minor{display:none}"
+        ".asl-table-wrap.freeze table{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0}"
+        ".asl-table-wrap.freeze th,.asl-table-wrap.freeze td{white-space:nowrap}"
+        ".asl-table-wrap.freeze th:first-child,.asl-table-wrap.freeze td:first-child{"
+        "position:sticky;left:0;z-index:1;background:var(--bg);color:var(--ink)}"
+        "}"
+    )
 
 
 def stylesheet(style: str, extra: str = "") -> str:
