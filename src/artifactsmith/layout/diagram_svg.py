@@ -108,10 +108,7 @@ def svg_doc(width: float, height: float, label: str, parts: list[str]) -> str:
     w = max(1, int(math.ceil(width)))
     h = max(1, int(math.ceil(height)))
     body = "".join(parts)
-    return (
-        f'<svg role="img" aria-label="{esc(label)}" viewBox="0 0 {w} {h}" width="{w}" height="{h}">'
-        f"{body}</svg>"
-    )
+    return f'<svg role="img" aria-label="{esc(label)}" viewBox="0 0 {w} {h}" width="{w}" height="{h}">{body}</svg>'
 
 
 def text_at(
@@ -137,10 +134,7 @@ def text_at(
 
 
 def rect(x: float, y: float, w: float, h: float, css: str, *, rx: float = 6) -> str:
-    return (
-        f'<rect class="{css}" x="{n(x)}" y="{n(y)}" width="{n(w)}" height="{n(h)}" '
-        f'rx="{n(rx)}" ry="{n(rx)}"/>'
-    )
+    return f'<rect class="{css}" x="{n(x)}" y="{n(y)}" width="{n(w)}" height="{n(h)}" rx="{n(rx)}" ry="{n(rx)}"/>'
 
 
 def line(x1: float, y1: float, x2: float, y2: float, css: str) -> str:

@@ -208,4 +208,3 @@ def _draw_node(box: Box, node: FlowNode, lines: list[str], full: str) -> str:
         for index, shown in enumerate(lines)
     ]
     return shape + "".join(texts)
-

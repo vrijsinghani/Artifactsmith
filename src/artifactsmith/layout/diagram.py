@@ -33,6 +33,7 @@ class Drawn:
     kind: str
     svg: str | None
     steps: tuple[str, ...]
+    notes: tuple[str, ...] = ()
 
 
 def read_fence(info: str, content: str) -> Drawn | None:
@@ -43,7 +44,30 @@ def read_fence(info: str, content: str) -> Drawn | None:
     model = _model(kind, info, content)
     if model is None:
         return Drawn(kind, None, tuple(fallback_steps(kind, content)))
-    return Drawn(kind, draw_diagram(kind, model), ())
+    notes = (_skip_note(kind, model.skipped),) if model.skipped else ()
+    return Drawn(kind, draw_diagram(kind, model), (), notes)
+
+
+def timeline_from_children(children: list[Block]) -> Drawn | None:
+    """``date | title | note`` lines inside ``::: timeline`` draw a timeline.
+
+    A bullet list stays a list. That is the older timeline syntax.
+    """
+    if any(child.kind in {"list", "olist"} for child in children):
+        return None
+    parts = [child.source for child in children if child.kind == "paragraph" and child.source.strip()]
+    text = "\n".join(parts).strip()
+    if "|" not in text:
+        return None
+    drawn = read_fence("timeline", text)
+    if drawn is None or not drawn.svg:
+        return None
+    return drawn
+
+
+def _skip_note(kind: str, count: int) -> str:
+    noun = "line" if count == 1 else "lines"
+    return f"{kind} diagram skipped {count} {noun}"
 
 
 def steps_block(steps: tuple[str, ...]) -> Block:

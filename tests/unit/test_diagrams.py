@@ -151,9 +151,7 @@ SYN_RCVD -> ESTABLISHED: receive ACK
 
 
 def _svg_rects(svg: str, css: str) -> list[tuple[float, float, float, float]]:
-    pattern = re.compile(
-        rf'<rect class="{css}" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"'
-    )
+    pattern = re.compile(rf'<rect class="{css}" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"')
     return [(float(x), float(y), float(w), float(h)) for x, y, w, h in pattern.findall(svg)]
 
 
@@ -243,14 +241,13 @@ def test_failed_diagram_is_a_list_not_the_source():
     source = """# Handshake
 
 ```flow LR
-Start -> Review: submit
 nope <script>alert(1)</script>
+also bad
 ```
 """
     html, notes = render_layout(source, style="house", title="Handshake")
     assert "flow diagram shown as a list" in notes
     assert "asl-steps" in html
-    assert "Start to Review: submit" in html
     assert "nope" in html
     assert "->" not in html
     assert "```" not in html
@@ -258,7 +255,56 @@ nope <script>alert(1)</script>
     assert "<pre" not in html
     doc = sanitize_html_document(html)
     assert "<script" not in doc.lower()
-    assert "Start to Review: submit" in doc
+
+
+def test_stray_line_is_skipped_and_the_diagram_stays():
+    source = """# Handshake
+
+```flow LR
+Start -> Review: submit
+nope <script>alert(1)</script>
+```
+"""
+    html, notes = render_layout(source, style="house", title="Handshake")
+    assert "flow diagram skipped 1 line" in notes
+    assert "shown as a list" not in " ".join(notes)
+    assert "asl-diagram" in html
+    assert "Review" in html
+    assert "nope" not in html
+    assert "->" not in html
+    assert "<script" not in html.lower()
+    kept = parse_sequence("sequence", "A -> B: hi\nnot a message\n")
+    assert kept is not None and kept.skipped == 1 and kept.steps[0].label == "hi"
+    timeline = parse_timeline("timeline", "Mar 2 | Kickoff\nnope\n")
+    assert timeline is not None and timeline.skipped == 1 and timeline.events[0].title == "Kickoff"
+
+
+def test_timeline_container_draws_pipe_lines_not_a_raw_paragraph():
+    """Prompt E put fence lines inside ::: timeline. That must draw, not print pipes."""
+    source = """# Project kickoff plan: customer self-service help center
+
+## Eight-week timeline
+
+::: timeline
+*Week 1 | Kickoff and discovery | Confirm the project sponsor, project manager, workstream leads, and decision rights.
+Week 2 | Strategy and information architecture | Select or confirm the help center platform.
+Week 3 | Build | Draft the highest-priority articles.
+:::
+"""
+    html, notes = render_layout(source, style="house", title="Kickoff")
+    assert notes == []
+    assert "asl-diagram" in html
+    assert "dot-hi" in html
+    assert "Kickoff and discovery" in html
+    assert "Week 1" in html
+    assert "Strategy and information architecture" in html
+    assert "*Week 1" not in html
+    assert "|" not in html
+    assert 'class="asl-timeline"' not in html
+    assert "width:100%" in html
+    doc = sanitize_html_document(html)
+    assert "Kickoff and discovery" in doc
+    assert "*Week 1" not in doc
 
 
 def test_old_timeline_list_and_chart_fence_stay():
@@ -291,5 +337,8 @@ print(1)
 
 def test_prompt_teaches_the_diagram_fences():
     house = fast_system_prompt("house")
-    for fence in ("```flow LR", "```sequence", "```timeline", "```tree"):
+    for fence in ("```flow LR", "```sequence", "```tree"):
         assert fence in house
+    assert "::: timeline" in house
+    assert "date | title | note" in house
+    assert "```timeline" not in house

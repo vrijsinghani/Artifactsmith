@@ -112,7 +112,9 @@ def _note(
     parts.append(rect(left, y, width, height, "note", rx=6))
     start = y + height / 2 - (len(lines) - 1) * LINE / 2
     for at, shown in enumerate(lines):
-        parts.append(text_at(left + width / 2, start + at * LINE, shown, FONT, anchor="middle", full=full if at == 0 else ""))
+        parts.append(
+            text_at(left + width / 2, start + at * LINE, shown, FONT, anchor="middle", full=full if at == 0 else "")
+        )
     return y + height + 14
 
 

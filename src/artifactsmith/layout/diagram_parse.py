@@ -49,6 +49,7 @@ class Flow:
     direction: str
     nodes: list[FlowNode]
     edges: list[FlowEdge]
+    skipped: int = 0
 
 
 @dataclass
@@ -66,6 +67,7 @@ class Sequence:
     actors: list[str]
     steps: list[Step]
     numbered: bool
+    skipped: int = 0
 
 
 @dataclass
@@ -80,6 +82,7 @@ class Event:
 class Timeline:
     events: list[Event]
     force: str
+    skipped: int = 0
 
 
 @dataclass
@@ -93,6 +96,7 @@ class TreeNode:
 @dataclass
 class Tree:
     roots: list[TreeNode]
+    skipped: int = 0
 
 
 def kind_of(info: str) -> str | None:
@@ -143,18 +147,21 @@ def fallback_steps(kind: str, content: str) -> list[str]:
     return steps or ["Diagram could not be drawn"]
 
 
-def _rows(content: str) -> list[str]:
+def _rows(content: str) -> tuple[list[str], int]:
+    """Non-comment lines, and how many were too long to keep."""
     rows: list[str] = []
+    skipped = 0
     for raw in (content or "").splitlines():
         text = raw.strip()
         if not text or text.startswith("//"):
             continue
         if len(text) > _MAX_LINE:
-            raise _Bad()
+            skipped += 1
+            continue
         rows.append(text)
-    if not rows or len(rows) > _MAX_LINES:
+    if len(rows) > _MAX_LINES:
         raise _Bad()
-    return rows
+    return rows, skipped
 
 
 def _flow(info: str, content: str) -> Flow:
@@ -162,6 +169,7 @@ def _flow(info: str, content: str) -> Flow:
     nodes: dict[str, FlowNode] = {}
     edges: list[FlowEdge] = []
     order: list[str] = []
+    rows, skipped = _rows(content)
 
     def add(raw: str) -> str:
         name, shape, hi = _node(raw)
@@ -173,21 +181,33 @@ def _flow(info: str, content: str) -> Flow:
             found.hi = True
         return name
 
-    for row in _rows(content):
+    for row in rows:
         match = _EDGE.fullmatch(row)
         if match is None:
-            raise _Bad()
-        src = add(match.group("src"))
+            skipped += 1
+            continue
         label = " ".join((match.group("label") or "").split())[:80]
         dashed = match.group("arrow") == "-->"
-        for piece in re.split(r"\s+&\s+", match.group("dst")):
-            if not piece.strip():
-                raise _Bad()
-            dst = add(piece)
+        pieces = [piece for piece in re.split(r"\s+&\s+", match.group("dst")) if piece.strip()]
+        try:
+            src = add(match.group("src"))
+        except _Bad:
+            skipped += 1
+            continue
+        added = False
+        for piece in pieces:
+            try:
+                dst = add(piece)
+            except _Bad:
+                skipped += 1
+                continue
             edges.append(FlowEdge(src, dst, label, dashed))
+            added = True
+        if not added:
+            skipped += 1
     if not edges or len(nodes) > 24 or len(edges) > 48:
         raise _Bad()
-    return Flow(direction, [nodes[name] for name in order], edges)
+    return Flow(direction, [nodes[name] for name in order], edges, skipped)
 
 
 def _direction(info: str) -> str:
@@ -238,36 +258,47 @@ def _sequence(info: str, content: str) -> Sequence:
             actors.append(cleaned)
         return cleaned
 
-    for row in _rows(content):
+    rows, skipped = _rows(content)
+    for row in rows:
         parts = _PARTS.fullmatch(row)
         note = _NOTE.fullmatch(row)
         divider = _DIVIDER.fullmatch(row)
         message = _EDGE.fullmatch(row)
-        if parts:
-            for name in re.split(r"[,，]", parts.group(1)):
-                if name.strip():
-                    add(name)
+        try:
+            if parts:
+                named = False
+                for name in re.split(r"[,，]", parts.group(1)):
+                    if name.strip():
+                        add(name)
+                        named = True
+                if not named:
+                    skipped += 1
+                continue
+            if note:
+                over = tuple(add(name) for name in re.split(r"[,，]", note.group(1)) if name.strip())
+                if not over:
+                    skipped += 1
+                    continue
+                steps.append(Step("note", label=" ".join(note.group(2).split())[:120], over=over))
+                continue
+            if divider:
+                steps.append(Step("divider", label=" ".join(divider.group(1).split())[:80]))
+                continue
+            if message is None:
+                skipped += 1
+                continue
+            src = add(message.group("src"))
+            dst = add(message.group("dst"))
+        except _Bad:
+            skipped += 1
             continue
-        if note:
-            over = tuple(add(name) for name in re.split(r"[,，]", note.group(1)) if name.strip())
-            if not over:
-                raise _Bad()
-            steps.append(Step("note", label=" ".join(note.group(2).split())[:120], over=over))
-            continue
-        if divider:
-            steps.append(Step("divider", label=" ".join(divider.group(1).split())[:80]))
-            continue
-        if message is None:
-            raise _Bad()
-        src = add(message.group("src"))
-        dst = add(message.group("dst"))
         label = " ".join((message.group("label") or "").split())[:80]
         steps.append(Step("msg", src, dst, label, message.group("arrow") == "-->"))
     if not actors or not any(step.kind == "msg" for step in steps):
         raise _Bad()
     if len(actors) > 8 or len(steps) > 40:
         raise _Bad()
-    return Sequence(actors, steps, numbered)
+    return Sequence(actors, steps, numbered, skipped)
 
 
 def _timeline(info: str, content: str) -> Timeline:
@@ -279,25 +310,31 @@ def _timeline(info: str, content: str) -> Timeline:
         elif word in {"h", "horizontal"}:
             force = "h"
     events: list[Event] = []
-    for row in _rows(content):
+    rows, skipped = _rows(content)
+    for row in rows:
         hi = row.startswith("*")
         body = row[1:].strip() if hi else row
         parts = [part.strip() for part in body.split("|")]
         if len(parts) < 2 or not parts[0] or not parts[1]:
-            raise _Bad()
+            skipped += 1
+            continue
         note = " ".join(part for part in parts[2:] if part)
         events.append(Event(parts[0][:40], parts[1][:80], note[:120], hi))
     if not events or len(events) > 24:
         raise _Bad()
-    return Timeline(events, force)
+    return Timeline(events, force, skipped)
 
 
 def _tree(content: str) -> Tree:
     roots: list[TreeNode] = []
     stack: list[tuple[int, TreeNode]] = []
     count = 0
+    skipped = 0
     for raw in (content or "").splitlines():
         if not raw.strip() or raw.strip().startswith("//"):
+            continue
+        if len(raw) > _MAX_LINE:
+            skipped += 1
             continue
         expanded = raw.replace("\t", "  ")
         indent = len(expanded) - len(expanded.lstrip(" "))
@@ -310,7 +347,8 @@ def _tree(content: str) -> Tree:
         label, _, note = body.partition("|")
         label, note = " ".join(label.split()), " ".join(note.split())
         if not label or len(label) > 80:
-            raise _Bad()
+            skipped += 1
+            continue
         node = TreeNode(label[:80], note[:80], hi)
         depth = indent // 2
         while stack and stack[-1][0] >= depth:
@@ -325,7 +363,7 @@ def _tree(content: str) -> Tree:
             raise _Bad()
     if not roots:
         raise _Bad()
-    return Tree(roots)
+    return Tree(roots, skipped)
 
 
 def _humanize(kind: str, raw: str) -> str:

@@ -16,7 +16,7 @@ from mdit_py_plugins.tasklists import tasklists_plugin
 
 from ..renderers.raster_data import raster_data_image
 from .chart import parse_chart
-from .diagram import read_fence, steps_block
+from .diagram import read_fence, steps_block, timeline_from_children
 from .inline import cell_html, plain_text, render_inlines
 from .model import ALLOWED_ATTRS, CALLOUTS, Block, Cell, classify
 from .tables import limit_table
@@ -168,7 +168,12 @@ class _Walker:
         if _ONLY_ATTRS.fullmatch(content or ""):
             return None
         children = list(inline.children or []) if inline else []
-        return Block(kind="paragraph", html=render_inlines(children), plain=plain_text(children).strip())
+        return Block(
+            kind="paragraph",
+            html=render_inlines(children),
+            plain=plain_text(children).strip(),
+            source=content or "",
+        )
 
     def _list(self) -> Block:
         tok = self.tokens[self.i]
@@ -283,6 +288,11 @@ class _Walker:
         if name == "stat":
             return Block(kind="stat", attrs=attrs, classes=classes, children=children)
         if name in {"timeline", "steps", "compare", "list", "quote"}:
+            if name == "timeline":
+                drawn = timeline_from_children(children)
+                if drawn is not None and drawn.svg:
+                    self.notes.extend(drawn.notes)
+                    return Block(kind="diagram", plain="timeline", html=drawn.svg, attrs=attrs, classes=classes)
             return Block(kind=name, attrs=attrs, classes=classes, children=children)
         if name == "html":
             return self._raw_html("\n".join(child.plain for child in children))
@@ -357,6 +367,7 @@ class _Walker:
             )
         drawn = read_fence(info, tok.content or "")
         if drawn is not None:
+            self.notes.extend(drawn.notes)
             if drawn.svg is None:
                 self.notes.append(f"{drawn.kind} diagram shown as a list")
                 return steps_block(drawn.steps)

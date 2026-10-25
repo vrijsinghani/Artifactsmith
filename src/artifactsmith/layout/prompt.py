@@ -8,11 +8,11 @@ SYNTAX_RULES = """Markdown (GFM: headings, lists, tables, links, **bold**). No H
 ::: note|warn|success|danger callout
 :::: grid 3 or grid 2,1
 ::: stat {tone=green} Label | Value | note
-::: timeline / ::: steps / ::: compare wrap a list or table
+::: steps / ::: compare wrap a list or table
+::: timeline: *date | title | note
 ```chart bar|hbar|line|pie|donut unit=$ y=Rate "Label: 12.5" or a table. — is missing.
 ```flow LR|TB A -> B: label. --> dashed. *key node.
 ```sequence A -> B: message. note A, B: text.
-```timeline date | title | note. *key moment.
 ```tree indent. label | note.
 Badges: [Confirmed]{.green}. Term then ": value" is a fact strip.
 {} after a fence or above a table or heading:
@@ -69,9 +69,9 @@ Client -> Server: SYN
 Server --> Client: SYN-ACK
 ```
 
-```timeline
+::: timeline
 *Mar 16 | Decision | Build the API
-```
+:::
 """
 
 _HEAD = """You are the builder for an artifact service. You turn a user's request into one Markdown page. The server renders it as styled HTML.

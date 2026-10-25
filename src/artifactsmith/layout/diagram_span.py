@@ -47,13 +47,13 @@ def _horizontal(spec: Timeline) -> str | None:
         parts.append(text_at(cx, 16, event.when, FONT, anchor="middle", weight="700"))
         dot = "dot-hi" if event.hi else "dot"
         radius = 6 if event.hi else 4.5
-        parts.append(
-            f'<circle class="{dot}" cx="{cx:.0f}" cy="{axis:.0f}" r="{radius}"/>'
-        )
+        parts.append(f'<circle class="{dot}" cx="{cx:.0f}" cy="{axis:.0f}" r="{radius}"/>')
         y = axis + 16
         weight = "700" if event.hi else ""
         for at, shown in enumerate(title):
-            parts.append(text_at(cx, y, shown, FONT, anchor="middle", full=title_full if at == 0 else "", weight=weight))
+            parts.append(
+                text_at(cx, y, shown, FONT, anchor="middle", full=title_full if at == 0 else "", weight=weight)
+            )
             y += LINE
         for at, shown in enumerate(note):
             parts.append(text_at(cx, y, shown, FONT, anchor="middle", css="muted", full=note_full if at == 0 else ""))
@@ -163,10 +163,14 @@ def _org_box(
     cursor = y + 8 + LINE / 2
     weight = "700" if node.label.endswith("/") or node.hi else ""
     for at, shown in enumerate(lines):
-        parts.append(text_at(x + width / 2, cursor, shown, FONT, anchor="middle", full=full if at == 0 else "", weight=weight))
+        parts.append(
+            text_at(x + width / 2, cursor, shown, FONT, anchor="middle", full=full if at == 0 else "", weight=weight)
+        )
         cursor += LINE
     for at, shown in enumerate(note):
-        parts.append(text_at(x + width / 2, cursor, shown, FONT, anchor="middle", css="muted", full=note_full if at == 0 else ""))
+        parts.append(
+            text_at(x + width / 2, cursor, shown, FONT, anchor="middle", css="muted", full=note_full if at == 0 else "")
+        )
         cursor += LINE
 
 
@@ -194,7 +198,11 @@ def _indent(spec: Tree) -> str:
             parts.append(line(px, py, px, cy, "wire"))
             parts.append(line(px, cy, x - 4, cy, "wire"))
         if node.hi:
-            widest = max(text_width(line, FONT) for line in [*lines, *note]) if note else max(text_width(line, FONT) for line in lines)
+            widest = (
+                max(text_width(line, FONT) for line in [*lines, *note])
+                if note
+                else max(text_width(line, FONT) for line in lines)
+            )
             parts.append(rect(x - 4, y, widest + 12, block, "note", rx=4))
         weight = "700" if node.label.endswith("/") or node.hi else ""
         cursor = y + LINE / 2 + 2
