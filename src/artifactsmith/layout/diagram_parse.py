@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 KINDS = frozenset({"flow", "sequence", "timeline", "tree"})
 _MAX_LINES = 80
 _MAX_LINE = 400
+# A kickoff note runs past the fence line cap. Keep it, and cap what the
+# drawing stores so a long tooltip cannot blow the page SVG text budget.
+_MAX_TIMELINE_LINE = 4000
+_MAX_NOTE = 600
 
 _EDGE = re.compile(r"^(?P<src>.+?)\s*(?P<arrow>-->|->|→)\s*(?P<dst>.+?)(?:\s*:\s*(?P<label>.*))?$")
 _PARTS = re.compile(r"^participants?\s*:\s*(.+)$", re.I)
@@ -310,7 +314,7 @@ def _timeline(info: str, content: str) -> Timeline:
         elif word in {"h", "horizontal"}:
             force = "h"
     events: list[Event] = []
-    rows, skipped = _rows(content)
+    rows, skipped = _timeline_rows(content)
     for row in rows:
         hi = row.startswith("*")
         body = row[1:].strip() if hi else row
@@ -318,11 +322,28 @@ def _timeline(info: str, content: str) -> Timeline:
         if len(parts) < 2 or not parts[0] or not parts[1]:
             skipped += 1
             continue
-        note = " ".join(part for part in parts[2:] if part)
-        events.append(Event(parts[0][:40], parts[1][:80], note[:120], hi))
+        note = " ".join(" ".join(part for part in parts[2:] if part).split())
+        if len(note) > _MAX_NOTE:
+            note = note[: _MAX_NOTE - 1].rstrip() + "…"
+        events.append(Event(parts[0][:40], parts[1][:80], note, hi))
     if not events or len(events) > 24:
         raise _Bad()
     return Timeline(events, force, skipped)
+
+
+def _timeline_rows(content: str) -> tuple[list[str], int]:
+    """Timeline lines stay even when the note is long. Other fences use ``_rows``."""
+    rows: list[str] = []
+    for raw in (content or "").splitlines():
+        text = raw.strip()
+        if not text or text.startswith("//"):
+            continue
+        if len(text) > _MAX_TIMELINE_LINE:
+            text = text[:_MAX_TIMELINE_LINE]
+        rows.append(text)
+    if len(rows) > _MAX_LINES:
+        raise _Bad()
+    return rows, 0
 
 
 def _tree(content: str) -> Tree:
@@ -370,6 +391,12 @@ def _humanize(kind: str, raw: str) -> str:
     text = raw.strip()
     if not text or text.startswith("//"):
         return ""
+    if kind == "timeline":
+        body = text[1:].strip() if text.startswith("*") else text
+        parts = [part.strip() for part in body.split("|") if part.strip()]
+        if len(parts) < 2:
+            return ""
+        return " — ".join(parts)[:180]
     low = text.lower()
     if kind == "sequence" and low.startswith("participant"):
         names = text.partition(":")[2].strip()

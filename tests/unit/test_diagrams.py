@@ -301,10 +301,62 @@ Week 3 | Build | Draft the highest-priority articles.
     assert "*Week 1" not in html
     assert "|" not in html
     assert 'class="asl-timeline"' not in html
-    assert "width:100%" in html
+    assert "width:min(100%" in html
     doc = sanitize_html_document(html)
     assert "Kickoff and discovery" in doc
     assert "*Week 1" not in doc
+
+
+def _long_note(length: int, token: str) -> str:
+    """A note of exactly ``length`` characters, ending in ``token``."""
+    filler = "Confirm the sponsor, the workstream leads, and the decision rights. "
+    body = (filler * ((length // len(filler)) + 2))[: length - len(token)]
+    return body + token
+
+
+def test_long_timeline_notes_draw_instead_of_a_raw_paragraph():
+    """Prompt E wrote seven notes of 400-520 characters inside ::: timeline."""
+    lengths = (400, 420, 450, 480, 500, 510, 520)
+    lines = []
+    tokens = []
+    for index, length in enumerate(lengths, start=1):
+        token = f"END{length}"
+        tokens.append(token)
+        star = "*" if index == 1 else ""
+        lines.append(f"{star}Week {index} | Title {index} | {_long_note(length, token)}")
+    source = "# Project kickoff plan\n\n## Eight-week timeline\n\n::: timeline\n" + "\n".join(lines) + "\n:::\n"
+    html, notes = render_layout(source, style="house", title="Kickoff")
+    assert "shown as a list" not in " ".join(notes)
+    assert "asl-diagram" in html
+    assert "dot-hi" in html
+    assert "Title 1" in html
+    assert "Title 7" in html
+    body = html.split("<body>", 1)[-1]
+    assert "*Week" not in body
+    assert "|" not in body
+    assert 'class="asl-timeline"' not in html
+    for token in tokens:
+        assert f"{token}</title>" in body
+    doc = sanitize_html_document(html)
+    assert "END520</title>" in doc
+    assert "*Week" not in doc
+    assert "width:min(100%" in doc
+
+
+def test_failed_timeline_pipe_block_is_a_list_not_raw_syntax():
+    source = """# T
+
+::: timeline
+|
+:::
+"""
+    html, notes = render_layout(source, style="house", title="T")
+    assert "timeline diagram shown as a list" in notes
+    assert "asl-steps" in html
+    assert "Diagram could not be drawn" in html
+    body = html.split("<body>", 1)[-1]
+    assert "|" not in body
+    assert "*Week" not in body
 
 
 def test_old_timeline_list_and_chart_fence_stay():
@@ -341,4 +393,5 @@ def test_prompt_teaches_the_diagram_fences():
         assert fence in house
     assert "::: timeline" in house
     assert "date | title | note" in house
+    assert "under 120 characters" in house
     assert "```timeline" not in house

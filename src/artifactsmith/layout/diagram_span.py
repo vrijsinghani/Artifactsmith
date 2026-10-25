@@ -12,6 +12,15 @@ from .diagram_parse import Timeline, Tree, TreeNode
 from .diagram_svg import FONT, LIMIT, LINE, aria, fits, line, rect, svg_doc, text_at, wrap_lines
 
 
+def _shown_note(note: str, room: float) -> tuple[list[str], str]:
+    """Wrapped lines, plus the full note when the drawing cuts it."""
+    if not note:
+        return [], ""
+    lines, _tip = wrap_lines(note, room, FONT, max_lines=2)
+    shown = " ".join(lines)
+    return lines, note if shown != note else ""
+
+
 def draw_timeline(spec: Timeline) -> str:
     if spec.force != "v":
         horizontal = _horizontal(spec)
@@ -34,7 +43,7 @@ def _horizontal(spec: Timeline) -> str | None:
     prepared = []
     for event in spec.events:
         title, title_full = wrap_lines(event.title, text_room, FONT, max_lines=2)
-        note, note_full = wrap_lines(event.note, text_room, FONT, max_lines=2) if event.note else ([], "")
+        note, note_full = _shown_note(event.note, text_room)
         prepared.append((event, title or [event.title[:12]], title_full, note, note_full))
     title_lines = max(len(item[1]) for item in prepared)
     note_lines = max((len(item[3]) for item in prepared), default=0)
@@ -68,7 +77,7 @@ def _vertical(spec: Timeline) -> str:
     rows = []
     for event in spec.events:
         title, title_full = wrap_lines(event.title, text_room, FONT, max_lines=2)
-        note, note_full = wrap_lines(event.note, text_room, FONT, max_lines=2) if event.note else ([], "")
+        note, note_full = _shown_note(event.note, text_room)
         block = LINE + max(1, len(title)) * LINE + len(note) * LINE + 12
         rows.append((event, title or [event.title], title_full, note, note_full, y, block))
         y += block

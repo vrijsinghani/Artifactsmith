@@ -181,6 +181,18 @@ def test_wide_tables_scroll_and_small_tables_stay_cards():
     cards, _notes = render_layout(small, style="house", title="T")
     assert 'class="asl-table-wrap stack"' in cards
     assert 'class="asl-table-wrap freeze"' not in cards
+    # 3 columns and 6 or more rows scroll. Fewer rows stay a normal table.
+    dense = "# T\n\n| Topic | Ours | Theirs |\n|---|---|---|\n" + "\n".join(
+        f"| Row {i} | A long comparison cell | Another long comparison cell |" for i in range(8)
+    )
+    phone, _notes = render_layout(dense, style="house", title="T")
+    assert 'class="asl-table-wrap freeze"' in phone
+    assert "stack" not in phone.split("<table", 1)[1].split(">", 1)[0]
+    short = "# T\n\n| Topic | Ours | Theirs |\n|---|---|---|\n" + "\n".join(f"| Row {i} | A | B |" for i in range(5))
+    plain, _notes = render_layout(short, style="house", title="T")
+    assert 'class="asl-table-wrap freeze"' not in plain
+    assert 'class="asl-table-wrap stack"' not in plain
+    assert 'class="asl-table-wrap"' in plain
     assert "position:sticky" in html
     for style in ("house", "bold", "editorial", "playful", "terminal", "swiss"):
         assert len(stylesheet(style).encode()) < 8192

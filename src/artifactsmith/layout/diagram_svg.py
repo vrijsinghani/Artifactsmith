@@ -108,7 +108,14 @@ def svg_doc(width: float, height: float, label: str, parts: list[str]) -> str:
     w = max(1, int(math.ceil(width)))
     h = max(1, int(math.ceil(height)))
     body = "".join(parts)
-    return f'<svg role="img" aria-label="{esc(label)}" viewBox="0 0 {w} {h}" width="{w}" height="{h}">{body}</svg>'
+    # Natural width keeps type near FONT (about 14px) on a wide column.
+    # min(100%, …) still shrinks it on a phone, where the viewBox stays
+    # inside the 11px budget.
+    style = f"width:min(100%,{w}px);height:auto"
+    return (
+        f'<svg role="img" aria-label="{esc(label)}" viewBox="0 0 {w} {h}" '
+        f'width="{w}" height="{h}" style="{style}">{body}</svg>'
+    )
 
 
 def text_at(

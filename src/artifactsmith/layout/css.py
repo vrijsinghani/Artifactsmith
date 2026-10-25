@@ -372,7 +372,7 @@ def sheet_extra() -> str:
     """
     return (
         ".asl-diagram{margin:1rem auto;max-width:100%}"
-        ".asl-diagram svg{width:100%;max-width:100%;height:auto;display:block;margin-inline:auto;overflow:hidden}"
+        ".asl-diagram svg{display:block;max-width:100%;height:auto;margin-inline:auto;overflow:hidden}"
         ".asl-diagram text{fill:var(--ink);font-family:var(--font)}"
         ".asl-diagram .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5px}"
         ".asl-diagram .hi{stroke:var(--accent);stroke-width:2.5px}"

@@ -9,7 +9,7 @@ SYNTAX_RULES = """Markdown (GFM: headings, lists, tables, links, **bold**). No H
 :::: grid 3 or grid 2,1
 ::: stat {tone=green} Label | Value | note
 ::: steps / ::: compare wrap a list or table
-::: timeline: *date | title | note
+::: timeline: *date | title | note under 120 characters
 ```chart bar|hbar|line|pie|donut unit=$ y=Rate "Label: 12.5" or a table. — is missing.
 ```flow LR|TB A -> B: label. --> dashed. *key node.
 ```sequence A -> B: message. note A, B: text.

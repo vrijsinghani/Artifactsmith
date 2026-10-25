@@ -187,12 +187,14 @@ def _is_total_row(row: list[Cell]) -> bool:
 
 
 def render_table(block: Block) -> str:
-    """One table. Small tables (up to 4 columns and 8 rows) become cards on a phone.
+    """One table. Cards are for a short, narrow table. The rest scroll on a phone.
 
-    Wider tables, and tables with more than 8 rows, scroll sideways inside the
-    wrapper. The first column sticks. ``phone=scroll`` always scrolls and
-    ``phone=stack`` always uses cards. The wrapper is the scrollport, so the
-    page itself does not scroll sideways.
+    A table with 3 or more columns and 6 or more rows scrolls, as do tables
+    wider than 4 columns and tables with more than 8 rows. The first column
+    sticks. A 4-column table with fewer than 6 rows becomes cards. Two columns
+    stay a normal table until they pass 8 rows. ``phone=scroll`` always scrolls
+    and ``phone=stack`` always uses cards. The wrapper is the scrollport, so
+    the page itself does not scroll sideways.
     """
     headers, rows, _clipped = limit_table(list(block.headers), [list(row) for row in block.rows])
     width_guess = _width(headers, rows)
@@ -207,7 +209,7 @@ def render_table(block: Block) -> str:
     foot = rows[-1:] if marked_total and len(rows) > 1 else []
     numeric = _numeric_columns(body or rows, width)
     phone = block.attrs.get("phone") or ""
-    wide = width > 4 or len(rows) > 8
+    wide = width > 4 or len(rows) > 8 or (width >= 3 and len(rows) >= 6)
     if phone == "stack":
         stack, freeze = True, False
     elif phone == "scroll" or wide:

@@ -290,9 +290,12 @@ class _Walker:
         if name in {"timeline", "steps", "compare", "list", "quote"}:
             if name == "timeline":
                 drawn = timeline_from_children(children)
-                if drawn is not None and drawn.svg:
+                if drawn is not None:
                     self.notes.extend(drawn.notes)
-                    return Block(kind="diagram", plain="timeline", html=drawn.svg, attrs=attrs, classes=classes)
+                    if drawn.svg:
+                        return Block(kind="diagram", plain="timeline", html=drawn.svg, attrs=attrs, classes=classes)
+                    self.notes.append("timeline diagram shown as a list")
+                    return steps_block(drawn.steps)
             return Block(kind=name, attrs=attrs, classes=classes, children=children)
         if name == "html":
             return self._raw_html("\n".join(child.plain for child in children))

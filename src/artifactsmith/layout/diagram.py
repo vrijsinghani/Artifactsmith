@@ -60,8 +60,9 @@ def timeline_from_children(children: list[Block]) -> Drawn | None:
     if "|" not in text:
         return None
     drawn = read_fence("timeline", text)
-    if drawn is None or not drawn.svg:
+    if drawn is None:
         return None
+    # A failed pipe block must become a step list, not the raw paragraph.
     return drawn
 
 
