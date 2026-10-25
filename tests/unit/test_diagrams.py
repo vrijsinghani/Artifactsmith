@@ -435,3 +435,4 @@ def test_prompt_teaches_the_diagram_fences():
     assert "under 120 characters" in house
     assert "```timeline" not in house
     assert "::: timeline\n*Mar 16 | Decision | Build the API\nApr 2 | Review | Check the draft\n" in house
+    assert "```sequence\nClient -> Server: SYN\nServer --> Client: SYN-ACK\n```\n\n::: timeline\n" in house
