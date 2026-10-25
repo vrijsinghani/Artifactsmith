@@ -78,8 +78,8 @@ def test_syntax_rules_stay_short():
     assert "No emoji." not in bold
 
 
-def test_long_stat_value_splits_into_a_note():
-    """A note crammed into the value is a note. A value of 24 characters stays put."""
+def test_long_stat_value_splits_only_when_it_starts_with_an_amount():
+    """A note crammed after an amount is a note. A long phrase stays in the value."""
     source = "::: stat\nBudget | $5,800 Relaxed and activity-focused\n:::\n"
     blocks, notes = parse_markdown(source)
     assert notes == []
@@ -90,21 +90,35 @@ def test_long_stat_value_splits_into_a_note():
     assert '<p class="value">$5,800</p>' in html
     assert '<p class="note">Relaxed and activity-focused</p>' in html
 
-    kept = "abcdefghij abcdefghijklm"
-    assert len(kept) == 24
-    same, _notes = parse_markdown(f"::: stat\nLabel | {kept}\n:::\n")
-    assert same[0].children[0].plain == f"Label | {kept}"
+    amounts = (
+        ("15% of the annual travel budget", "15%", "of the annual travel budget"),
+        ("3x the baseline for this quarter", "3x", "the baseline for this quarter"),
+        ("1.2M users in the first month", "1.2M", "users in the first month"),
+        ("12 open requests from last week", "12", "open requests from last week"),
+    )
+    for value, head, note in amounts:
+        assert len(value) > 24
+        parsed, _notes = parse_markdown(f"::: stat\nLabel | {value}\n:::\n")
+        assert parsed[0].children[0].plain == f"Label | {head} | {note}"
 
-    longer = "abcdefghij abcdefghijklmn"
-    assert len(longer) == 25
-    split, _notes = parse_markdown(f"::: stat\nLabel | {longer} | per person\n:::\n")
-    assert split[0].children[0].plain == "Label | abcdefghij | abcdefghijklmn | per person"
+    phrases = (
+        "Customer Support Operations Team",
+        "Search, navigation, escalation, analytics",
+    )
+    for value in phrases:
+        assert len(value) > 24
+        parsed, _notes = parse_markdown(f"::: stat\nOwner | {value}\n:::\n")
+        assert parsed[0].children[0].plain == f"Owner | {value}"
+        drawn, _notes = render_layout(f"::: stat\nOwner | {value}\n:::\n", style="house", title="Team")
+        assert f'<p class="value">{value}</p>' in drawn
+        assert '<p class="note">' not in drawn
 
+    short = "$5,800 due now"
+    assert len(short) <= 24
+    same, _notes = parse_markdown(f"::: stat\nLabel | {short}\n:::\n")
+    assert same[0].children[0].plain == f"Label | {short}"
     whole, _notes = parse_markdown("::: stat\nRebate owed | $15,459.15 | 15% of billed\n:::\n")
     assert whole[0].children[0].plain == "Rebate owed | $15,459.15 | 15% of billed"
-    glued = "A" * 30
-    stuck, _notes = parse_markdown(f"::: stat\nLabel | {glued}\n:::\n")
-    assert stuck[0].children[0].plain == f"Label | {glued}"
 
 
 def test_dangerous_attributes_and_html_are_dropped():

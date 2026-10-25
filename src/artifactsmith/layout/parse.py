@@ -31,6 +31,8 @@ _NOTE_ALIAS = {"callout": "note", "tip": "note", "info": "note"}
 # A stat value longer than this is a number with a note crammed into the same field.
 _STAT_VALUE_LIMIT = 24
 _STAT_VALUE_TAIL = re.compile(r"^(\S+)\s+(.+)$")
+# $5,800, 15%, 3x, 1.2M, 12. A word such as Customer does not match.
+_STAT_AMOUNT = re.compile(r"^[+\-]?[$€£¥₹]?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:[kKmMbB]|%|[xX])?$")
 
 
 def _parser(source: str) -> MarkdownIt:
@@ -76,11 +78,12 @@ def take_braces(text: str) -> tuple[str, dict[str, str]]:
 
 
 def _guard_stat_value(children: list[Block]) -> None:
-    """Split a long stat value into the value and a note before the page is drawn.
+    """Split a long numeric stat value into the value and a note.
 
     ``$5,800 Relaxed and activity-focused`` was rendering the whole string in the large type.
-    A value of ``_STAT_VALUE_LIMIT`` characters stays as written. A single token with no
-    space stays too, because cutting it would leave a fragment in both fields.
+    Only a first token that is a number or amount is split (``$5,800``, ``15%``, ``3x``,
+    ``1.2M``, ``12``). A phrase such as ``Customer Support Operations Team`` stays whole
+    and wraps in CSS. A value of ``_STAT_VALUE_LIMIT`` characters stays as written.
     """
     if not children:
         return
@@ -89,7 +92,7 @@ def _guard_stat_value(children: list[Block]) -> None:
     if len(parts) < 2 or len(parts[1]) <= _STAT_VALUE_LIMIT:
         return
     match = _STAT_VALUE_TAIL.match(parts[1])
-    if match is None:
+    if match is None or _STAT_AMOUNT.fullmatch(match.group(1)) is None:
         return
     extra = match.group(2).strip()
     if not extra:
