@@ -45,6 +45,7 @@ class Block:
     labels: tuple[str, ...] = ()
     numbers: tuple[float | None, ...] = ()
     series: tuple[tuple[str, tuple[float | None, ...]], ...] = ()
+    source: str = ""
 
 
 def classify(raw: dict[str, Any] | None) -> tuple[dict[str, str], tuple[str, ...]]:

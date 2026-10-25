@@ -589,4 +589,4 @@ The audit report is in `docs/security-audit-2026-10-09.md`. If you find somethin
 
 ## License
 
-MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). The fast-path line chart's readable axis (include 0 when the low value is at most a third of the high value) is adapted from answer-me-with-html (MIT, https://github.com/QingYunA/answer-me-with-html). Attribution is in `NOTICE`; third-party license texts are under `licenses/`. The Docker image ships those files at `/app`.
+MIT. House-style writing and visual rules are adapted from Humanizer (MIT) and Anthropic frontend-design (Apache-2.0). The fast-path line chart's readable axis (include 0 when the low value is at most a third of the high value) and the fast-path diagram line grammar (flow, sequence, timeline, tree) are adapted from answer-me-with-html (MIT, https://github.com/QingYunA/answer-me-with-html). Attribution is in `NOTICE`; third-party license texts are under `licenses/`. The Docker image ships those files at `/app`.

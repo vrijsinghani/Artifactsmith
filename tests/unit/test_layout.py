@@ -856,8 +856,9 @@ print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 def test_four_column_tables_stack_and_scroll_tables_do_not():
     html, notes = render_layout(_PHONE_PAGE, style="house", title="Phone")
     assert notes == []
-    assert 'class="asl-table-wrap stack"' in html
-    assert 'class="asl-table stack"' in html
+    # Four columns and six rows scroll. A shorter four-column table still stacks.
+    assert 'class="asl-table-wrap freeze"' in html
+    assert 'class="asl-table stack"' not in html
     scroll = html.split("<table", 2)[2]
     assert "scroll" in scroll.split(">", 1)[0]
     assert "stack" not in scroll.split(">", 1)[0]

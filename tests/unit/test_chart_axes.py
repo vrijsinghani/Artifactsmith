@@ -138,6 +138,37 @@ def test_long_category_names_become_horizontal_bars():
     assert "<title>North American wholesale</title>" in svg or "North American wholesale" in svg
 
 
+def test_bare_pipe_chart_draws_and_a_text_table_is_real_html():
+    """A chart fence whose body is a pipe table must not print the raw lines."""
+    drawn = """# Rates
+
+```chart line
+Month | 2024 | 2025 | 2026
+Jan | 3.7 | 4.0 | 4.3
+Feb | 3.8 | 4.1 | 4.4
+```
+"""
+    html, notes = render_layout(drawn, style="house", title="Rates")
+    assert notes == []
+    assert "<svg" in html
+    body = html.split("<body>", 1)[-1]
+    assert "Jan | 3.7 | 4.0 | 4.3" not in body
+    assert "|" not in body
+    assert "3.7" in body and "2024" in body and "Jan" in body
+    raw = """# Rates
+
+```chart bar
+Jan | later | soon
+Feb | no | data
+```
+"""
+    table, notes = render_layout(raw, style="house", title="Rates")
+    assert notes == ["chart rendered as a table"]
+    assert "<table" in table
+    assert "Jan | later | soon" not in table
+    assert ">later<" in table and ">soon<" in table and ">data<" in table
+
+
 def test_multi_series_has_a_legend_and_a_body_title_does_not_leak():
     source = """# Compare
 
@@ -181,6 +212,18 @@ def test_wide_tables_scroll_and_small_tables_stay_cards():
     cards, _notes = render_layout(small, style="house", title="T")
     assert 'class="asl-table-wrap stack"' in cards
     assert 'class="asl-table-wrap freeze"' not in cards
+    # 3 columns and 6 or more rows scroll. Fewer rows stay a normal table.
+    dense = "# T\n\n| Topic | Ours | Theirs |\n|---|---|---|\n" + "\n".join(
+        f"| Row {i} | A long comparison cell | Another long comparison cell |" for i in range(8)
+    )
+    phone, _notes = render_layout(dense, style="house", title="T")
+    assert 'class="asl-table-wrap freeze"' in phone
+    assert "stack" not in phone.split("<table", 1)[1].split(">", 1)[0]
+    short = "# T\n\n| Topic | Ours | Theirs |\n|---|---|---|\n" + "\n".join(f"| Row {i} | A | B |" for i in range(5))
+    plain, _notes = render_layout(short, style="house", title="T")
+    assert 'class="asl-table-wrap freeze"' not in plain
+    assert 'class="asl-table-wrap stack"' not in plain
+    assert 'class="asl-table-wrap"' in plain
     assert "position:sticky" in html
     for style in ("house", "bold", "editorial", "playful", "terminal", "swiss"):
         assert len(stylesheet(style).encode()) < 8192
