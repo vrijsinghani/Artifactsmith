@@ -10,9 +10,10 @@ from .chart_scale import (
     LabelMark,
     Scale,
     bar_scale,
-    font_for_width,
+    chart_width_budget,
     format_tick,
     format_value,
+    keep_tick_labels,
     line_scale,
     plan_category_labels,
     point_runs,
@@ -51,16 +52,10 @@ def draw_chart(
         return _pie(kind, labels, columns[0][1], safe)
     drawn = "hbar" if kind == "hbar" or (kind == "bar" and prefers_horizontal(labels)) else kind
     font = _FONT
-    svg = ""
-    for _ in range(3):
-        if drawn == "hbar":
-            svg, width = _horizontal(labels, columns, unit, safe, x_title, y_title, font)
-        else:
-            svg, width = _vertical(drawn, labels, columns, unit, safe, x_title, y_title, font)
-        needed = font_for_width(width, font)
-        if needed <= font + 0.01:
-            return svg
-        font = needed
+    if drawn == "hbar":
+        svg, _width = _horizontal(labels, columns, unit, safe, x_title, y_title, font)
+    else:
+        svg, _width = _vertical(drawn, labels, columns, unit, safe, x_title, y_title, font)
     return svg
 
 
@@ -100,21 +95,29 @@ def _vertical(
     flat = [value for _name, column in series for value in column]
     scale = line_scale(flat) if kind == "line" else bar_scale(flat)
     tick_w = _tick_width(scale, unit, font)
-    title_w = font + 4 if y_title else 0.0
+    title_x, title_col = _y_title_band(font, y_title)
     legend_h, legend = _legend(series, font)
-    plot_w = max(220.0, 400.0 - (title_w + tick_w + 8) - 12)
-    slot = plot_w / count
-    marks = plan_category_labels(labels, slot, font)
-    left = max(title_w + tick_w + 8, _overhang(marks, slot, font) + 4)
-    right = max(12.0, _overhang_right(marks, slot, font, count))
+    budget = chart_width_budget(font)
+    plot_w = max(72.0, budget - (title_col + tick_w + 10) - 16)
+    marks = plan_category_labels(labels, plot_w / count, font)
+    left = title_col + tick_w + 8
+    right = 12.0
+    for _ in range(4):
+        slot = plot_w / count
+        marks = plan_category_labels(labels, slot, font)
+        left = max(title_col + tick_w + 8, _overhang(marks, slot, font) + 4)
+        right = max(12.0, _overhang_right(marks, slot, font, count))
+        if left + plot_w + right <= budget + 0.5:
+            break
+        plot_w = max(64.0, plot_w - (left + plot_w + right - budget))
     show_values = _few(series)
-    top = 8 + legend_h + (font + 6 if show_values else 2)
+    top = max(font * 0.9 + 4, 8) + legend_h + (font + 6 if show_values else 2)
     cat_h = _cat_height(marks, font)
     foot = cat_h + (font + 6 if x_title else 0) + 6
     width = left + plot_w + right
     height = top + _PLOT_H + foot
     parts = [legend]
-    parts.extend(_y_axis(scale, unit, font, left, top, plot_w, title_w, y_title))
+    parts.extend(_y_axis(scale, unit, font, left, top, plot_w, title_x, y_title))
     if kind == "line":
         parts.extend(_lines(series, scale, left, top, slot, font, show_values, unit))
     else:
@@ -138,18 +141,29 @@ def _horizontal(
     scale = bar_scale(flat)
     groups = len(series)
     row_h = max(font + 12, groups * (font * 0.85) + 10)
-    limit = max(120.0, font * 10)
-    cat_w = min(limit, max((text_width(name, font) for name in labels), default=0) + 6)
-    plot_w = 210.0
-    tick_h = font + 8
     legend_h, legend = _legend(series, font)
+    budget = chart_width_budget(font)
+    tick_w = _tick_width(scale, unit, font)
+    finite = [value for value in flat if value is not None]
+    value_w = max((text_width(format_value(value, unit), font) for value in finite), default=0.0)
+    right = max(tick_w / 2, value_w * 0.5) + 8
+    plot_w = min(180.0, max(88.0, budget * 0.46))
+    cat_w = font * 6
+    cat_limit = font * 6
+    for _ in range(4):
+        cat_limit = max(font * 4, budget - plot_w - right - 8)
+        cat_w = min(cat_limit, max((text_width(name, font) for name in labels), default=0.0) + 6)
+        if cat_w + 8 + plot_w + right <= budget + 0.5:
+            break
+        plot_w = max(72.0, plot_w - (cat_w + 8 + plot_w + right - budget))
     left = cat_w + 8
-    top = 8 + legend_h
+    tick_h = font + 8
+    top = max(font * 0.6, 8) + legend_h
     height = top + row_h * len(labels) + tick_h + (font + 8 if y_title or x_title else 6)
-    width = left + plot_w + _tick_width(scale, unit, font) / 2 + 8
+    width = left + plot_w + right
     parts = [legend]
     parts.extend(_x_axis(scale, unit, font, left, top, plot_w, row_h * len(labels)))
-    parts.extend(_hbars(labels, series, scale, left, top, plot_w, row_h, cat_w, font, unit, limit))
+    parts.extend(_hbars(labels, series, scale, left, top, plot_w, row_h, cat_w, font, unit, cat_limit))
     title = y_title or x_title
     if title:
         parts.append(_axis_title(title, left + plot_w / 2, height - 4, font, plot_w))
@@ -274,49 +288,42 @@ def _y_axis(
     left: float,
     top: float,
     plot_w: float,
-    title_w: float,
+    title_x: float,
     y_title: str,
 ) -> list[str]:
     parts: list[str] = []
-    for index, tick in enumerate(scale.ticks):
-        y = _y(tick, scale, top)
-        minor = " minor" if _minor(index, len(scale.ticks)) else ""
+    labels = [format_tick(tick, unit, scale.step) for tick in scale.ticks]
+    positions = [_y(tick, scale, top) for tick in scale.ticks]
+    # A centered tick label is about one em tall. Drop a label that would sit on its neighbor.
+    keep = keep_tick_labels(positions, [font * 1.15 for _label in labels])
+    for index, label in enumerate(labels):
+        y = positions[index]
+        minor = " minor" if _minor(index, len(scale.ticks)) or not keep[index] else ""
         parts.append(f'<line class="axis{minor}" x1="{_n(left)}" y1="{_n(y)}" x2="{_n(left + plot_w)}" y2="{_n(y)}"/>')
-        parts.append(
-            _text(
-                left - 6,
-                y,
-                format_tick(tick, unit, scale.step),
-                "",
-                font,
-                anchor="end",
-                baseline="central",
-                css=minor.strip(),
-            )
-        )
+        if not keep[index]:
+            continue
+        parts.append(_text(left - 6, y, label, "", font, anchor="end", baseline="central", css=minor.strip()))
     if y_title:
-        parts.append(_axis_title(y_title, title_w * 0.45, top + _PLOT_H / 2, font, _PLOT_H, rotate=-90))
+        # Shorter than the plot, so the rotated caps stay inside the viewBox.
+        limit = max(font * 2, _PLOT_H - font)
+        parts.append(_axis_title(y_title, title_x, top + _PLOT_H / 2, font, limit, rotate=-90))
     return parts
 
 
 def _x_axis(scale: Scale, unit: str, font: float, left: float, top: float, plot_w: float, plot_h: float) -> list[str]:
     parts: list[str] = []
     span = scale.hi - scale.lo or 1.0
-    for index, tick in enumerate(scale.ticks):
-        x = left + (tick - scale.lo) / span * plot_w
-        minor = " minor" if _minor(index, len(scale.ticks)) else ""
+    labels = [format_tick(tick, unit, scale.step) for tick in scale.ticks]
+    positions = [left + (tick - scale.lo) / span * plot_w for tick in scale.ticks]
+    sizes = [text_width(label, font) for label in labels]
+    keep = keep_tick_labels(positions, sizes)
+    for index, label in enumerate(labels):
+        x = positions[index]
+        minor = " minor" if _minor(index, len(scale.ticks)) or not keep[index] else ""
         parts.append(f'<line class="axis{minor}" x1="{_n(x)}" y1="{_n(top)}" x2="{_n(x)}" y2="{_n(top + plot_h)}"/>')
-        parts.append(
-            _text(
-                x,
-                top + plot_h + font,
-                format_tick(tick, unit, scale.step),
-                "",
-                font,
-                anchor="middle",
-                css=minor.strip(),
-            )
-        )
+        if not keep[index]:
+            continue
+        parts.append(_text(x, top + plot_h + font, label, "", font, anchor="middle", css=minor.strip()))
     return parts
 
 
@@ -327,10 +334,13 @@ def _categories(marks: list[LabelMark], left: float, axis_y: float, slot: float,
             continue
         x = left + (index + 0.5) * slot
         if mark.rotate:
-            y = axis_y + font * 0.4
+            # End-anchored text rotated -40 swings upward. Start below that rise
+            # so the label clears the lowest y tick, which hangs under the axis.
+            rise = text_width(mark.shown, font) * _SIN + font * 0.35
+            y = axis_y + _tick_hang(font) + rise
             parts.append(_text(x, y, mark.shown, mark.full, font, anchor="end", rotate=-40))
         else:
-            parts.append(_text(x, axis_y + font + 2, mark.shown, mark.full, font, anchor="middle"))
+            parts.append(_text(x, axis_y + _category_drop(font), mark.shown, mark.full, font, anchor="middle"))
     return parts
 
 
@@ -469,8 +479,32 @@ def _cat_height(marks: list[LabelMark], font: float) -> float:
         return 4.0
     if any(mark.rotate for mark in shown):
         widest = max(text_width(mark.shown, font) for mark in shown)
-        return widest * _SIN + font * _COS + 8
-    return font + 10
+        return _tick_hang(font) + widest * _SIN + font + 8
+    return _category_drop(font) + font * 0.35 + 4
+
+
+def _tick_hang(font: float) -> float:
+    """How far a centered tick label extends below the axis."""
+    return font * 0.85 + 6
+
+
+def _category_drop(font: float) -> float:
+    """Baseline of a flat category label, below the hanging tick label."""
+    return _tick_hang(font) + font * 0.85
+
+
+def _y_title_band(font: float, title: str) -> tuple[float, float]:
+    """Anchor x and column width for a rotated y title. ``(0, 0)`` when there is none.
+
+    A rotated glyph's cap height sticks out to one side of the anchor by most of
+    an em. The anchor sits far enough from x=0 that ``Rate`` is not clipped into
+    something that reads as ``Kate``.
+    """
+    if not title:
+        return 0.0, 0.0
+    anchor = font * 0.95 + 4
+    column = anchor + font * 0.5 + 4
+    return anchor, column
 
 
 def _fill_class(kind: str, index: int) -> str:

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import re
+
 from artifactsmith.layout.chart import chart_svg, parse_chart
 from artifactsmith.layout.chart_scale import (
+    MIN_FONT_PX,
+    NARROW_PX,
     LabelMark,
     bar_scale,
+    format_value,
     line_scale,
     plan_category_labels,
     point_runs,
@@ -206,3 +211,125 @@ def test_svg_title_tooltip_survives_and_a_body_title_does_not():
 def test_mark_type_is_used() -> None:
     mark = LabelMark("Jan", "Jan 2024", True)
     assert mark.shown == "Jan"
+
+
+def _attrs(raw: str) -> dict[str, str]:
+    return dict(re.findall(r'([\w:-]+)="([^"]*)"', raw))
+
+
+def _view_size(svg: str) -> tuple[float, float]:
+    match = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
+    assert match is not None
+    return float(match.group(1)), float(match.group(2))
+
+
+def _texts(svg: str) -> list[dict[str, str]]:
+    found = []
+    for attrs, body in re.findall(r"<text\s+([^>]*)>(?:<title>.*?</title>)?([^<]*)</text>", svg):
+        item = _attrs(attrs)
+        item["text"] = body
+        found.append(item)
+    return found
+
+
+def _box(item: dict[str, str]) -> tuple[float, float, float, float]:
+    """Axis-aligned box. Rotated text is not passed here."""
+    x = float(item["x"])
+    y = float(item["y"])
+    font = float(item["font-size"])
+    width = text_width(item["text"], font)
+    anchor = item.get("text-anchor", "start")
+    if anchor == "end":
+        left, right = x - width, x
+    elif anchor == "middle":
+        left, right = x - width / 2, x + width / 2
+    else:
+        left, right = x, x + width
+    if item.get("dominant-baseline") == "central":
+        top, bottom = y - font * 0.75, y + font * 0.75
+    else:
+        top, bottom = y - font * 0.8, y + font * 0.25
+    return left, top, right, bottom
+
+
+def _overlaps(a: tuple[float, float, float, float], b: tuple[float, float, float, float], gap: float) -> bool:
+    return not (a[2] + gap <= b[0] or b[2] + gap <= a[0] or a[3] + gap <= b[1] or b[3] + gap <= a[1])
+
+
+def test_lowest_y_tick_clears_the_first_x_label():
+    labels = [f"{year} {month}" for year in (2024, 2025, 2026) for month in _MONTHS][:33]
+    _names, values = _rates()
+    svg = chart_svg("line", labels, values, "%", "Unemployment rate", y_title="Rate", x_title="Month")
+    texts = [item for item in _texts(svg) if "transform" not in item]
+    ticks = [item for item in texts if item.get("text-anchor") == "end" and item.get("dominant-baseline") == "central"]
+    categories = [item for item in texts if item.get("text-anchor") == "middle" and "dominant-baseline" not in item]
+    assert ticks and categories
+    lowest = max(ticks, key=lambda item: float(item["y"]))
+    first = min(categories, key=lambda item: float(item["x"]))
+    assert lowest["text"].endswith("%")
+    assert first["text"].startswith("2024")
+    assert not _overlaps(_box(lowest), _box(first), gap=1)
+
+
+def test_rotated_rate_title_stays_inside_the_viewbox():
+    labels, values = _rates()
+    svg = chart_svg("line", labels, values, "%", "Unemployment rate", y_title="Rate")
+    width, height = _view_size(svg)
+    title = next(item for item in _texts(svg) if item["text"] == "Rate" and "transform" in item)
+    x = float(title["x"])
+    y = float(title["y"])
+    font = float(title["font-size"])
+    half = text_width("Rate", font) / 2
+    assert x - font * 0.85 >= 1
+    assert y - half >= 1
+    assert x + font * 0.85 <= width - 1
+    assert y + half <= height - 1
+
+
+def test_small_money_values_stay_accurate_and_ticks_do_not_collide():
+    assert format_value(0.018, "$") == "$0.018"
+    assert format_value(0.006, "$") == "$0.0060"
+    assert format_value(0.023, "$") == "$0.023"
+    assert format_value(15459.15, "$") == "$15,459.15"
+    assert format_value(38185, "$") == "$38,185"
+    assert format_value(1998, "") == "1998"
+    values = [0.023, 0.020, 0.018, 0.006, 0.015, 0.007]
+    svg = chart_svg("hbar", ["North", "South", "East", "West", "Central", "Island"], values, "$", "Fees")
+    assert "$0.018" in svg
+    assert "$0.0060" in svg
+    ticks = [
+        item
+        for item in _texts(svg)
+        if item.get("text-anchor") == "middle" and "dominant-baseline" not in item and "transform" not in item
+    ]
+    assert len(ticks) >= 2
+    places = set()
+    boxes = []
+    for item in ticks:
+        body = item["text"].lstrip("-$")
+        places.add(len(body.split(".", 1)[1]) if "." in body else 0)
+        boxes.append(_box(item))
+    assert len(places) == 1
+    for index, box in enumerate(boxes):
+        for other in boxes[index + 1 :]:
+            assert not _overlaps(box, other, gap=1)
+
+
+def test_chart_text_is_at_least_11px_on_a_phone():
+    labels, values = _rates()
+    charts = [
+        chart_svg("line", labels, values, "%", "rate", y_title="Rate"),
+        chart_svg(
+            "hbar",
+            ["North American wholesale", "Paid search international", "Email retention"],
+            [6.2, 4.4, 1.1],
+            "in",
+            "Rain",
+        ),
+        chart_svg("hbar", ["A", "B", "C", "D", "E", "F"], [0.023, 0.020, 0.018, 0.006, 0.015, 0.007], "$", "Fees"),
+    ]
+    for svg in charts:
+        width, _height = _view_size(svg)
+        fonts = [float(item["font-size"]) for item in _texts(svg)]
+        assert fonts
+        assert min(fonts) * NARROW_PX / width >= MIN_FONT_PX - 0.05

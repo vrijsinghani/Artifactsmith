@@ -86,7 +86,11 @@ def line_scale(values: Sequence[float | None]) -> Scale:
 
 
 def format_value(value: float, unit: str) -> str:
-    """One number plus its unit, for a value label or a screen-reader summary."""
+    """One number plus its unit, for a value label or a screen-reader summary.
+
+    Non-integers keep at least two significant figures, and the text rounds
+    back to the same value. ``0.018`` stays ``0.018``; it does not become ``0.02``.
+    """
     if not math.isfinite(value):
         return ""
     if value == int(value) and abs(value) < 1e15:
@@ -94,7 +98,9 @@ def format_value(value: float, unit: str) -> str:
         # A bare year is not a thousands-grouped quantity ("1998", never "1,998").
         shown = str(number) if unit == "" and 1900 <= number <= 2100 else f"{number:,}"
     else:
-        shown = f"{value:,.2f}".rstrip("0").rstrip(".")
+        places = _places_for(value)
+        sign = "-" if value < 0 else ""
+        shown = sign + f"{abs(value):,.{places}f}"
     return _with_unit(shown, unit)
 
 
@@ -164,11 +170,46 @@ def prefers_horizontal(labels: Sequence[str]) -> bool:
     return any(len(label) > 16 for label in labels)
 
 
-def font_for_width(width: float, font: float) -> float:
-    """Smallest font that is still ``MIN_FONT_PX`` when ``width`` is shown at ``NARROW_PX``."""
-    if width <= 0:
-        return font
-    return max(font, math.ceil(MIN_FONT_PX * width / NARROW_PX))
+def chart_width_budget(font: float) -> float:
+    """Widest viewBox that still shows ``font`` at ``MIN_FONT_PX`` on a phone.
+
+    Growing the font grows the drawing with it, so the phone still shrinks the
+    text. The drawing stays inside this width instead, and gets taller when it
+    needs room.
+    """
+    if font <= 0:
+        return NARROW_PX
+    return font * NARROW_PX / MIN_FONT_PX
+
+
+def keep_tick_labels(positions: Sequence[float], sizes: Sequence[float], pad: float = 4.0) -> list[bool]:
+    """Which tick labels fit along one axis. A label that would collide is dropped.
+
+    The first label stays. The last stays when it clears the label before it.
+    ``sizes`` are the label lengths along the axis (width for a horizontal axis,
+    height for a vertical one).
+    """
+    count = len(positions)
+    if count == 0:
+        return []
+    keep = [False] * count
+    last = 0
+    keep[0] = True
+    for index in range(1, count):
+        if _apart(positions[last], sizes[last], positions[index], sizes[index], pad):
+            keep[index] = True
+            last = index
+    if count > 1 and not keep[-1]:
+        keep[-1] = True
+        for index in range(count - 2, 0, -1):
+            if not keep[index]:
+                continue
+            if _apart(positions[index], sizes[index], positions[-1], sizes[-1], pad):
+                break
+            keep[index] = False
+        if not _apart(positions[0], sizes[0], positions[-1], sizes[-1], pad):
+            keep[-1] = False
+    return keep
 
 
 def _cover(lo: float, hi: float, values: Sequence[float]) -> Scale:
@@ -224,6 +265,24 @@ def _round(value: float) -> float:
     if rounded == int(rounded):
         return float(int(rounded))
     return rounded
+
+
+def _places_for(value: float) -> int:
+    """Decimal places for at least two significant figures, without a false rounding."""
+    abs_value = abs(value)
+    if abs_value == 0 or abs_value >= 1e15:
+        return 0
+    exponent = math.floor(math.log10(abs_value) + 1e-10)
+    start = max(0, 2 - 1 - exponent)
+    for places in range(start, 7):
+        shown = float(f"{value:.{places}f}")
+        if abs(shown - value) <= 10 ** (-(places + 1)):
+            return places
+    return 6
+
+
+def _apart(left: float, left_size: float, right: float, right_size: float, pad: float) -> bool:
+    return abs(right - left) >= (left_size + right_size) / 2 + pad
 
 
 def _decimals(step: float) -> int:
