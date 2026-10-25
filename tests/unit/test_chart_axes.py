@@ -17,7 +17,9 @@ from artifactsmith.layout.chart_scale import (
     text_width,
 )
 from artifactsmith.layout.css import stylesheet
+from artifactsmith.layout.parse import parse_markdown
 from artifactsmith.layout.render import render_layout
+from artifactsmith.layout.tables import render_table
 from artifactsmith.renderers.html_sanitize import sanitize_html_document
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -136,6 +138,17 @@ def test_long_category_names_become_horizontal_bars():
     svg = chart_svg(spec.kind, spec.labels, spec.series[0][1], "$", "Channels")
     assert "<rect" in svg
     assert "<title>North American wholesale</title>" in svg or "North American wholesale" in svg
+
+
+def test_chart_fallback_table_escapes_cell_text():
+    """Cell text is escaped when the table is built, not only by the page sanitizer."""
+    blocks, notes = parse_markdown("```chart bar\nJan | <script>alert(1)</script> | x\nFeb | ok | y\n```\n")
+    assert notes == ["chart rendered as a table"]
+    assert blocks[0].kind == "table"
+    html = render_table(blocks[0])
+    assert "<script" not in html.lower()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert ">ok<" in html
 
 
 def test_bare_pipe_chart_draws_and_a_text_table_is_real_html():

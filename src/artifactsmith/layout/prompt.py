@@ -42,7 +42,7 @@ Hold the payout.
 
 :::: grid 3
 ::: stat {tone=green .emph}
-Rebate owed | $15,459 | 15% of billed
+Rebate owed | $15,459
 :::
 ::: stat
 Invoices | 136
@@ -64,10 +64,14 @@ August: 28935
 September: 35941
 ```
 
+```sequence
+Client -> Server: SYN
+Server --> Client: SYN-ACK
+```
+
 ::: timeline
 *Mar 16 | Decision | Build the API
 Apr 2 | Review | Check the draft
-May 1 | Launch | Publish the page
 :::
 """
 

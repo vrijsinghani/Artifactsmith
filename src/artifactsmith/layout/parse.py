@@ -17,7 +17,7 @@ from mdit_py_plugins.tasklists import tasklists_plugin
 from ..renderers.raster_data import raster_data_image
 from .chart import parse_chart
 from .diagram import read_fence, steps_block, timeline_from_children
-from .inline import cell_html, plain_text, render_inlines
+from .inline import cell_html, esc, plain_text, render_inlines
 from .model import ALLOWED_ATTRS, CALLOUTS, Block, Cell, classify
 from .tables import limit_table
 
@@ -423,7 +423,7 @@ def _chart_as_table(content: str) -> Block:
             parts = [label.strip(), val.strip()]
         else:
             parts = [raw]
-        rows.append([Cell(part, part) for part in parts])
+        rows.append([Cell(esc(part), part) for part in parts])
     if not rows:
         return Block(kind="skipped")
     return Block(kind="table", headers=rows[0], rows=rows[1:] or rows)
