@@ -39,3 +39,14 @@ Fast-path chart axes (src/artifactsmith/layout/chart_scale.py) adapt one rule fr
    The line axis includes 0 when the smallest value is at most a third of the largest,
    because a line encodes position rather than length (src/components/chart-scale.js).
    The Python is not a copy of that file. Tick steps of 1, 2, 2.5, and 5 are the usual nice-number scale.
+
+Fast-path diagrams (src/artifactsmith/layout/diagram_parse.py, diagram_seq.py) adapt the
+line grammar, and the idea that a sequence column grows with its label, from the same project:
+
+7. answer-me-with-html, from https://github.com/QingYunA/answer-me-with-html
+   Copyright (c) QingYunA. Licensed under the MIT License.
+   Flow, sequence, timeline, and tree fences follow that project's line grammar
+   (src/components/flow.js, sequence.js, timeline.js, tree.js): `A -> B: label`,
+   a dashed `-->`, `note A: text`, `date | title`, and indented trees.
+   Sequence columns widen so the label is not squeezed into the shaft (sequence.js).
+   The Python is not a copy of those files. Drawings are static inline SVG.

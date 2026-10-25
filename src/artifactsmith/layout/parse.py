@@ -16,6 +16,7 @@ from mdit_py_plugins.tasklists import tasklists_plugin
 
 from ..renderers.raster_data import raster_data_image
 from .chart import parse_chart
+from .diagram import read_fence, steps_block
 from .inline import cell_html, plain_text, render_inlines
 from .model import ALLOWED_ATTRS, CALLOUTS, Block, Cell, classify
 from .tables import limit_table
@@ -354,6 +355,12 @@ class _Walker:
                 numbers=tuple(series[0][1]),
                 series=tuple((name, tuple(vals)) for name, vals in series),
             )
+        drawn = read_fence(info, tok.content or "")
+        if drawn is not None:
+            if drawn.svg is None:
+                self.notes.append(f"{drawn.kind} diagram shown as a list")
+                return steps_block(drawn.steps)
+            return Block(kind="diagram", plain=drawn.kind, html=drawn.svg)
         lang = info.split()[0] if info else ""
         attrs = {"lang": lang} if _LANG.fullmatch(lang) else {}
         return Block(kind="code", html=tok.content or "", attrs=attrs)

@@ -238,7 +238,7 @@ def _numbered(html: str, ctx: _Ctx) -> str:
 
 def _long_section(blocks: list[Block]) -> bool:
     """A text section, not a table, that is long enough for two desktop columns."""
-    if any(block.kind in {"table", "chart", "grid"} for block in blocks):
+    if any(block.kind in {"table", "chart", "grid", "diagram"} for block in blocks):
         return False
     paragraphs = sum(1 for block in blocks if block.kind == "paragraph")
     items = 0
@@ -297,6 +297,8 @@ def _render_kind(block: Block, ctx: _Ctx) -> str:
         return _kv(block, ctx)
     if kind == "chart":
         return _chart(block, ctx)
+    if kind == "diagram":
+        return f'<figure class="asl-diagram">{block.html}</figure>'
     if kind == "code":
         return _code(block, ctx)
     if kind == "html":

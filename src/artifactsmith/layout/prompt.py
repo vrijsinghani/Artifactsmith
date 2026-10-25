@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-SYNTAX_RULES = """Write the page as Markdown (GFM: headings, lists, tables, links, **bold**). The server renders it as styled HTML. No HTML or CSS except <br> in table cells.
+SYNTAX_RULES = """Markdown (GFM: headings, lists, tables, links, **bold**). No HTML or CSS except <br> in table cells.
 
-Layout blocks are ::: fences. Nest with more colons:
-::: note|warn|success|danger   callout
-:::: grid 3   (or grid 2,1; each ::: cell or block inside is a column)
-::: stat {tone=green}   one line: Label | Value | note
-::: timeline / ::: steps / ::: compare   wrap a list or table
-```chart bar|hbar|line|pie|donut unit=$ y=Rate   "Label: 12.5" lines, or a table. — is missing.
-Badges: [Confirmed]{.green}. Definition lists (Term, then ": value") make fact strips.
-
-Attributes in {} go after a fence name or on the line above a table or heading:
+::: fences (nest with more colons):
+::: note|warn|success|danger callout
+:::: grid 3 or grid 2,1
+::: stat {tone=green} Label | Value | note
+::: timeline / ::: steps / ::: compare wrap a list or table
+```chart bar|hbar|line|pie|donut unit=$ y=Rate "Label: 12.5" or a table. — is missing.
+```flow LR|TB A -> B: label. --> dashed. *key node.
+```sequence A -> B: message. note A, B: text.
+```timeline date | title | note. *key moment.
+```tree indent. label | note.
+Badges: [Confirmed]{.green}. Term then ": value" is a fact strip.
+{} after a fence or above a table or heading:
 {tone=accent|blue|green|amber|red|violet|gray size=sm|lg|xl span=2 variant=... .emph}
-Tables: {.rowhead .signs .total}, {groups="Label:2|Label:3"} for a group header, Cell{4} spans 4 columns.
-Variants: heading band|split, section card|band|rule, table striped|boxed|compact, callout box|banner, list rows|cards. .emph marks the page's one standout.
-
-Lay out this content: answer first, then grids, stats, charts or tables where they carry information.
+Tables: {.rowhead .signs .total} {groups="Label:2|Label:3"} Cell{4} spans 4.
+Variants: heading band|split, section card|band|rule, table striped|boxed|compact, callout box|banner, list rows|cards. .emph is the one standout.
+Answer first: grids, stats, charts, diagrams, or tables.
 
 Reply exactly:
 ===ASSUMPTIONS===
@@ -35,7 +37,7 @@ _EXAMPLE = """Example (use the user's facts, not these numbers). When 3 or more 
 # North rebate, Q3
 
 ::: callout
-Hold the payout. The rebate below is owed on paid invoices only.
+Hold the payout.
 :::
 
 :::: grid 3
@@ -60,6 +62,15 @@ Billed | $103,061
 July: 38185
 August: 28935
 September: 35941
+```
+
+```sequence
+Client -> Server: SYN
+Server --> Client: SYN-ACK
+```
+
+```timeline
+*Mar 16 | Decision | Build the API
 ```
 """
 
