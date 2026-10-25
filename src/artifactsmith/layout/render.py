@@ -8,7 +8,7 @@ from html import escape
 from ..renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
 from ..styles import parse_style
 from .chart import aria_label, chart_svg
-from .css import grid_class, grid_rule, stylesheet
+from .css import grid_class, grid_rule, sheet_extra, stylesheet
 from .design import design_page
 from .inline import esc
 from .model import Block, LayoutError, class_attr
@@ -50,7 +50,7 @@ def render_layout(source: str, *, style: str, title: str) -> tuple[str, list[str
     main = "".join(_render(block, ctx) for block in lead)
     main += "".join(_section(section, ctx) for section in sections)
     page_title = (title_block.plain if title_block else "") or title or "Page"
-    css = stylesheet(chosen, extra="".join(dict.fromkeys(ctx.grids)))
+    css = stylesheet(chosen, extra="".join(dict.fromkeys(ctx.grids)) + sheet_extra())
     doc = _document(page_title, css, _title_html(title_block, dek, title), main)
     return doc, [*notes, *ctx.notes]
 
@@ -418,10 +418,23 @@ def _kv(block: Block, ctx: _Ctx) -> str:
 
 
 def _chart(block: Block, ctx: _Ctx) -> str:
-    if not block.numbers:
+    series = list(block.series) if block.series else [("", block.numbers)]
+    if not any(value is not None for _name, column in series for value in column):
         return ""
-    label = aria_label(block.plain, ctx.heading, list(block.labels), list(block.numbers), block.html)
-    svg = chart_svg(block.plain, list(block.labels), list(block.numbers), block.html, label)
+    first = list(series[0][1])
+    label = aria_label(block.plain, ctx.heading, list(block.labels), first, block.html)
+    svg = chart_svg(
+        block.plain,
+        list(block.labels),
+        first,
+        block.html,
+        label,
+        series=[(name, list(column)) for name, column in series],
+        x_title=block.attrs.get("x", ""),
+        y_title=block.attrs.get("y", ""),
+    )
+    if not svg:
+        return ""
     return f'<figure class="asl-chart">{svg}</figure>'
 
 

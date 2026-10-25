@@ -7,6 +7,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- Fast-path charts draw an inline SVG with rounded axis ticks, gridlines, axis titles, a legend, and value labels on short series. Category labels thin, slant, or truncate instead of overlapping, and a missing point leaves a gap in a line. On a phone, tables wider than 4 columns or longer than 8 rows scroll sideways with the first column stuck; smaller tables stay cards.
 - Shared HTML pages show a quiet "Made with ArtifactSmith" footer linking to the GitHub repo. `AM_SHARE_CREDIT` (default `true`) turns it off. Exports, previews, and stored files do not include it.
 - MCP tools publish OpenAI Apps annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`, and a title). `GET /.well-known/openai-apps-challenge` returns `AM_OPENAI_APPS_CHALLENGE` as plain text, or 404 when that variable is unset or empty.
 - Cline can install ArtifactSmith from `llms-install.md`. The hosted server is listed first.
@@ -24,6 +25,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- Chart tick labels no longer sit on the first category label, and a rotated axis title stays inside the drawing. Small values keep enough digits to stay accurate (`$0.018` does not become `$0.02`), tick labels share one precision and do not collide, and chart text stays at least 11px on a phone.
 - Up to AM_TRIAL_FREE_NEEDS_INPUT (default 5) needs_input jobs per token do not use a build; after that they do. The reservation stays, so the daily spend cap and the hourly limit still count it. A failed job still uses one build. The `create` tool and the `/try` token page tell the agent to pass its notes as `source_content`. A hosted `needs_input` status card includes `free_retries_left`.
 - Hosted page, home page, and README copy uses plain sentences. The link-card description no longer tells an origin story.
 - The Claude Desktop trial snippet keeps the bearer token in `AUTH_HEADER`, so Windows Claude Desktop and Cursor do not split a space inside an mcp-remote argument. The Cursor snippet stays a URL plus headers. The token page names Claude Desktop's Add custom connector route.

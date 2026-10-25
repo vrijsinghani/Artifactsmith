@@ -13,8 +13,10 @@ from .svg_tree import Node, parse_fragment, serialize, svg_root_spans
 from .svg_values import attribute_ok, has_c0, has_fetch_or_scheme, points_ok
 
 SVG_TAGS: frozenset[str] = frozenset(
-    {"svg", "g", "rect", "line", "polyline", "polygon", "path", "circle", "ellipse", "text", "tspan", "desc"}
+    {"svg", "g", "rect", "line", "polyline", "polygon", "path", "circle", "ellipse", "text", "tspan", "desc", "title"}
 )
+# Text-only. ``title`` is the tooltip for a truncated label; it must not carry markup.
+_TEXT_ONLY: frozenset[str] = frozenset({"desc", "title"})
 # Removed with their content so children cannot leak into the drawing tree.
 SVG_CLEAN_CONTENT: frozenset[str] = frozenset(
     {
@@ -79,6 +81,7 @@ _ATTRS: dict[str, frozenset[str]] = {
     "tspan": _SHARED
     | frozenset({"x", "y", "font-size", "font-family", "font-weight", "text-anchor", "dominant-baseline"}),
     "desc": frozenset({"class", "id", "aria-hidden"}),
+    "title": frozenset({"class", "id", "aria-hidden"}),
 }
 _CANON = {"viewbox": "viewBox", "preserveaspectratio": "preserveAspectRatio"}
 _MAX_ROOTS = 50
@@ -236,7 +239,7 @@ def _sanitize_node(node: Node, budget: _Budget, depth: int, in_svg: bool) -> lis
             budget.add_root()
         budget.add_element(next_depth)
         cleaned = Node(tag, _clean_attrs(tag, node.attrs, budget, budget.page_ids))
-        if tag == "desc":
+        if tag in _TEXT_ONLY:
             text = "".join(c if isinstance(c, str) else "" for c in node.children)
             budget.add_text(text)
             if text:
@@ -292,7 +295,7 @@ def _account(node: Node, budget: _Budget, depth: int, in_svg: bool) -> None:
         if filtered is None:
             continue
         _charge_attr(name, filtered, budget)
-    if tag == "desc":
+    if tag in _TEXT_ONLY:
         budget.add_text("".join(c if isinstance(c, str) else "" for c in node.children))
         return
     for child in node.children:
@@ -324,7 +327,7 @@ def _svg_already_clean(node: Node, in_svg: bool, page_ids: set[str]) -> bool:
             if canon == "aria-labelledby" and any(tok not in page_ids for tok in value.split()):
                 return False
             seen.add(canon.lower())
-        if tag == "desc" and any(isinstance(c, Node) for c in node.children):
+        if tag in _TEXT_ONLY and any(isinstance(c, Node) for c in node.children):
             return False
         return all(isinstance(c, str) or _svg_already_clean(c, True, page_ids) for c in node.children)
     if in_svg:

@@ -43,7 +43,8 @@ class Block:
     rows: list[list[Cell]] = field(default_factory=list)
     groups: tuple[tuple[str, int], ...] = ()
     labels: tuple[str, ...] = ()
-    numbers: tuple[float, ...] = ()
+    numbers: tuple[float | None, ...] = ()
+    series: tuple[tuple[str, tuple[float | None, ...]], ...] = ()
 
 
 def classify(raw: dict[str, Any] | None) -> tuple[dict[str, str], tuple[str, ...]]:

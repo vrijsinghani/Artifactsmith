@@ -4,14 +4,25 @@ from __future__ import annotations
 
 import math
 import re
-from html import escape
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+from .chart_draw import draw_chart
+from .chart_scale import format_value, prefers_horizontal
 
 _NUM = re.compile(r"^[+−\-]?\s*[$€£¥]?\s*\d[\d,]*(?:\.\d+)?\s*%?$")
+_MISSING = frozenset({"", "-", "—", "–", "n/a", "na", "null", "none", ".", "…", "nan"})
 CHART_KINDS = frozenset({"bar", "hbar", "line", "pie", "donut"})
 
 
-def esc(text: str) -> str:
-    return escape(text, quote=True)
+@dataclass(frozen=True)
+class ChartSpec:
+    kind: str
+    unit: str
+    labels: list[str]
+    series: list[tuple[str, list[float | None]]]
+    x_title: str = ""
+    y_title: str = ""
 
 
 def _number(raw: str) -> float | None:
@@ -31,18 +42,48 @@ def _number(raw: str) -> float | None:
     return value
 
 
-def parse_chart(info: str, content: str) -> tuple[str, str, list[str], list[tuple[str, list[float]]]] | None:
-    """Return kind, unit, labels, series. None when the values are not numeric."""
+def _cell(raw: str) -> float | None:
+    """A number, or None for a gap. ``ValueError`` when the cell is other text."""
+    text = raw.strip()
+    if text.lower() in _MISSING or text in {"—", "–", "…"}:
+        return None
+    value = _number(text)
+    if value is None:
+        raise ValueError(text)
+    return value
+
+
+def _option(part: str, key: str) -> str | None:
+    prefix = key + "="
+    if not part.startswith(prefix):
+        return None
+    text = part[len(prefix) :].strip().strip("\"'").replace("_", " ")
+    text = "".join(ch for ch in text if ch >= " " or ch == " ")
+    return text[:40]
+
+
+def parse_chart(info: str, content: str) -> ChartSpec | None:
+    """Return a chart, or None when the values are not numeric.
+
+    A blank cell, ``—``, or ``n/a`` is a missing point. The label stays so a
+    line can break there instead of joining the neighbours.
+    """
     parts = info.split()
     kind = parts[1].lower() if len(parts) > 1 else "bar"
     if kind not in CHART_KINDS:
         kind = "bar"
     unit = ""
+    x_title = ""
+    y_title = ""
     for part in parts[2:]:
-        if part.startswith("unit="):
-            unit = part.split("=", 1)[1][:8]
+        if (opt := _option(part, "unit")) is not None:
+            unit = opt[:8]
+        elif (opt := _option(part, "x")) is not None:
+            x_title = opt
+        elif (opt := _option(part, "y")) is not None:
+            y_title = opt
     labels: list[str] = []
-    columns: list[list[float]] = []
+    columns: list[list[float | None]] = []
     names: list[str] = []
     numeric_rows = 0
     other_rows = 0
@@ -51,7 +92,10 @@ def parse_chart(info: str, content: str) -> tuple[str, str, list[str], list[tupl
         if not raw or set(raw) <= set("|-: "):
             continue
         if raw.startswith("|"):
-            cells = [cell.strip() for cell in raw.strip("|").split("|")]
+            body = raw[1:] if raw.startswith("|") else raw
+            if body.endswith("|"):
+                body = body[:-1]
+            cells = [cell.strip() for cell in body.split("|")]
         elif ":" in raw:
             label, _, val = raw.lstrip("-").strip().partition(":")
             cells = [label.strip(), val.strip()]
@@ -60,23 +104,25 @@ def parse_chart(info: str, content: str) -> tuple[str, str, list[str], list[tupl
             continue
         if len(cells) < 2:
             continue
-        values = [_number(cell) for cell in cells[1:]]
-        if names == [] and any(value is None for value in values) and not _NUM.match(cells[1]):
-            names = cells[1:]
-            continue
-        if any(value is None for value in values):
+        try:
+            values = [_cell(cell) for cell in cells[1:]]
+        except ValueError:
+            if names == [] and numeric_rows == 0 and not _NUM.match(cells[1]):
+                names = [cell[:40] for cell in cells[1:]]
+                continue
             other_rows += 1
             continue
         numeric_rows += 1
         labels.append(cells[0][:80])
-        if not columns:
-            columns = [[] for _ in values]
         for index, value in enumerate(values):
             if index >= len(columns):
-                columns.append([])
-            assert value is not None
+                columns.append([None] * (numeric_rows - 1))
             columns[index].append(value)
+        for column in columns[len(values) :]:
+            column.append(None)
     if numeric_rows == 0 or other_rows > numeric_rows:
+        return None
+    if not any(value is not None for column in columns for value in column):
         return None
     if not names:
         names = [""] * len(columns)
@@ -86,32 +132,24 @@ def parse_chart(info: str, content: str) -> tuple[str, str, list[str], list[tupl
     ]
     if not series:
         return None
-    if kind == "bar" and len(labels) > 6:
+    if kind == "bar" and prefers_horizontal(labels):
         kind = "hbar"
-    return kind, unit, labels, series[:6]
+    return ChartSpec(kind, unit, labels, series[:6], x_title, y_title)
 
 
-def _fmt(value: float, unit: str) -> str:
-    if value == int(value) and abs(value) < 1e15:
-        number = int(value)
-        # A bare year is not a thousands-grouped quantity ("1998", never "1,998").
-        if unit == "" and 1900 <= number <= 2100:
-            shown = str(number)
+def aria_label(
+    kind: str,
+    heading: str,
+    labels: list[str],
+    values: Sequence[float | None],
+    unit: str,
+) -> str:
+    bits = []
+    for name, value in zip(labels, values, strict=False):
+        if value is None:
+            bits.append(f"{name} missing")
         else:
-            shown = f"{number:,}"
-    else:
-        shown = f"{value:,.2f}"
-    if unit in {"$", "€", "£", "¥"}:
-        return f"{unit}{shown}"
-    if unit == "%":
-        return f"{shown}{unit}"
-    if unit:
-        return f"{shown} {unit}"
-    return shown
-
-
-def aria_label(kind: str, heading: str, labels: list[str], values: list[float], unit: str) -> str:
-    bits = [f"{label} {_fmt(value, unit)}" for label, value in zip(labels, values, strict=False)]
+            bits.append(f"{name} {format_value(value, unit)}")
     title = {"bar": "Bar", "hbar": "Bar", "line": "Line", "pie": "Pie", "donut": "Donut"}.get(kind, "Bar")
     text = f"{title} chart"
     if heading:
@@ -123,142 +161,25 @@ def aria_label(kind: str, heading: str, labels: list[str], values: list[float], 
     return text
 
 
-def _xy(cx: float, cy: float, radius: float, angle: float) -> tuple[float, float]:
-    theta = -math.pi / 2 + angle
-    return cx + radius * math.cos(theta), cy + radius * math.sin(theta)
-
-
-def _slice(cx: float, cy: float, radius: float, start: float, end: float) -> str:
-    sweep = end - start
-    if sweep >= math.tau - 1e-3:
-        x1, y1 = _xy(cx, cy, radius, 0)
-        x2, y2 = _xy(cx, cy, radius, math.pi)
-        return (
-            f"M {x1:.2f} {y1:.2f} A {radius:.2f} {radius:.2f} 0 1 1 {x2:.2f} {y2:.2f} "
-            f"A {radius:.2f} {radius:.2f} 0 1 1 {x1:.2f} {y1:.2f} Z"
-        )
-    large = 1 if sweep > math.pi else 0
-    x0, y0 = _xy(cx, cy, radius, start)
-    x1, y1 = _xy(cx, cy, radius, end)
-    return f"M {cx:.2f} {cy:.2f} L {x0:.2f} {y0:.2f} A {radius:.2f} {radius:.2f} 0 {large} 1 {x1:.2f} {y1:.2f} Z"
-
-
-def _donut(cx: float, cy: float, outer: float, inner: float, start: float, end: float) -> str:
-    sweep = end - start
-    large = 1 if sweep > math.pi else 0
-    if sweep >= math.tau - 1e-3:
-        return _slice(cx, cy, outer, 0, math.tau)  # full disc; inner ring is the next series' concern
-    x0, y0 = _xy(cx, cy, outer, start)
-    x1, y1 = _xy(cx, cy, outer, end)
-    i0, j0 = _xy(cx, cy, inner, start)
-    i1, j1 = _xy(cx, cy, inner, end)
-    return (
-        f"M {x0:.2f} {y0:.2f} A {outer:.2f} {outer:.2f} 0 {large} 1 {x1:.2f} {y1:.2f} "
-        f"L {i1:.2f} {j1:.2f} A {inner:.2f} {inner:.2f} 0 {large} 0 {i0:.2f} {j0:.2f} Z"
-    )
-
-
-def _short(label: str, limit: int) -> str:
-    if len(label) <= limit:
-        return label
-    return label[: limit - 1].rstrip() + "…"
-
-
-def chart_svg(kind: str, labels: list[str], values: list[float], unit: str, label: str) -> str:
+def chart_svg(
+    kind: str,
+    labels: list[str],
+    values: Sequence[float | None],
+    unit: str,
+    label: str,
+    *,
+    series: Sequence[tuple[str, Sequence[float | None]]] | None = None,
+    x_title: str = "",
+    y_title: str = "",
+) -> str:
     """One SVG element. Colors come from stylesheet classes, not from the model."""
-    safe = esc(label)
-    if kind in {"pie", "donut"}:
-        return _pie_svg(kind, labels, values, safe)
-    if kind == "line":
-        return _line_svg(labels, values, safe)
-    if kind == "hbar":
-        return _hbar_svg(labels, values, safe)
-    return _bar_svg(labels, values, safe)
-
-
-def _bar_svg(labels: list[str], values: list[float], label: str) -> str:
-    width, height = 640, 280
-    left, right, top, bottom = 28, 12, 16, 36
-    plot_w = width - left - right
-    plot_h = height - top - bottom
-    peak = max(values) or 1
-    count = max(len(values), 1)
-    gap = 10
-    bar_w = max((plot_w - gap * (count + 1)) / count, 4)
-    parts = [
-        f'<svg role="img" aria-label="{label}" viewBox="0 0 {width} {height}" width="640" height="280">',
-        f'<line x1="{left}" y1="{top + plot_h}" x2="{width - right}" y2="{top + plot_h}" class="axis"/>',
-    ]
-    for index, (name, value) in enumerate(zip(labels, values, strict=False)):
-        bar_h = 0 if peak == 0 else plot_h * max(value, 0) / peak
-        x = left + gap + index * (bar_w + gap)
-        y = top + plot_h - bar_h
-        parts.append(f'<rect class="bar" x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{max(bar_h, 0):.1f}"/>')
-        cx = x + bar_w / 2
-        parts.append(
-            f'<text x="{cx:.1f}" y="{height - 12}" text-anchor="middle" font-size="12" font-family="sans-serif">'
-            f"{esc(_short(name, 14))}</text>"
-        )
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def _hbar_svg(labels: list[str], values: list[float], label: str) -> str:
-    row = 32
-    height = 20 + row * len(labels)
-    width = 640
-    peak = max(values) or 1
-    parts = [f'<svg role="img" aria-label="{label}" viewBox="0 0 {width} {height}" width="640" height="{height}">']
-    for index, (name, value) in enumerate(zip(labels, values, strict=False)):
-        y = 12 + index * row
-        bar_w = 0 if peak == 0 else 420 * max(value, 0) / peak
-        parts.append(f'<text x="8" y="{y + 16}" font-size="12" font-family="sans-serif">{esc(_short(name, 18))}</text>')
-        parts.append(f'<rect class="bar" x="150" y="{y}" width="{bar_w:.1f}" height="18"/>')
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def _line_svg(labels: list[str], values: list[float], label: str) -> str:
-    width, height = 640, 280
-    left, top, plot_w, plot_h = 36, 16, 580, 210
-    peak = max(values) or 1
-    count = max(len(values) - 1, 1)
-    coords: list[tuple[float, float]] = []
-    for index, value in enumerate(values):
-        x = left + plot_w * index / count
-        y = top + plot_h - (plot_h * max(value, 0) / peak)
-        coords.append((x, y))
-    points = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
-    parts = [
-        f'<svg role="img" aria-label="{label}" viewBox="0 0 {width} {height}" width="640" height="280">',
-        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" class="axis"/>',
-        f'<polyline class="line" points="{points}"/>',
-    ]
-    for (x, y), name in zip(coords, labels, strict=False):
-        parts.append(f'<circle class="dot" cx="{x:.1f}" cy="{y:.1f}" r="3"/>')
-        parts.append(
-            f'<text x="{x:.1f}" y="{height - 14}" text-anchor="middle" font-size="12" font-family="sans-serif">'
-            f"{esc(_short(name, 12))}</text>"
-        )
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def _pie_svg(kind: str, labels: list[str], values: list[float], label: str) -> str:
-    total = sum(max(value, 0) for value in values) or 1
-    cx, cy, outer = 120, 120, 88
-    parts = ['<svg role="img" aria-label="' + label + '" viewBox="0 0 640 260" width="640" height="260">']
-    angle = 0.0
-    for index, value in enumerate(values):
-        sweep = math.tau * max(value, 0) / total
-        end = angle + sweep
-        path = _donut(cx, cy, outer, 48, angle, end) if kind == "donut" else _slice(cx, cy, outer, angle, end)
-        if sweep > 0:
-            parts.append(f'<path class="pie{index % 6}" d="{path}"/>')
-        angle = end
-    for index, name in enumerate(labels):
-        y = 28 + index * 22
-        parts.append(f'<rect class="pie{index % 6}" x="250" y="{y - 12}" width="14" height="14"/>')
-        parts.append(f'<text x="272" y="{y}" font-size="13" font-family="sans-serif">{esc(_short(name, 32))}</text>')
-    parts.append("</svg>")
-    return "".join(parts)
+    return draw_chart(
+        kind,
+        labels,
+        values,
+        unit,
+        label,
+        series=series,
+        x_title=x_title,
+        y_title=y_title,
+    )

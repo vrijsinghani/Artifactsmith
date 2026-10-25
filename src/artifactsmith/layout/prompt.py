@@ -4,12 +4,12 @@ from __future__ import annotations
 
 SYNTAX_RULES = """Write the page as Markdown (GFM: headings, lists, tables, links, **bold**). The server renders it as styled HTML. No HTML or CSS except <br> in table cells.
 
-Layout blocks are ::: fences (Pandoc style); nest with more colons (:::: outside :::):
+Layout blocks are ::: fences. Nest with more colons:
 ::: note|warn|success|danger   callout
 :::: grid 3   (or grid 2,1; each ::: cell or block inside is a column)
 ::: stat {tone=green}   one line: Label | Value | note
 ::: timeline / ::: steps / ::: compare   wrap a list or table
-```chart bar|hbar|line|pie|donut unit=$   then "Label: 12.5" lines (or a table)
+```chart bar|hbar|line|pie|donut unit=$ y=Rate   "Label: 12.5" lines, or a table. — is missing.
 Badges: [Confirmed]{.green}. Definition lists (Term, then ": value") make fact strips.
 
 Attributes in {} go after a fence name or on the line above a table or heading:

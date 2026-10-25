@@ -31,3 +31,11 @@ Fast HTML builds parse Markdown containers, attributes, definition lists, and ta
 5. mdit-py-plugins, from https://github.com/executablebooks/mdit-py-plugins
    Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin (markdown-it container plugin).
    Licensed under the MIT License (copy in licenses/MIT-mdit-py-plugins.txt).
+
+Fast-path chart axes (src/artifactsmith/layout/chart_scale.py) adapt one rule from:
+
+6. answer-me-with-html, from https://github.com/QingYunA/answer-me-with-html
+   Copyright (c) QingYunA. Licensed under the MIT License.
+   The line axis includes 0 when the smallest value is at most a third of the largest,
+   because a line encodes position rather than length (src/components/chart-scale.js).
+   The Python is not a copy of that file. Tick steps of 1, 2, 2.5, and 5 are the usual nice-number scale.

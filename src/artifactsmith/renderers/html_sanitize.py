@@ -129,7 +129,6 @@ _CLEAN_CONTENT_TAGS: set[str] = {
     "base",
     "link",
     "meta",
-    "title",
     "head",
     "html",
     "body",
@@ -247,6 +246,26 @@ def rewrite_remote_images_to_links(html: str) -> str:
     return _IMG_TAG_RE.sub(repl, html)
 
 
+def _strip_titles_outside_svg(fragment: str) -> str:
+    """Remove ``<title>`` elements that are not inside an ``<svg>`` root."""
+    from .svg_tree import svg_root_spans
+
+    spans = svg_root_spans(fragment)
+
+    def inside(start: int, end: int) -> bool:
+        return any(open_at <= start and end <= close_at for open_at, close_at in spans)
+
+    parts: list[str] = []
+    last = 0
+    for match in _TITLE_RE.finditer(fragment):
+        if inside(match.start(), match.end()):
+            continue
+        parts.append(fragment[last : match.start()])
+        last = match.end()
+    parts.append(fragment[last:])
+    return "".join(parts)
+
+
 def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str] | None = None) -> str:
     """Return a complete HTML document with allowlisted markup and sanitized CSS.
 
@@ -273,7 +292,10 @@ def sanitize_html_document(body: str, *, linkify: bool = True, changes: list[str
     body_m = _BODY_RE.search(body)
     fragment = body_m.group(1) if body_m else body
     fragment = _STYLE_RE.sub("", fragment)
-    fragment = _TITLE_RE.sub("", fragment)
+    # Drop document titles in the body. A ``<title>`` inside ``<svg>`` is the
+    # tooltip for a truncated chart label and has to stay. ``title`` is not a
+    # clean-content tag, or nh3 would delete those tooltips too.
+    fragment = _strip_titles_outside_svg(fragment)
     # Before nh3 drops remote img src, rewrite public ones to anchors.
     imaged = rewrite_remote_images_to_links(fragment)
     if changes is not None and imaged != fragment:
