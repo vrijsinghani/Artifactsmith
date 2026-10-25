@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import logging
 import re
 from collections.abc import Callable
@@ -524,6 +525,118 @@ def _parse_file_reply(
     return _assumptions_from_section(sections.get("ASSUMPTIONS", "")), sections.get("SUMMARY", "").strip(), body
 
 
+# The fast-path slot used to be the sentence "one or two sentences", and models copied it onto the card.
+_LEAKED_SUMMARY = "one or two sentences"
+_SUMMARY_MARKERS = ("===SUMMARY===", "===ASSUMPTIONS===", "===NEEDS_INPUT===")
+_SUMMARY_FALLBACK_MAX = 300
+_FENCE = re.compile(r"^```")
+_HEADING_OR_RULE = re.compile(r"^(?:#{1,6}\s|===|::|\|)")
+_LIST_MARK = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
+_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_MD_MARK = re.compile(r"[*_`]+")
+_SENTENCE = re.compile(r"^.+?(?<!\d)[.!?](?=\s|$)")
+_HTML_DOC = re.compile(r"<(?:!doctype|html|body|p|h1)\b", re.I)
+_HTML_SKIP = re.compile(
+    r"<(?:script|style|title|h[1-6])\b[^>]*>.*?</(?:script|style|title|h[1-6])>",
+    re.I | re.S,
+)
+_HTML_BREAK = re.compile(r"</(?:p|div|li|tr|blockquote|section|article|figcaption)>|<br\s*/?>", re.I)
+_HTML_TAG = re.compile(r"<[^>]+>")
+_PLACEHOLDER_SUMMARIES: frozenset[str] | None = None
+
+
+def _norm_placeholder(text: str) -> str:
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text.strip())
+    text = text.strip("\"'`“”*_ ")
+    text = text.rstrip(" \t.!?:;")
+    text = text.strip("\"'`“”*_ ")
+    return text.casefold()
+
+
+def _prompt_placeholders() -> frozenset[str]:
+    """Reply-template lines a model can copy into the summary instead of writing one."""
+    global _PLACEHOLDER_SUMMARIES
+    if _PLACEHOLDER_SUMMARIES is not None:
+        return _PLACEHOLDER_SUMMARIES
+    from .layout.prompt import SYNTAX_RULES
+
+    found = {_LEAKED_SUMMARY}
+    for prompt in (SYNTAX_RULES, SYSTEM, CONTENT_SYSTEM, PATCH_SYSTEM_ADDENDUM):
+        lines = prompt.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("<") and stripped.endswith(">") and len(stripped) > 2:
+                found.add(stripped)
+            if stripped not in _SUMMARY_MARKERS:
+                continue
+            for nxt in lines[index + 1 :]:
+                if nxt.strip():
+                    found.add(nxt.strip())
+                    break
+    _PLACEHOLDER_SUMMARIES = frozenset(_norm_placeholder(item) for item in found)
+    return _PLACEHOLDER_SUMMARIES
+
+
+def _plain_page(body: str) -> str:
+    if _HTML_DOC.search(body) is None:
+        return body
+    text = _HTML_SKIP.sub("\n", body)
+    text = _HTML_BREAK.sub("\n", text)
+    return html.unescape(_HTML_TAG.sub(" ", text))
+
+
+def first_content_sentence(body: str) -> str:
+    """First sentence of the page, skipping the title, fences, and table rows."""
+    lines: list[str] = []
+    fenced = False
+    for raw in _plain_page(body).splitlines():
+        line = raw.strip()
+        if _FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced or not line:
+            if not line and lines:
+                break
+            continue
+        if _HEADING_OR_RULE.match(line):
+            continue
+        line = _LIST_MARK.sub("", line).strip()
+        if not line:
+            continue
+        lines.append(line)
+        if re.search(r"[.!?]", line):
+            break
+    prose = _MD_MARK.sub("", _MD_LINK.sub(r"\1", " ".join(lines)))
+    prose = re.sub(r"\s+", " ", prose).strip()
+    if not prose:
+        return ""
+    match = _SENTENCE.match(prose)
+    sentence = match.group(0).strip() if match else prose
+    if len(sentence) <= _SUMMARY_FALLBACK_MAX:
+        return sentence
+    cut = sentence[:_SUMMARY_FALLBACK_MAX]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(".,;: ")
+
+
+def accept_summary(summary: str, body: str) -> str:
+    """Keep a real summary. A copied prompt placeholder becomes the page's first sentence."""
+    cleaned = summary.strip()
+    if not cleaned or _norm_placeholder(cleaned) not in _prompt_placeholders():
+        return cleaned
+    log.warning("summary matched a prompt placeholder; using the first sentence of the page")
+    sentence = first_content_sentence(body)
+    if _norm_placeholder(sentence) in _prompt_placeholders():
+        return ""
+    return sentence
+
+
+def _with_summary(assumptions: list[str], summary: str, body: str) -> tuple[list[str], str, str]:
+    return assumptions, accept_summary(summary, body), body
+
+
 def parse_output(text: str, fmt: str | None = None) -> tuple[list[str], str, str]:
     text = text.strip()
     if text.startswith("```") and "===ASSUMPTIONS===" in text:
@@ -533,12 +646,12 @@ def parse_output(text: str, fmt: str | None = None) -> tuple[list[str], str, str
     kind = (fmt or "").lower().strip()
     file_mark = next((mark for mark in marks if _section_name(mark) == "FILE"), None)
     if file_mark is not None:
-        return _parse_file_reply(text, marks, file_mark, kind)
+        return _with_summary(*_parse_file_reply(text, marks, file_mark, kind))
     if not marks:
         recovered = _recover_single_file(text, kind) if kind in _SINGLE_FILE_FMTS else None
         if recovered is not None:
             log.warning("builder output has no FILE section; recovered single-file %s document", kind)
-            return [], "", recovered[1]
+            return _with_summary([], "", recovered[1])
         raise BuildError("builder output missing section markers")
     sections: dict[str, str] = {}
     for i, m in enumerate(marks):
@@ -553,12 +666,14 @@ def parse_output(text: str, fmt: str | None = None) -> tuple[list[str], str, str
             recovered = _recover_single_file(after, kind)
             if recovered is not None:
                 log.warning("builder output has no FILE section; recovered single-file %s document", kind)
-                return _assumptions_from_section(sections.get("ASSUMPTIONS", "")), recovered[0], recovered[1]
+                assumptions = _assumptions_from_section(sections.get("ASSUMPTIONS", ""))
+                return _with_summary(assumptions, recovered[0], recovered[1])
         else:
             recovered = _recover_single_file(text, kind)
             if recovered is not None:
                 log.warning("builder output has no FILE section; recovered single-file %s document", kind)
-                return _assumptions_from_section(sections.get("ASSUMPTIONS", "")), "", recovered[1]
+                assumptions = _assumptions_from_section(sections.get("ASSUMPTIONS", ""))
+                return _with_summary(assumptions, "", recovered[1])
     raise BuildError("builder output has no FILE section")
 
 

@@ -65,6 +65,9 @@ def test_syntax_rules_stay_short():
     assert "chart that column" in house
     assert "Skip years, IDs, ranks, and mixed facts" in house
     assert "July: 38185" in house
+    assert "<one sentence>" in house
+    assert "one or two sentences" not in house
+    assert "Rebate owed | $15,459 | 15% of billed" in house
     # The example sits outside SYNTAX_RULES. The whole fast prompt stays no
     # longer than the full HTML prompt, so a large source does not pay extra
     # prefill. effort=low is attached only for o1/o3/o4/gpt-5, with no probe.
@@ -73,6 +76,35 @@ def test_syntax_rules_stay_short():
     assert supports_effort("gpt-5-mini") is True
     bold = fast_system_prompt("bold")
     assert "No emoji." not in bold
+
+
+def test_long_stat_value_splits_into_a_note():
+    """A note crammed into the value is a note. A value of 24 characters stays put."""
+    source = "::: stat\nBudget | $5,800 Relaxed and activity-focused\n:::\n"
+    blocks, notes = parse_markdown(source)
+    assert notes == []
+    assert blocks[0].kind == "stat"
+    assert blocks[0].children[0].plain == "Budget | $5,800 | Relaxed and activity-focused"
+    html, render_notes = render_layout(source, style="house", title="Trip")
+    assert render_notes == []
+    assert '<p class="value">$5,800</p>' in html
+    assert '<p class="note">Relaxed and activity-focused</p>' in html
+
+    kept = "abcdefghij abcdefghijklm"
+    assert len(kept) == 24
+    same, _notes = parse_markdown(f"::: stat\nLabel | {kept}\n:::\n")
+    assert same[0].children[0].plain == f"Label | {kept}"
+
+    longer = "abcdefghij abcdefghijklmn"
+    assert len(longer) == 25
+    split, _notes = parse_markdown(f"::: stat\nLabel | {longer} | per person\n:::\n")
+    assert split[0].children[0].plain == "Label | abcdefghij | abcdefghijklmn | per person"
+
+    whole, _notes = parse_markdown("::: stat\nRebate owed | $15,459.15 | 15% of billed\n:::\n")
+    assert whole[0].children[0].plain == "Rebate owed | $15,459.15 | 15% of billed"
+    glued = "A" * 30
+    stuck, _notes = parse_markdown(f"::: stat\nLabel | {glued}\n:::\n")
+    assert stuck[0].children[0].plain == f"Label | {glued}"
 
 
 def test_dangerous_attributes_and_html_are_dropped():

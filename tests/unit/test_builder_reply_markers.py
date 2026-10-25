@@ -235,3 +235,53 @@ def test_chart_only_page_counts_its_label_as_visible() -> None:
 def test_short_trailing_note_after_end_is_ignored() -> None:
     page = "<!DOCTYPE html>\n<html><body><p>Hi.</p></body></html>"
     assert b.parse_output(_reply(page) + "Let me know if you want changes.\n", fmt="html")[2] == page
+
+
+_TCP = (
+    "# TCP three-way handshake\n\nTCP uses three messages to establish a reliable connection. The client sends SYN.\n"
+)
+_TCP_SENTENCE = "TCP uses three messages to establish a reliable connection."
+
+
+def _markdown_reply(summary: str, body: str = _TCP) -> str:
+    return f"===ASSUMPTIONS===\n- none\n===SUMMARY===\n{summary}\n===FILE: page.md===\n{body}===END===\n"
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "one or two sentences",
+        "One or two sentences.",
+        "one  or\ttwo sentences",
+        '"one or two sentences"',
+        "<one sentence>",
+        "<one sentence>.",
+        "&lt;one sentence&gt;",
+        "one or two plain sentences describing what you built",
+        "one or two plain sentences describing only what changed",
+        "one or two short sentences naming exactly which data is missing",
+        "<Markdown>",
+        "- one per line, or - none",
+    ],
+)
+def test_placeholder_summary_uses_the_first_sentence(summary: str) -> None:
+    assumptions, got, body = b.parse_output(_markdown_reply(summary), fmt="markdown")
+    assert assumptions == []
+    assert got == _TCP_SENTENCE
+    assert body.startswith("# TCP")
+    assert "one or two sentences" not in got
+
+
+def test_a_real_summary_is_kept_even_when_it_mentions_the_phrase() -> None:
+    summary = "The notes are one or two sentences."
+    assert b.parse_output(_markdown_reply(summary), fmt="markdown")[1] == summary
+    html = (
+        "<!DOCTYPE html><html><body><h1>TCP</h1>"
+        "<p>TCP uses three messages to establish a reliable connection. Next.</p></body></html>"
+    )
+    assert b.parse_output(_reply(html, summary="one or two sentences"), fmt="html")[1] == _TCP_SENTENCE
+
+
+def test_placeholder_summary_on_a_title_only_page_is_dropped() -> None:
+    _assumptions, got, _body = b.parse_output(_markdown_reply("one or two sentences", "# Title only\n"), fmt="markdown")
+    assert got == ""

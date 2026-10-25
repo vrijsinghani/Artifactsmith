@@ -25,14 +25,14 @@ Reply exactly:
 ===ASSUMPTIONS===
 - one per line, or - none
 ===SUMMARY===
-one or two sentences
+<one sentence>
 ===FILE: page.md===
 <Markdown>
 ===END===
 """
 
 # Outside SYNTAX_RULES so the 400-token cap still holds. Concrete so the model uses the blocks.
-_EXAMPLE = """Example (use the user's facts, not these numbers). When 3 or more rows share one amount, chart that column. Skip years, IDs, ranks, and mixed facts.
+_EXAMPLE = """Example (not these numbers). When 3 or more rows share one amount, chart that column. Skip years, IDs, ranks, and mixed facts.
 
 # North rebate, Q3
 
@@ -42,7 +42,7 @@ Hold the payout.
 
 :::: grid 3
 ::: stat {tone=green .emph}
-Rebate owed | $15,459
+Rebate owed | $15,459 | 15% of billed
 :::
 ::: stat
 Invoices | 136

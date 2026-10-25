@@ -26,6 +26,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- A summary that copies a prompt placeholder, including "one or two sentences", is replaced with the first sentence of the page. The fast-path summary slot is `<one sentence>`, so that line is not a sentence the model can copy. A stat value longer than 24 characters is split into the value and a note, and the stat example shows a short note again.
 - A chart that falls back to a table escapes cell text when the table is built. The fast-path prompt again shows a short sequence diagram beside the multi-line timeline.
 - Chart tick labels no longer sit on the first category label, and a rotated axis title stays inside the drawing. Small values keep enough digits to stay accurate (`$0.018` does not become `$0.02`), tick labels share one precision and do not collide, and chart text stays at least 11px on a phone.
 - Up to AM_TRIAL_FREE_NEEDS_INPUT (default 5) needs_input jobs per token do not use a build; after that they do. The reservation stays, so the daily spend cap and the hourly limit still count it. A failed job still uses one build. The `create` tool and the `/try` token page tell the agent to pass its notes as `source_content`. A hosted `needs_input` status card includes `free_retries_left`.
