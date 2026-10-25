@@ -335,12 +335,51 @@ def test_long_timeline_notes_draw_instead_of_a_raw_paragraph():
     assert "*Week" not in body
     assert "|" not in body
     assert 'class="asl-timeline"' not in html
+
+    def shown(fragment: str) -> str:
+        without_tips = re.sub(r"<title>.*?</title>", "", fragment, flags=re.S)
+        plain = re.sub(r"<[^>]+>", " ", without_tips)
+        return re.sub(r"\s+", " ", plain)
+
+    visible = shown(body)
+    full = _long_note(520, "END520")
+    assert full in visible
     for token in tokens:
-        assert f"{token}</title>" in body
+        assert token in visible
     doc = sanitize_html_document(html)
-    assert "END520</title>" in doc
+    assert full in shown(doc.split("<body>", 1)[-1])
     assert "*Week" not in doc
     assert "width:min(100%" in doc
+
+
+def test_adjacent_timeline_blocks_become_one_drawing():
+    """The one-line prompt example made the model emit one block per week."""
+    blocks = []
+    for index in range(1, 8):
+        star = "*" if index == 1 else ""
+        blocks.append(f"::: timeline\n{star}Week {index} | Title {index} | Note {index}\n:::")
+    html, notes = render_layout("\n\n".join(blocks) + "\n", style="house", title="Kickoff")
+    assert "shown as a list" not in " ".join(notes)
+    assert html.count("<svg") == 1
+    for index in range(1, 8):
+        assert f"Title {index}" in html
+        assert f"Note {index}" in html
+    assert "*Week" not in html
+    split = """# Plan
+
+::: timeline
+*Week 1 | Kickoff | Start
+:::
+
+## Later
+
+::: timeline
+Week 2 | Build | Draft
+:::
+"""
+    apart, _notes = render_layout(split, style="house", title="Plan")
+    assert apart.count("<svg") == 2
+    assert "Kickoff" in apart and "Build" in apart
 
 
 def test_failed_timeline_pipe_block_is_a_list_not_raw_syntax():
@@ -395,3 +434,4 @@ def test_prompt_teaches_the_diagram_fences():
     assert "date | title | note" in house
     assert "under 120 characters" in house
     assert "```timeline" not in house
+    assert "::: timeline\n*Mar 16 | Decision | Build the API\nApr 2 | Review | Check the draft\n" in house

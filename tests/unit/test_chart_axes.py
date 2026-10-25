@@ -138,6 +138,37 @@ def test_long_category_names_become_horizontal_bars():
     assert "<title>North American wholesale</title>" in svg or "North American wholesale" in svg
 
 
+def test_bare_pipe_chart_draws_and_a_text_table_is_real_html():
+    """A chart fence whose body is a pipe table must not print the raw lines."""
+    drawn = """# Rates
+
+```chart line
+Month | 2024 | 2025 | 2026
+Jan | 3.7 | 4.0 | 4.3
+Feb | 3.8 | 4.1 | 4.4
+```
+"""
+    html, notes = render_layout(drawn, style="house", title="Rates")
+    assert notes == []
+    assert "<svg" in html
+    body = html.split("<body>", 1)[-1]
+    assert "Jan | 3.7 | 4.0 | 4.3" not in body
+    assert "|" not in body
+    assert "3.7" in body and "2024" in body and "Jan" in body
+    raw = """# Rates
+
+```chart bar
+Jan | later | soon
+Feb | no | data
+```
+"""
+    table, notes = render_layout(raw, style="house", title="Rates")
+    assert notes == ["chart rendered as a table"]
+    assert "<table" in table
+    assert "Jan | later | soon" not in table
+    assert ">later<" in table and ">soon<" in table and ">data<" in table
+
+
 def test_multi_series_has_a_legend_and_a_body_title_does_not_leak():
     source = """# Compare
 

@@ -18,8 +18,8 @@ _MAX_LINES = 80
 _MAX_LINE = 400
 # A kickoff note runs past the fence line cap. Keep it, and cap what the
 # drawing stores so a long tooltip cannot blow the page SVG text budget.
-_MAX_TIMELINE_LINE = 4000
-_MAX_NOTE = 600
+_MAX_TIMELINE_LINE = 12000
+_MAX_NOTE = 8000
 
 _EDGE = re.compile(r"^(?P<src>.+?)\s*(?P<arrow>-->|->|→)\s*(?P<dst>.+?)(?:\s*:\s*(?P<label>.*))?$")
 _PARTS = re.compile(r"^participants?\s*:\s*(.+)$", re.I)

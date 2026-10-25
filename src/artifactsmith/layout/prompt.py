@@ -64,13 +64,10 @@ August: 28935
 September: 35941
 ```
 
-```sequence
-Client -> Server: SYN
-Server --> Client: SYN-ACK
-```
-
 ::: timeline
 *Mar 16 | Decision | Build the API
+Apr 2 | Review | Check the draft
+May 1 | Launch | Publish the page
 :::
 """
 

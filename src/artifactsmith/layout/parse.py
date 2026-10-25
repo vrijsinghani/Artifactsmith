@@ -293,7 +293,14 @@ class _Walker:
                 if drawn is not None:
                     self.notes.extend(drawn.notes)
                     if drawn.svg:
-                        return Block(kind="diagram", plain="timeline", html=drawn.svg, attrs=attrs, classes=classes)
+                        return Block(
+                            kind="diagram",
+                            plain="timeline",
+                            html=drawn.svg,
+                            attrs=attrs,
+                            classes=classes,
+                            source=drawn.source,
+                        )
                     self.notes.append("timeline diagram shown as a list")
                     return steps_block(drawn.steps)
             return Block(kind=name, attrs=attrs, classes=classes, children=children)
@@ -374,7 +381,7 @@ class _Walker:
             if drawn.svg is None:
                 self.notes.append(f"{drawn.kind} diagram shown as a list")
                 return steps_block(drawn.steps)
-            return Block(kind="diagram", plain=drawn.kind, html=drawn.svg)
+            return Block(kind="diagram", plain=drawn.kind, html=drawn.svg, source=drawn.source)
         lang = info.split()[0] if info else ""
         attrs = {"lang": lang} if _LANG.fullmatch(lang) else {}
         return Block(kind="code", html=tok.content or "", attrs=attrs)
@@ -404,16 +411,19 @@ def _chart_as_table(content: str) -> Block:
     rows: list[list[Cell]] = []
     for line in content.splitlines():
         raw = line.strip()
-        if not raw:
+        if not raw or set(raw) <= set("|-: "):
             continue
-        if raw.startswith("|"):
-            cells = [Cell(part.strip(), part.strip()) for part in raw.strip("|").split("|")]
+        if "|" in raw:
+            body = raw[1:] if raw.startswith("|") else raw
+            if body.endswith("|"):
+                body = body[:-1]
+            parts = [part.strip() for part in body.split("|")]
         elif ":" in raw:
             label, _, val = raw.lstrip("-").strip().partition(":")
-            cells = [Cell(label.strip(), label.strip()), Cell(val.strip(), val.strip())]
+            parts = [label.strip(), val.strip()]
         else:
-            cells = [Cell(raw, raw)]
-        rows.append(cells)
+            parts = [raw]
+        rows.append([Cell(part, part) for part in parts])
     if not rows:
         return Block(kind="skipped")
     return Block(kind="table", headers=rows[0], rows=rows[1:] or rows)
@@ -482,5 +492,46 @@ def parse_markdown(source: str) -> tuple[list[Block], list[str]]:
     source = _tame_brackets(source or "")
     tokens = _parser(source).parse(source)
     walker = _Walker(list(tokens))
-    blocks = [block for block in walker.blocks() if block.kind != "skipped"]
+    blocks = _merge_timelines([block for block in walker.blocks() if block.kind != "skipped"])
     return blocks, walker.notes
+
+
+def _timeline_drawing(block: Block) -> bool:
+    return block.kind == "diagram" and block.plain == "timeline" and "|" in block.source
+
+
+def _merge_timelines(blocks: list[Block]) -> list[Block]:
+    """One drawing for timeline blocks that sit against each other."""
+    merged: list[Block] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        if not _timeline_drawing(block):
+            merged.append(block)
+            index += 1
+            continue
+        group = [block]
+        nxt = index + 1
+        while nxt < len(blocks) and _timeline_drawing(blocks[nxt]):
+            group.append(blocks[nxt])
+            nxt += 1
+        if len(group) == 1:
+            merged.append(block)
+        else:
+            text = "\n".join(item.source for item in group)
+            drawn = read_fence("timeline", text)
+            if drawn is not None and drawn.svg:
+                merged.append(
+                    Block(
+                        kind="diagram",
+                        plain="timeline",
+                        html=drawn.svg,
+                        source=text,
+                        attrs=block.attrs,
+                        classes=block.classes,
+                    )
+                )
+            else:
+                merged.extend(group)
+        index = nxt
+    return merged

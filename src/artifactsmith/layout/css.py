@@ -373,6 +373,10 @@ def sheet_extra() -> str:
     return (
         ".asl-diagram{margin:1rem auto;max-width:100%}"
         ".asl-diagram svg{display:block;max-width:100%;height:auto;margin-inline:auto;overflow:hidden}"
+        ".asl-diagram-notes{list-style:none;margin:.75rem 0 0;padding:0}"
+        ".asl-diagram-notes li{margin:0 0 .7rem}"
+        ".asl-diagram-notes .when{font-weight:700}"
+        ".asl-diagram-notes .what{display:block;margin:.1rem 0 0}"
         ".asl-diagram text{fill:var(--ink);font-family:var(--font)}"
         ".asl-diagram .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5px}"
         ".asl-diagram .hi{stroke:var(--accent);stroke-width:2.5px}"

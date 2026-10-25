@@ -53,6 +53,36 @@ def _cell(raw: str) -> float | None:
     return value
 
 
+def _row_cells(raw: str) -> list[str] | None:
+    """A ``label: value`` row, or a pipe row with or without a leading pipe."""
+    if "|" in raw:
+        body = raw.strip()
+        if body.startswith("|"):
+            body = body[1:]
+        if body.endswith("|"):
+            body = body[:-1]
+        cells = [cell.strip() for cell in body.split("|")]
+        if len(cells) >= 2:
+            return cells
+    if ":" in raw:
+        label, _, val = raw.lstrip("-").strip().partition(":")
+        return [label.strip(), val.strip()]
+    return None
+
+
+def _year_names(cells: list[str]) -> bool:
+    """``Month | 2024 | 2025`` is a header, not a point at the year 2024."""
+    if len(cells) < 3 or _number(cells[0]) is not None:
+        return False
+    for cell in cells[1:]:
+        if not re.fullmatch(r"\d{4}", cell):
+            return False
+        year = int(cell)
+        if year < 1900 or year > 2100:
+            return False
+    return True
+
+
 def _option(part: str, key: str) -> str | None:
     prefix = key + "="
     if not part.startswith(prefix):
@@ -91,18 +121,9 @@ def parse_chart(info: str, content: str) -> ChartSpec | None:
         raw = line.strip()
         if not raw or set(raw) <= set("|-: "):
             continue
-        if raw.startswith("|"):
-            body = raw[1:] if raw.startswith("|") else raw
-            if body.endswith("|"):
-                body = body[:-1]
-            cells = [cell.strip() for cell in body.split("|")]
-        elif ":" in raw:
-            label, _, val = raw.lstrip("-").strip().partition(":")
-            cells = [label.strip(), val.strip()]
-        else:
+        cells = _row_cells(raw)
+        if cells is None or len(cells) < 2:
             other_rows += 1
-            continue
-        if len(cells) < 2:
             continue
         try:
             values = [_cell(cell) for cell in cells[1:]]
@@ -111,6 +132,9 @@ def parse_chart(info: str, content: str) -> ChartSpec | None:
                 names = [cell[:40] for cell in cells[1:]]
                 continue
             other_rows += 1
+            continue
+        if names == [] and numeric_rows == 0 and _year_names(cells):
+            names = [cell[:40] for cell in cells[1:]]
             continue
         numeric_rows += 1
         labels.append(cells[0][:80])

@@ -10,26 +10,55 @@ from __future__ import annotations
 from .chart_scale import text_width
 from .diagram_parse import Timeline, Tree, TreeNode
 from .diagram_svg import FONT, LIMIT, LINE, aria, fits, line, rect, svg_doc, text_at, wrap_lines
+from .inline import esc
 
 
-def _shown_note(note: str, room: float) -> tuple[list[str], str]:
-    """Wrapped lines, plus the full note when the drawing cuts it."""
-    if not note:
+def _lines(text: str, room: float, max_lines: int) -> tuple[list[str], str]:
+    """Wrapped lines. The second value is the full text when a line was cut."""
+    if not text:
         return [], ""
-    lines, _tip = wrap_lines(note, room, FONT, max_lines=2)
-    shown = " ".join(lines)
-    return lines, note if shown != note else ""
+    return wrap_lines(text, room, FONT, max_lines=max_lines, char_limit=len(text))
+
+
+def _fits(text: str, room: float, max_lines: int) -> bool:
+    lines, tip = _lines(text, room, max_lines)
+    return tip == "" and " ".join(lines) == text
+
+
+def _column_fits(spec: Timeline) -> bool:
+    """True when every title and note can be drawn in full down the spine."""
+    room = LIMIT - 48
+    return all(_fits(event.title, room, 2) and _fits(event.note, room, 8) for event in spec.events)
+
+
+def _note_list(spec: Timeline) -> str:
+    """Full event text, on the page, for notes the drawing cannot hold."""
+    items: list[str] = []
+    for event in spec.events:
+        head = esc(event.when)
+        if event.title:
+            head += " — " + esc(event.title)
+        note = f'<span class="what">{esc(event.note)}</span>' if event.note else ""
+        items.append(f'<li><span class="when">{head}</span>{note}</li>')
+    if not items:
+        return ""
+    return '<ol class="asl-diagram-notes">' + "".join(items) + "</ol>"
 
 
 def draw_timeline(spec: Timeline) -> str:
     if spec.force != "v":
-        horizontal = _horizontal(spec)
+        horizontal = _horizontal(spec, notes=True)
         if horizontal is not None:
             return horizontal
-    return _vertical(spec)
+    if spec.force != "h" and _column_fits(spec):
+        return _vertical(spec, notes=True)
+    compact = _horizontal(spec, notes=False) if spec.force != "v" else None
+    if compact is None:
+        compact = _vertical(spec, notes=False)
+    return compact + _note_list(spec)
 
 
-def _horizontal(spec: Timeline) -> str | None:
+def _horizontal(spec: Timeline, *, notes: bool) -> str | None:
     count = len(spec.events)
     date_w = max(text_width(event.when, FONT) for event in spec.events)
     col = date_w + 18
@@ -40,10 +69,14 @@ def _horizontal(spec: Timeline) -> str | None:
     if not fits(count * col + 8):
         return None
     text_room = col - 14
+    if notes and any(
+        not _fits(event.title, text_room, 2) or not _fits(event.note, text_room, 2) for event in spec.events
+    ):
+        return None
     prepared = []
     for event in spec.events:
-        title, title_full = wrap_lines(event.title, text_room, FONT, max_lines=2)
-        note, note_full = _shown_note(event.note, text_room)
+        title, title_full = _lines(event.title, text_room, 2)
+        note, note_full = _lines(event.note, text_room, 2) if notes else ([], "")
         prepared.append((event, title or [event.title[:12]], title_full, note, note_full))
     title_lines = max(len(item[1]) for item in prepared)
     note_lines = max((len(item[3]) for item in prepared), default=0)
@@ -71,13 +104,13 @@ def _horizontal(spec: Timeline) -> str | None:
     return svg_doc(width, height, aria("timeline", bits), parts)
 
 
-def _vertical(spec: Timeline) -> str:
+def _vertical(spec: Timeline, *, notes: bool) -> str:
     text_room = LIMIT - 48
     y = 16.0
     rows = []
     for event in spec.events:
-        title, title_full = wrap_lines(event.title, text_room, FONT, max_lines=2)
-        note, note_full = _shown_note(event.note, text_room)
+        title, title_full = _lines(event.title, text_room, 2)
+        note, note_full = _lines(event.note, text_room, 8) if notes else ([], "")
         block = LINE + max(1, len(title)) * LINE + len(note) * LINE + 12
         rows.append((event, title or [event.title], title_full, note, note_full, y, block))
         y += block

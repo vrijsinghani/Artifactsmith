@@ -34,6 +34,7 @@ class Drawn:
     svg: str | None
     steps: tuple[str, ...]
     notes: tuple[str, ...] = ()
+    source: str = ""
 
 
 def read_fence(info: str, content: str) -> Drawn | None:
@@ -45,7 +46,8 @@ def read_fence(info: str, content: str) -> Drawn | None:
     if model is None:
         return Drawn(kind, None, tuple(fallback_steps(kind, content)))
     notes = (_skip_note(kind, model.skipped),) if model.skipped else ()
-    return Drawn(kind, draw_diagram(kind, model), (), notes)
+    source = content if kind == "timeline" else ""
+    return Drawn(kind, draw_diagram(kind, model), (), notes, source)
 
 
 def timeline_from_children(children: list[Block]) -> Drawn | None:

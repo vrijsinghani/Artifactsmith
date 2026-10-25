@@ -52,9 +52,11 @@ def aria(kind: str, parts: list[str]) -> str:
     return text or title
 
 
-def wrap_lines(text: str, limit: float, font: float, *, max_lines: int = 3) -> tuple[list[str], str]:
+def wrap_lines(
+    text: str, limit: float, font: float, *, max_lines: int = 3, char_limit: int = 200
+) -> tuple[list[str], str]:
     """Visible lines, plus the original when a line was cut for a tooltip."""
-    raw = clean(text, 200)
+    raw = clean(text, char_limit)
     if not raw:
         return [], ""
     limit = max(limit, font)
