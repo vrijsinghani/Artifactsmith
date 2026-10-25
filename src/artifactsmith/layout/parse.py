@@ -28,6 +28,11 @@ _BLOCK_NAME = re.compile(r"^[a-z0-9-]{1,24}$")
 _HTML_CAP = 6 * 1024
 _HTML_MAX = 2
 _NOTE_ALIAS = {"callout": "note", "tip": "note", "info": "note"}
+# A stat value longer than this is a number with a note crammed into the same field.
+_STAT_VALUE_LIMIT = 24
+_STAT_VALUE_TAIL = re.compile(r"^(\S+)\s+(.+)$")
+# $5,800, 15%, 3x, 1.2M, 12. A word such as Customer does not match.
+_STAT_AMOUNT = re.compile(r"^[+\-]?[$€£¥₹]?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:[kKmMbB]|%|[xX])?$")
 
 
 def _parser(source: str) -> MarkdownIt:
@@ -70,6 +75,30 @@ def take_braces(text: str) -> tuple[str, dict[str, str]]:
         return text[: match.start()].rstrip(), {}
     attrs = {str(key): str(value) for key, value in raw.items()}
     return text[: match.start()].rstrip(), attrs
+
+
+def _guard_stat_value(children: list[Block]) -> None:
+    """Split a long numeric stat value into the value and a note.
+
+    ``$5,800 Relaxed and activity-focused`` was rendering the whole string in the large type.
+    Only a first token that is a number or amount is split (``$5,800``, ``15%``, ``3x``,
+    ``1.2M``, ``12``). A phrase such as ``Customer Support Operations Team`` stays whole
+    and wraps in CSS. A value of ``_STAT_VALUE_LIMIT`` characters stays as written.
+    """
+    if not children:
+        return
+    text = children[0].plain
+    parts = [part.strip() for part in text.split("|")]
+    if len(parts) < 2 or len(parts[1]) <= _STAT_VALUE_LIMIT:
+        return
+    match = _STAT_VALUE_TAIL.match(parts[1])
+    if match is None or _STAT_AMOUNT.fullmatch(match.group(1)) is None:
+        return
+    extra = match.group(2).strip()
+    if not extra:
+        return
+    note = " | ".join([extra, *[part for part in parts[2:] if part]])
+    children[0].plain = f"{parts[0]} | {match.group(1)} | {note}"
 
 
 def parse_groups(raw: str) -> tuple[tuple[str, int], ...]:
@@ -286,6 +315,7 @@ class _Walker:
         if name == "grid":
             return Block(kind="grid", plain=rest.strip(), attrs=attrs, classes=classes, children=children)
         if name == "stat":
+            _guard_stat_value(children)
             return Block(kind="stat", attrs=attrs, classes=classes, children=children)
         if name in {"timeline", "steps", "compare", "list", "quote"}:
             if name == "timeline":

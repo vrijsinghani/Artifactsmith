@@ -65,6 +65,9 @@ def test_syntax_rules_stay_short():
     assert "chart that column" in house
     assert "Skip years, IDs, ranks, and mixed facts" in house
     assert "July: 38185" in house
+    assert "<one sentence>" in house
+    assert "one or two sentences" not in house
+    assert "Rebate owed | $15,459 | 15% of billed" in house
     # The example sits outside SYNTAX_RULES. The whole fast prompt stays no
     # longer than the full HTML prompt, so a large source does not pay extra
     # prefill. effort=low is attached only for o1/o3/o4/gpt-5, with no probe.
@@ -73,6 +76,49 @@ def test_syntax_rules_stay_short():
     assert supports_effort("gpt-5-mini") is True
     bold = fast_system_prompt("bold")
     assert "No emoji." not in bold
+
+
+def test_long_stat_value_splits_only_when_it_starts_with_an_amount():
+    """A note crammed after an amount is a note. A long phrase stays in the value."""
+    source = "::: stat\nBudget | $5,800 Relaxed and activity-focused\n:::\n"
+    blocks, notes = parse_markdown(source)
+    assert notes == []
+    assert blocks[0].kind == "stat"
+    assert blocks[0].children[0].plain == "Budget | $5,800 | Relaxed and activity-focused"
+    html, render_notes = render_layout(source, style="house", title="Trip")
+    assert render_notes == []
+    assert '<p class="value">$5,800</p>' in html
+    assert '<p class="note">Relaxed and activity-focused</p>' in html
+
+    amounts = (
+        ("15% of the annual travel budget", "15%", "of the annual travel budget"),
+        ("3x the baseline for this quarter", "3x", "the baseline for this quarter"),
+        ("1.2M users in the first month", "1.2M", "users in the first month"),
+        ("12 open requests from last week", "12", "open requests from last week"),
+    )
+    for value, head, note in amounts:
+        assert len(value) > 24
+        parsed, _notes = parse_markdown(f"::: stat\nLabel | {value}\n:::\n")
+        assert parsed[0].children[0].plain == f"Label | {head} | {note}"
+
+    phrases = (
+        "Customer Support Operations Team",
+        "Search, navigation, escalation, analytics",
+    )
+    for value in phrases:
+        assert len(value) > 24
+        parsed, _notes = parse_markdown(f"::: stat\nOwner | {value}\n:::\n")
+        assert parsed[0].children[0].plain == f"Owner | {value}"
+        drawn, _notes = render_layout(f"::: stat\nOwner | {value}\n:::\n", style="house", title="Team")
+        assert f'<p class="value">{value}</p>' in drawn
+        assert '<p class="note">' not in drawn
+
+    short = "$5,800 due now"
+    assert len(short) <= 24
+    same, _notes = parse_markdown(f"::: stat\nLabel | {short}\n:::\n")
+    assert same[0].children[0].plain == f"Label | {short}"
+    whole, _notes = parse_markdown("::: stat\nRebate owed | $15,459.15 | 15% of billed\n:::\n")
+    assert whole[0].children[0].plain == "Rebate owed | $15,459.15 | 15% of billed"
 
 
 def test_dangerous_attributes_and_html_are_dropped():

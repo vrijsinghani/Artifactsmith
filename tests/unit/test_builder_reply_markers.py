@@ -235,3 +235,108 @@ def test_chart_only_page_counts_its_label_as_visible() -> None:
 def test_short_trailing_note_after_end_is_ignored() -> None:
     page = "<!DOCTYPE html>\n<html><body><p>Hi.</p></body></html>"
     assert b.parse_output(_reply(page) + "Let me know if you want changes.\n", fmt="html")[2] == page
+
+
+_TCP = (
+    "# TCP three-way handshake\n\nTCP uses three messages to establish a reliable connection. The client sends SYN.\n"
+)
+_TCP_SENTENCE = "TCP uses three messages to establish a reliable connection."
+
+
+def _markdown_reply(summary: str, body: str = _TCP) -> str:
+    return f"===ASSUMPTIONS===\n- none\n===SUMMARY===\n{summary}\n===FILE: page.md===\n{body}===END===\n"
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "one or two sentences",
+        "One or two sentences.",
+        "one  or\ttwo sentences",
+        '"one or two sentences"',
+        "<one sentence>",
+        "<one sentence>.",
+        "&lt;one sentence&gt;",
+        "one or two plain sentences describing what you built",
+        "one or two plain sentences describing only what changed",
+        "one or two short sentences naming exactly which data is missing",
+        "<Markdown>",
+        "- one per line, or - none",
+    ],
+)
+def test_placeholder_summary_uses_the_first_sentence(summary: str) -> None:
+    assumptions, got, body = b.parse_output(_markdown_reply(summary), fmt="markdown")
+    assert assumptions == []
+    assert got == _TCP_SENTENCE
+    assert body.startswith("# TCP")
+    assert "one or two sentences" not in got
+
+
+def test_a_real_summary_is_kept_even_when_it_mentions_the_phrase() -> None:
+    summary = "The notes are one or two sentences."
+    assert b.parse_output(_markdown_reply(summary), fmt="markdown")[1] == summary
+    html = (
+        "<!DOCTYPE html><html><body><h1>TCP</h1>"
+        "<p>TCP uses three messages to establish a reliable connection. Next.</p></body></html>"
+    )
+    assert b.parse_output(_reply(html, summary="one or two sentences"), fmt="html")[1] == _TCP_SENTENCE
+
+
+def test_placeholder_summary_on_a_title_only_page_uses_the_title() -> None:
+    _assumptions, got, _body = b.parse_output(_markdown_reply("one or two sentences", "# Title only\n"), fmt="markdown")
+    assert got == "Title only"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("<script>alert(1)</script> is bad.", "is bad."),
+        ("<img src=x onerror=alert(1)> is bad.", "is bad."),
+        (
+            "&lt;script&gt;alert(1)&lt;/script&gt; is bad.",
+            "&lt;script&gt;alert(1)&lt;/script&gt; is bad.",
+        ),
+        ("**[click](javascript:alert(1))** now.", "click now."),
+        ("See [docs](https://example.com/a[b]) now.", "See docs now."),
+        ("See [docs](<https://example.com/a(b)>) now.", "See docs now."),
+    ],
+)
+def test_fallback_summary_is_plain_text(sentence: str, expected: str) -> None:
+    body = f"# Title\n\n{sentence}\n"
+    got = b.parse_output(_markdown_reply("one or two sentences", body), fmt="markdown")[1]
+    assert got == expected
+    assert "<script" not in got
+    assert "<img" not in got
+    assert "onerror" not in got
+    assert "javascript:" not in got
+
+
+def test_html_fallback_summary_does_not_unescape_tags() -> None:
+    page = (
+        "<!DOCTYPE html><html><body><h1>Ignored</h1><p>&lt;script&gt;alert(1)&lt;/script&gt; is bad.</p></body></html>"
+    )
+    got = b.parse_output(_reply(page, summary="one or two sentences"), fmt="html")[1]
+    assert got == "&lt;script&gt;alert(1)&lt;/script&gt; is bad."
+    assert "<script" not in got
+    script = (
+        "<!DOCTYPE html><html><body><p><script>alert(1)</script> is bad. <img src=x onerror=alert(1)></p></body></html>"
+    )
+    got = b.parse_output(_reply(script, summary="<one sentence>"), fmt="html")[1]
+    assert got == "is bad."
+    assert "<script" not in got and "onerror" not in got and "<img" not in got
+
+
+def test_table_only_page_summary_uses_the_title_or_a_sentence() -> None:
+    titled = "# Rebate by month\n\n| Month | Billed |\n|---|---|\n| July | $1 |\n"
+    assert b.parse_output(_markdown_reply("one or two sentences", titled), fmt="markdown")[1] == "Rebate by month"
+    bare = "| Month | Billed |\n|---|---|\n| July | $1 |\n"
+    assert b.parse_output(_markdown_reply("<one sentence>", bare), fmt="markdown")[1] == "This page is a table."
+    prose = "# Rebate by month\n\nJuly was the peak.\n\n| Month | Billed |\n|---|---|\n| July | $1 |\n"
+    assert b.parse_output(_markdown_reply("one or two sentences", prose), fmt="markdown")[1] == "July was the peak."
+    html = (
+        "<!DOCTYPE html><html><head><title>Months</title></head><body>"
+        "<table><tr><td>July</td><td>$1</td></tr></table></body></html>"
+    )
+    assert b.parse_output(_reply(html, summary="one or two sentences"), fmt="html")[1] == "Months"
+    bare_html = "<!DOCTYPE html><html><body><table><tr><td>July</td><td>$1</td></tr></table></body></html>"
+    assert b.parse_output(_reply(bare_html, summary="<one sentence>"), fmt="html")[1] == "This page is a table."
