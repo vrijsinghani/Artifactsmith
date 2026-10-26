@@ -1,7 +1,8 @@
 """Minimal markdown → structure helpers shared by PDF, DOCX and XLSX renderers.
 
-No network, no plugins. Supports headings, paragraphs, lists, fenced code, and pipe tables.
-Public http(s) links become clickable anchors in the PDF HTML path.
+No network, no plugins. Supports headings, paragraphs, lists, fenced code, pipe tables,
+and chart or diagram fences. A chart or diagram becomes a figure or a data table.
+The raw fence is not kept. Public http(s) links become clickable anchors in the PDF HTML path.
 """
 
 from __future__ import annotations
@@ -18,12 +19,15 @@ from .safety import URL_RE
 
 @dataclass
 class Block:
-    kind: str  # heading | paragraph | list | code | table
+    kind: str  # heading | paragraph | list | code | table | figure
     text: str = ""
     level: int = 0
     items: list[str] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     headers: list[str] = field(default_factory=list)
+    svg: str = ""
+    alt: str = ""
+    figure: str = ""  # chart | diagram, when kind is figure
 
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -55,13 +59,21 @@ def parse_blocks(text: str) -> list[Block]:
         line = lines[i]
         if _FENCE.match(line.strip()):
             flush_para()
+            info = line.strip()[3:].strip()
             i += 1
             buf: list[str] = []
             while i < len(lines) and not _FENCE.match(lines[i].strip()):
                 buf.append(lines[i])
                 i += 1
-            i += 1  # closing fence
-            blocks.append(Block(kind="code", text="\n".join(buf)))
+            if i < len(lines):
+                i += 1  # closing fence
+            from .figures import fence_blocks
+
+            drawn = fence_blocks(info, "\n".join(buf))
+            if drawn is None:
+                blocks.append(Block(kind="code", text="\n".join(buf)))
+            else:
+                blocks.extend(drawn)
             continue
         if _TABLE_ROW.match(line.strip()) and i + 1 < len(lines) and _TABLE_SEP.match(lines[i + 1].strip()):
             flush_para()
@@ -279,6 +291,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         "pre code{white-space:inherit;overflow-wrap:inherit;word-break:inherit}",
         "table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:0.4rem 0.6rem}",
         "th{background:#e8eef8;text-align:left}",
+        "figure{margin:1rem 0} figure svg{max-width:100%;height:auto}",
         "</style></head><body>",
         f"<h1>{_esc_text(title)}</h1>",
     ]
@@ -299,6 +312,16 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
             parts.append("<ul>" + "".join(f"<li>{_inline_html(it)}</li>" for it in b.items) + "</ul>")
         elif b.kind == "code":
             parts.append(f"<pre><code>{_esc_text(b.text)}</code></pre>")
+        elif b.kind == "figure" and b.svg:
+            css = "asl-chart" if b.figure == "chart" else "asl-diagram"
+            parts.append(f'<figure class="{css}">{b.svg}</figure>')
+        elif b.kind == "figure":
+            parts.append("<table><thead><tr>")
+            parts.extend(f"<th>{_inline_html(h)}</th>" for h in b.headers)
+            parts.append("</tr></thead><tbody>")
+            for row in b.rows:
+                parts.append("<tr>" + "".join(f"<td>{_inline_html(c)}</td>" for c in row) + "</tr>")
+            parts.append("</tbody></table>")
         elif b.kind == "table":
             parts.append("<table><thead><tr>")
             parts.extend(f"<th>{_inline_html(h)}</th>" for h in b.headers)

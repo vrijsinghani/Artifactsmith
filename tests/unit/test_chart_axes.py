@@ -86,6 +86,24 @@ def test_labels_thin_until_they_fit():
         assert reach <= gap + 1
 
 
+def test_short_charts_keep_every_category_label():
+    """Twelve names or fewer are slanted or shortened, never blanked."""
+    labels = ["June", "July", "August", "September"]
+    marks = plan_category_labels(labels, slot=16, font=14)
+    assert [mark.full for mark in marks] == labels
+    assert all(mark.shown for mark in marks)
+    assert marks[0].shown.startswith("J")
+    assert any(mark.rotate or mark.shown != mark.full for mark in marks)
+
+    dozen = [f"September {index}" for index in range(12)]
+    kept = plan_category_labels(dozen, slot=10, font=14)
+    assert len(kept) == 12
+    assert all(mark.shown for mark in kept)
+
+    longer = plan_category_labels([f"September {index}" for index in range(13)], slot=10, font=14)
+    assert any(not mark.shown for mark in longer)
+
+
 def test_truncated_label_keeps_its_full_text():
     label = "Supercalifragilisticexpialidocious"
     marks = plan_category_labels([label] * 8, slot=8, font=14)

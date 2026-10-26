@@ -26,6 +26,7 @@ dependencies = [
     "mdit-py-plugins>=0.4,<1",
     "linkify-it-py>=2,<3",
     "weasyprint>=70,<71",
+    "cairosvg>=2.7,<3",
     "python-docx>=1.1,<2",
     "openpyxl>=3.1,<4",
     "disposable-email-domains>=0.0.96",
@@ -90,7 +91,7 @@ disallow_untyped_defs = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["weasyprint", "docx", "docx.*", "mcp", "mcp.*", "boto3", "botocore.*", "tinyhtml5", "mdit_py_plugins", "mdit_py_plugins.*", "disposable_email_domains"]
+module = ["weasyprint", "cairosvg", "cairocffi", "docx", "docx.*", "mcp", "mcp.*", "boto3", "botocore.*", "tinyhtml5", "mdit_py_plugins", "mdit_py_plugins.*", "disposable_email_domains"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

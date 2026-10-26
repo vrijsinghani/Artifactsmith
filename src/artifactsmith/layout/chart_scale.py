@@ -133,18 +133,26 @@ def text_width(text: str, font: float) -> float:
     return units * font
 
 
+# A short axis keeps every name. Longer series may skip labels so they do not collide.
+_KEEP_EVERY_LABEL = 12
+
+
 def plan_category_labels(labels: Sequence[str], slot: float, font: float) -> list[LabelMark]:
     """Show every label that fits. Otherwise thin, slant, then truncate.
 
     ``slot`` is the center-to-center gap in user units. A truncated label keeps
     the full string on ``LabelMark.full`` so the drawing can put it in ``<title>``.
     The last label is kept when it still clears the previous shown label.
+
+    Twelve categories or fewer are never dropped. They are drawn flat when they
+    fit, and slanted or shortened when they do not. A longer series may thin.
     """
     count = len(labels)
     if count == 0:
         return []
     slot = max(slot, 1.0)
-    for step in range(1, count + 1):
+    steps: Sequence[int] = (1,) if count <= _KEEP_EVERY_LABEL else range(1, count + 1)
+    for step in steps:
         room = step * slot - 4
         if room < font:
             continue
@@ -153,13 +161,16 @@ def plan_category_labels(labels: Sequence[str], slot: float, font: float) -> lis
     cos = math.cos(math.radians(40))
     sin = math.sin(math.radians(40))
     limit = max(slot * 6, font * 8)
-    for step in range(1, count + 1):
+    for step in steps:
         gap = step * slot
         if gap * sin < font * 1.05:
             continue
         shown = [_truncate(labels[index], limit, font) for index in range(0, count, step)]
         if all(text_width(text, font) * cos <= gap - 1 for text in shown):
             return _marks(labels, step, slot, font, rotate=True, limit=limit)
+    if count <= _KEEP_EVERY_LABEL:
+        short = max(font * 3, slot * 2)
+        return _marks(labels, 1, slot, font, rotate=True, limit=short)
     return _marks(labels, max(1, count - 1), slot, font, rotate=True, limit=max(font * 4, slot * 3))
 
 

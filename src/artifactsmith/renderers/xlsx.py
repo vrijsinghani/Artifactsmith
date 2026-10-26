@@ -220,7 +220,12 @@ class XlsxRenderer:
                 pending_sheet = b.text
                 notes.append(b.text)
                 continue
-            if b.kind == "table":
+            if b.kind in {"table", "figure"}:
+                if b.kind == "figure" and not b.headers and not b.rows:
+                    if b.alt:
+                        notes.append(b.alt)
+                    pending_sheet = None
+                    continue
                 table_i += 1
                 raw_name = pending_sheet or (b.headers[0] if b.headers else f"Table{table_i}")
                 pending_sheet = None

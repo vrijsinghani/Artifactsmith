@@ -26,6 +26,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- PDF and Word export draw chart and diagram fences as images (PNG with alt text in DOCX) instead of printing the fence. A chart or diagram that cannot be drawn, including a Mermaid xychart or flowchart, becomes a table. The PDF and DOCX prompt names the chart and diagram fences and says Mermaid is not supported. Category labels on a chart with 12 or fewer categories are slanted or shortened instead of dropped.
 - A summary that copies a prompt placeholder, including "one or two sentences", is replaced with the first sentence of the page. The fallback is plain text: tags are removed, HTML entities stay escaped, and a link keeps its text without the URL. A table-only page uses its title, or a short sentence, instead of an empty summary. The fast-path summary slot is `<one sentence>`. A stat value longer than 24 characters is split into the value and a note only when it starts with a number or amount, and the stat example shows a short note again.
 - A chart that falls back to a table escapes cell text when the table is built. The fast-path prompt again shows a short sequence diagram beside the multi-line timeline.
 - Chart tick labels no longer sit on the first category label, and a rotated axis title stays inside the drawing. Small values keep enough digits to stay accurate (`$0.018` does not become `$0.02`), tick labels share one precision and do not collide, and chart text stays at least 11px on a phone.
