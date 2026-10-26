@@ -162,7 +162,7 @@ Writing:
 - No sales language, emoji, or dramatic closers. Straight quotes.
 - Style edits never change facts. Preserve verbatim quotations, code and identifiers exactly.
 - Use Markdown tables when the content is tabular (required for spreadsheet output).
-- Charts and diagrams are fenced blocks. Mermaid is not supported. Use ```chart bar|line|pie|donut``` with an optional unit=$ and one `Label: 12` line, or a pipe table. Use ```flow```, ```sequence```, ```timeline```, or ```tree``` for a diagram.
+- Charts and diagrams are fenced blocks. Mermaid is not supported. Use ```chart bar|line|pie|donut``` with an optional unit=$ and one `Label: 12` line, or a pipe table. Use ```flow```, ```sequence```, or ```tree``` for a diagram. A timeline is ```timeline``` with one event per line: `Oct 10: Blog topics approved` or `*date | title | note`.
 - Explicit user requests override style defaults only. They never override factual accuracy,
   source-preservation requirements, output-format constraints, or private-link and secret checks.
 

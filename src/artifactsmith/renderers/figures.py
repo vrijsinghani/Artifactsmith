@@ -12,7 +12,7 @@ import re
 from html import unescape
 
 from artifactsmith.layout.chart import ChartSpec, aria_label, chart_svg, parse_chart
-from artifactsmith.layout.chart_scale import format_value
+from artifactsmith.layout.chart_scale import bare_years, format_value
 from artifactsmith.layout.diagram import Drawn, read_fence
 from artifactsmith.layout.diagram_parse import KINDS, fallback_steps
 
@@ -170,15 +170,17 @@ def _flow_blocks(content: str) -> list[Block] | None:
 def _chart_figure(spec: ChartSpec) -> Block:
     names = [_series_name(name, index, len(spec.series)) for index, (name, _vals) in enumerate(spec.series)]
     headers = [spec.x_title or "Category", *names]
+    flat = [value for _name, column in spec.series for value in column]
+    year = bare_years(flat, spec.unit)
     rows: list[list[str]] = []
     for index, label in enumerate(spec.labels):
         row = [label]
         for _name, values in spec.series:
             value = values[index] if index < len(values) else None
-            row.append("" if value is None else format_value(value, spec.unit))
+            row.append("" if value is None else format_value(value, spec.unit, year=year))
         rows.append(row)
     first = list(spec.series[0][1])
-    label = aria_label(spec.kind, "", list(spec.labels), first, spec.unit)
+    label = aria_label(spec.kind, "", list(spec.labels), first, spec.unit, year=year)
     svg = chart_svg(
         spec.kind,
         list(spec.labels),

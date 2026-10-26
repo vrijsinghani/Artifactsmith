@@ -85,18 +85,45 @@ def line_scale(values: Sequence[float | None]) -> Scale:
     return _cover(lo, hi, finite)
 
 
-def format_value(value: float, unit: str) -> str:
+def bare_years(values: Sequence[float | None], unit: str) -> bool:
+    """True when every finite value is a year and the unit is empty.
+
+    A series of only years stays ``1998``, not ``1,998``. A mixed series such
+    as 1840, 2010, and 2200 is a quantity, so 2010 is grouped as ``2,010``.
+    """
+    if unit != "":
+        return False
+    finite = [value for value in values if value is not None and math.isfinite(value)]
+    if not finite:
+        return False
+    for value in finite:
+        if value != int(value) or not 1900 <= int(value) <= 2100:
+            return False
+    return True
+
+
+def _grouped_int(number: int, unit: str, year: bool | None) -> str:
+    """``year`` True keeps a bare year. False groups every integer. None decides per number."""
+    if year is None:
+        bare = unit == "" and 1900 <= number <= 2100
+    else:
+        bare = year and unit == "" and 1900 <= number <= 2100
+    return str(number) if bare else f"{number:,}"
+
+
+def format_value(value: float, unit: str, *, year: bool | None = None) -> str:
     """One number plus its unit, for a value label or a screen-reader summary.
 
     Non-integers keep at least two significant figures, and the text rounds
     back to the same value. ``0.018`` stays ``0.018``; it does not become ``0.02``.
+    A bare year is not a thousands-grouped quantity (``1998``, never ``1,998``).
+    Pass ``year=False`` when the series is a quantity that only happens to
+    include a 4-digit value.
     """
     if not math.isfinite(value):
         return ""
     if value == int(value) and abs(value) < 1e15:
-        number = int(value)
-        # A bare year is not a thousands-grouped quantity ("1998", never "1,998").
-        shown = str(number) if unit == "" and 1900 <= number <= 2100 else f"{number:,}"
+        shown = _grouped_int(int(value), unit, year)
     else:
         places = _places_for(value)
         sign = "-" if value < 0 else ""
@@ -104,13 +131,12 @@ def format_value(value: float, unit: str) -> str:
     return _with_unit(shown, unit)
 
 
-def format_tick(value: float, unit: str, step: float) -> str:
+def format_tick(value: float, unit: str, step: float, *, year: bool | None = None) -> str:
     """A tick label. Decimals follow the step so 4.0 and 4.2 line up."""
     places = _decimals(step)
     rounded = _round(value)
     if places == 0:
-        number = int(round(rounded))
-        shown = str(number) if unit == "" and 1900 <= number <= 2100 else f"{number:,}"
+        shown = _grouped_int(int(round(rounded)), unit, year)
     else:
         shown = f"{rounded:,.{places}f}"
     return _with_unit(shown, unit)

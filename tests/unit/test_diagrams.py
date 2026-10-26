@@ -75,6 +75,15 @@ def test_timeline_parser_marks_the_key_moment():
     assert spec.events[1].note == "Build the API"
     forced = parse_timeline("timeline v", "Mar 2 | Kickoff\n")
     assert forced is not None and forced.force == "v"
+    colon = parse_timeline(
+        "timeline",
+        "Oct 10: Blog topics approved\n*Oct 20: Publish 2 holiday ordering guides\n",
+    )
+    assert colon is not None
+    assert colon.events[0].when == "Oct 10" and colon.events[0].title == "Blog topics approved"
+    assert colon.events[0].hi is False and colon.events[1].hi is True
+    piped = parse_timeline("timeline", "Oct 10 | Morning: standup\n")
+    assert piped is not None and piped.events[0].title == "Morning: standup"
 
 
 def test_tree_parser_reads_indent_notes_and_highlights():
@@ -380,6 +389,39 @@ Week 2 | Build | Draft
     apart, _notes = render_layout(split, style="house", title="Plan")
     assert apart.count("<svg") == 2
     assert "Kickoff" in apart and "Build" in apart
+
+
+def test_timeline_container_draws_colon_lines():
+    source = """# Next steps
+
+::: timeline
+Oct 10: Blog topics approved
+Oct 20: Publish 2 holiday ordering guides
+:::
+"""
+    html, notes = render_layout(source, style="house", title="Next steps")
+    assert "shown as a list" not in " ".join(notes)
+    assert "<svg" in html
+    assert "Oct 10" in html and "Blog topics approved" in html
+    assert "Publish 2 holiday ordering guides" in html
+    assert "Diagram could not be drawn" not in html
+
+
+def test_undrawable_timeline_keeps_every_line():
+    from artifactsmith.layout.diagram_parse import fallback_steps
+
+    steps = fallback_steps("timeline", "Blog topics approved\nPublish the holiday guide\n")
+    assert steps == ["Blog topics approved", "Publish the holiday guide"]
+    assert fallback_steps("timeline", "|\n") == ["Diagram could not be drawn"]
+    html, notes = render_layout(
+        "```timeline\nBlog topics approved\nPublish the holiday guide\n```\n",
+        style="house",
+        title="Next steps",
+    )
+    assert "timeline diagram shown as a list" in notes
+    assert "asl-steps" in html
+    assert "Blog topics approved" in html and "Publish the holiday guide" in html
+    assert "Diagram could not be drawn" not in html
 
 
 def test_failed_timeline_pipe_block_is_a_list_not_raw_syntax():

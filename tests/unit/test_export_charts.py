@@ -84,6 +84,9 @@ def test_content_prompt_teaches_our_fences_and_refuses_mermaid():
     assert "```chart bar|line|pie|donut```" in text
     assert "```sequence```" in text
     assert "```flow```" in text
+    assert "```timeline```" in text
+    assert "Oct 10: Blog topics approved" in text
+    assert "*date | title | note" in text
     assert "Mermaid is not supported" in text
     assert builder.system_prompt_for("pdf") == text
     assert builder.system_prompt_for("docx") == text
@@ -146,6 +149,61 @@ def test_mermaid_xychart_and_flowchart_are_drawn_and_sequence_is_a_table():
     assert "->>" not in sequence_html
     assert "Alice" in sequence_html
     assert "Hello there" in sequence_html
+
+
+TIMELINE = """```timeline
+Oct 10: Blog topics approved
+Oct 20: Publish 2 holiday ordering guides
+```
+"""
+
+UNDRAWN = """```timeline
+Blog topics approved
+Publish the holiday guide
+```
+"""
+
+
+def test_colon_timeline_and_undrawable_lines_survive_html_pdf_and_docx():
+    """A date: text timeline draws, and a timeline that cannot draw keeps its lines."""
+    from artifactsmith.layout.render import render_layout
+
+    page, _notes = render_layout(TIMELINE, style="house", title="Next steps")
+    assert "<svg" in page
+    assert "Oct 10" in page and "Blog topics approved" in page
+    assert "Oct 20" in page and "Publish 2 holiday ordering guides" in page
+    assert "Diagram could not be drawn" not in page
+
+    html = _html(TIMELINE)
+    assert "<svg" in html
+    assert "Blog topics approved" in html and "Publish 2 holiday ordering guides" in html
+    assert "Diagram could not be drawn" not in html
+    sizes = _replaced_sizes(html)
+    assert sizes and sizes[0][0] > 40 and sizes[0][1] > 40
+    pdf = get_renderer("pdf").render(title="Next steps", body=TIMELINE).files["document.pdf"]
+    assert pdf.startswith(b"%PDF")
+    assert b"Oct 10: Blog topics approved" not in pdf
+
+    docx = get_renderer("docx").render(title="Next steps", body=TIMELINE).files["document.docx"]
+    xml = _docx_xml(docx)
+    assert "Oct 10" in xml and "Blog topics approved" in xml
+    assert "Publish 2 holiday ordering guides" in xml
+    assert "Diagram could not be drawn" not in xml
+
+    listed, notes = render_layout(UNDRAWN, style="house", title="Next steps")
+    assert "timeline diagram shown as a list" in notes
+    assert "Blog topics approved" in listed and "Publish the holiday guide" in listed
+    assert "Diagram could not be drawn" not in listed
+
+    plain = _html(UNDRAWN)
+    assert "<table>" in plain
+    assert "Blog topics approved" in plain and "Publish the holiday guide" in plain
+    assert "Diagram could not be drawn" not in plain
+    undrawn_pdf = get_renderer("pdf").render(title="Next steps", body=UNDRAWN).files["document.pdf"]
+    assert undrawn_pdf.startswith(b"%PDF")
+    undrawn_xml = _docx_xml(get_renderer("docx").render(title="Next steps", body=UNDRAWN).files["document.docx"])
+    assert "Blog topics approved" in undrawn_xml and "Publish the holiday guide" in undrawn_xml
+    assert "Diagram could not be drawn" not in undrawn_xml
 
 
 def test_script_in_a_chart_label_is_escaped():

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .chart_draw import draw_chart
-from .chart_scale import format_value, prefers_horizontal
+from .chart_scale import bare_years, format_value, prefers_horizontal
 
 _NUM = re.compile(r"^[+−\-]?\s*[$€£¥]?\s*\d[\d,]*(?:\.\d+)?\s*%?$")
 _MISSING = frozenset({"", "-", "—", "–", "n/a", "na", "null", "none", ".", "…", "nan"})
@@ -51,6 +51,15 @@ def _cell(raw: str) -> float | None:
     if value is None:
         raise ValueError(text)
     return value
+
+
+def _unquote(text: str) -> str:
+    """Drop one pair of wrapping quotes. A quoted chart label is the words inside."""
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        inner = text[1:-1].strip()
+        return inner or text
+    return text
 
 
 def _row_cells(raw: str) -> list[str] | None:
@@ -125,6 +134,7 @@ def parse_chart(info: str, content: str) -> ChartSpec | None:
         if cells is None or len(cells) < 2:
             other_rows += 1
             continue
+        cells = [_unquote(cell) for cell in cells]
         try:
             values = [_cell(cell) for cell in cells[1:]]
         except ValueError:
@@ -167,13 +177,16 @@ def aria_label(
     labels: list[str],
     values: Sequence[float | None],
     unit: str,
+    *,
+    year: bool | None = None,
 ) -> str:
+    grouped_as_year = bare_years(values, unit) if year is None else year
     bits = []
     for name, value in zip(labels, values, strict=False):
         if value is None:
             bits.append(f"{name} missing")
         else:
-            bits.append(f"{name} {format_value(value, unit)}")
+            bits.append(f"{name} {format_value(value, unit, year=grouped_as_year)}")
     title = {"bar": "Bar", "hbar": "Bar", "line": "Line", "pie": "Pie", "donut": "Donut"}.get(kind, "Bar")
     text = f"{title} chart"
     if heading:
