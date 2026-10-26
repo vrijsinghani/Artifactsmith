@@ -235,7 +235,9 @@ def _bars(
             )
             if show_values:
                 label_y = y - 4 if value >= 0 else y + height + font
-                parts.append(_text(x + bar_w / 2, label_y, format_value(value, unit, year=year), "", font, anchor="middle"))
+                parts.append(
+                    _text(x + bar_w / 2, label_y, format_value(value, unit, year=year), "", font, anchor="middle")
+                )
     return parts
 
 
@@ -282,7 +284,15 @@ def _hbars(
                 anchor = "start" if value >= 0 else "end"
                 vx = end + (4 if value >= 0 else -4)
                 parts.append(
-                    _text(vx, y + bar_h / 2, format_value(value, unit, year=year), "", font, anchor=anchor, baseline="central")
+                    _text(
+                        vx,
+                        y + bar_h / 2,
+                        format_value(value, unit, year=year),
+                        "",
+                        font,
+                        anchor=anchor,
+                        baseline="central",
+                    )
                 )
     return parts
 

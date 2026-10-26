@@ -408,7 +408,7 @@ def test_mixed_quantities_group_year_like_numbers_and_quotes_are_not_labels():
     assert "1998" in years and "2004" in years
     assert "1,998" not in years and "2,004" not in years
 
-    spec = parse_chart("chart bar", '"Jan 2024": 3\n\'Feb 2024\': 4\n')
+    spec = parse_chart("chart bar", "\"Jan 2024\": 3\n'Feb 2024': 4\n")
     assert spec is not None and spec.labels == ["Jan 2024", "Feb 2024"]
     drawn = chart_svg("bar", spec.labels, list(spec.series[0][1]), "", "Months")
     assert "Jan 2024" in drawn and "Feb 2024" in drawn
