@@ -2,8 +2,6 @@
 
 ArtifactSmith is an open source artifact server for AI agents.
 
-**Website: [hopeful-domain-794795.framer.app](https://hopeful-domain-794795.framer.app)** · [Try it](https://artifactsmith.neuralami.ai/try)
-
 ![ArtifactSmith building the same page in five styles](docs/images/demo.gif)
 
 ## Examples
