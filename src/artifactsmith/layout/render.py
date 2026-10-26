@@ -8,6 +8,7 @@ from html import escape
 from ..renderers.html_sanitize import HtmlSanitizeError, sanitize_html_document
 from ..styles import parse_style
 from .chart import aria_label, chart_svg
+from .chart_scale import bare_years
 from .css import grid_class, grid_rule, sheet_extra, stylesheet
 from .design import design_page
 from .inline import esc
@@ -424,7 +425,15 @@ def _chart(block: Block, ctx: _Ctx) -> str:
     if not any(value is not None for _name, column in series for value in column):
         return ""
     first = list(series[0][1])
-    label = aria_label(block.plain, ctx.heading, list(block.labels), first, block.html)
+    flat = [value for _name, column in series for value in column]
+    label = aria_label(
+        block.plain,
+        ctx.heading,
+        list(block.labels),
+        first,
+        block.html,
+        year=bare_years(flat, block.html),
+    )
     svg = chart_svg(
         block.plain,
         list(block.labels),

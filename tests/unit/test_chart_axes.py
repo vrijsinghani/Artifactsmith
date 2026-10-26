@@ -86,6 +86,24 @@ def test_labels_thin_until_they_fit():
         assert reach <= gap + 1
 
 
+def test_short_charts_keep_every_category_label():
+    """Twelve names or fewer are slanted or shortened, never blanked."""
+    labels = ["June", "July", "August", "September"]
+    marks = plan_category_labels(labels, slot=16, font=14)
+    assert [mark.full for mark in marks] == labels
+    assert all(mark.shown for mark in marks)
+    assert marks[0].shown.startswith("J")
+    assert any(mark.rotate or mark.shown != mark.full for mark in marks)
+
+    dozen = [f"September {index}" for index in range(12)]
+    kept = plan_category_labels(dozen, slot=10, font=14)
+    assert len(kept) == 12
+    assert all(mark.shown for mark in kept)
+
+    longer = plan_category_labels([f"September {index}" for index in range(13)], slot=10, font=14)
+    assert any(not mark.shown for mark in longer)
+
+
 def test_truncated_label_keeps_its_full_text():
     label = "Supercalifragilisticexpialidocious"
     marks = plan_category_labels([label] * 8, slot=8, font=14)
@@ -369,6 +387,32 @@ def test_small_money_values_stay_accurate_and_ticks_do_not_collide():
     for index, box in enumerate(boxes):
         for other in boxes[index + 1 :]:
             assert not _overlaps(box, other, gap=1)
+
+
+def test_mixed_quantities_group_year_like_numbers_and_quotes_are_not_labels():
+    from artifactsmith.layout.chart import aria_label
+    from artifactsmith.layout.chart_scale import bare_years, format_tick
+
+    assert bare_years([1998, 2004], "") is True
+    assert bare_years([1840, 2010, 2200], "") is False
+    assert bare_years([1998], "$") is False
+    assert format_tick(2000, "", 500, year=False) == "2,000"
+    assert format_tick(2000, "", 2, year=True) == "2000"
+    text = aria_label("bar", "", ["June", "July", "August"], [1840, 2010, 2200], "")
+    assert "1,840" in text and "2,010" in text and "2,200" in text
+    assert "July 2010" not in text
+    svg = chart_svg("bar", ["June", "July", "August"], [1840, 2010, 2200], "", "Orders")
+    assert "1,840" in svg and "2,010" in svg and "2,200" in svg
+    assert "2,000" in svg
+    years = chart_svg("line", ["A", "B"], [1998, 2004], "", "Years")
+    assert "1998" in years and "2004" in years
+    assert "1,998" not in years and "2,004" not in years
+
+    spec = parse_chart("chart bar", "\"Jan 2024\": 3\n'Feb 2024': 4\n")
+    assert spec is not None and spec.labels == ["Jan 2024", "Feb 2024"]
+    drawn = chart_svg("bar", spec.labels, list(spec.series[0][1]), "", "Months")
+    assert "Jan 2024" in drawn and "Feb 2024" in drawn
+    assert "&quot;Jan" not in drawn and "&quot;Feb" not in drawn
 
 
 def test_chart_text_is_at_least_11px_on_a_phone():

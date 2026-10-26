@@ -6,7 +6,8 @@ import io
 from typing import Any
 
 from .base import RenderOutput
-from .md_parse import InlineSpan, iter_styled_spans, parse_blocks
+from .figures import rasterize_svg
+from .md_parse import Block, InlineSpan, iter_styled_spans, parse_blocks
 from .safety import strip_ooxml_controls
 
 
@@ -67,6 +68,50 @@ def _add_text_with_links(paragraph: Any, text: str) -> None:
         paragraph._p.append(hyperlink)
 
 
+def _add_table(doc: Any, headers: list[str], rows: list[list[str]]) -> None:
+    cols = max(len(headers), max((len(row) for row in rows), default=0))
+    if cols == 0:
+        return
+    table = doc.add_table(rows=1 + len(rows), cols=cols)
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    for index, header in enumerate(headers):
+        if index < cols:
+            hdr[index].text = ""
+            _add_text_with_links(hdr[index].paragraphs[0], header)
+    for row_index, row in enumerate(rows):
+        cells = table.rows[row_index + 1].cells
+        for col_index, val in enumerate(row):
+            if col_index < cols:
+                cells[col_index].text = ""
+                _add_text_with_links(cells[col_index].paragraphs[0], val)
+
+
+def _add_figure(doc: Any, block: Block) -> bool:
+    """Embed the drawing as a PNG. Return False so the caller can write the table."""
+    from docx.oxml.ns import qn
+    from docx.shared import Inches
+
+    png = rasterize_svg(block.svg)
+    if not png:
+        return False
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run()
+    shape = run.add_picture(io.BytesIO(png), width=Inches(6.2))
+    alt = strip_ooxml_controls(block.alt).strip() or "Chart"
+    if len(alt) > 280:
+        alt = alt[:277].rstrip() + "..."
+    doc_pr = shape._inline.docPr
+    doc_pr.set("descr", alt)
+    doc_pr.set("title", alt[:80])
+    drawing = run._r.find(qn("w:drawing"))
+    if drawing is not None:
+        for element in drawing.iter():
+            if element.tag.endswith("}cNvPr"):
+                element.set("descr", alt)
+    return True
+
+
 class DocxRenderer:
     format = "docx"
     model_filename = "content.md"
@@ -99,23 +144,10 @@ class DocxRenderer:
                 for run in p.runs:
                     run.font.name = "Courier New"
                     run.font.size = Pt(9)
-            elif b.kind == "table":
-                cols = max(len(b.headers), max((len(r) for r in b.rows), default=0))
-                if cols == 0:
-                    continue
-                table = doc.add_table(rows=1 + len(b.rows), cols=cols)
-                table.style = "Table Grid"
-                hdr = table.rows[0].cells
-                for i, h in enumerate(b.headers):
-                    if i < cols:
-                        hdr[i].text = ""
-                        _add_text_with_links(hdr[i].paragraphs[0], h)
-                for ri, row in enumerate(b.rows):
-                    cells = table.rows[ri + 1].cells
-                    for ci, val in enumerate(row):
-                        if ci < cols:
-                            cells[ci].text = ""
-                            _add_text_with_links(cells[ci].paragraphs[0], val)
+            elif b.kind == "figure" and b.svg and _add_figure(doc, b):
+                continue
+            elif b.kind in {"table", "figure"}:
+                _add_table(doc, b.headers, b.rows)
         buf = io.BytesIO()
         doc.save(buf)
         files = {

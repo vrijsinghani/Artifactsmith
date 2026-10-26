@@ -10,6 +10,7 @@ from .chart_scale import (
     LabelMark,
     Scale,
     bar_scale,
+    bare_years,
     chart_width_budget,
     format_tick,
     format_value,
@@ -94,7 +95,8 @@ def _vertical(
     count = max(len(labels), 1)
     flat = [value for _name, column in series for value in column]
     scale = line_scale(flat) if kind == "line" else bar_scale(flat)
-    tick_w = _tick_width(scale, unit, font)
+    year = bare_years(flat, unit)
+    tick_w = _tick_width(scale, unit, font, year)
     title_x, title_col = _y_title_band(font, y_title)
     legend_h, legend = _legend(series, font)
     budget = chart_width_budget(font)
@@ -117,11 +119,11 @@ def _vertical(
     width = left + plot_w + right
     height = top + _PLOT_H + foot
     parts = [legend]
-    parts.extend(_y_axis(scale, unit, font, left, top, plot_w, title_x, y_title))
+    parts.extend(_y_axis(scale, unit, font, left, top, plot_w, title_x, y_title, year))
     if kind == "line":
-        parts.extend(_lines(series, scale, left, top, slot, font, show_values, unit))
+        parts.extend(_lines(series, scale, left, top, slot, font, show_values, unit, year))
     else:
-        parts.extend(_bars(series, scale, left, top, slot, font, show_values, unit))
+        parts.extend(_bars(series, scale, left, top, slot, font, show_values, unit, year))
     parts.extend(_categories(marks, left, top + _PLOT_H, slot, font))
     if x_title:
         parts.append(_axis_title(x_title, left + plot_w / 2, height - 6, font, plot_w))
@@ -139,13 +141,14 @@ def _horizontal(
 ) -> tuple[str, float]:
     flat = [value for _name, column in series for value in column]
     scale = bar_scale(flat)
+    year = bare_years(flat, unit)
     groups = len(series)
     row_h = max(font + 12, groups * (font * 0.85) + 10)
     legend_h, legend = _legend(series, font)
     budget = chart_width_budget(font)
-    tick_w = _tick_width(scale, unit, font)
+    tick_w = _tick_width(scale, unit, font, year)
     finite = [value for value in flat if value is not None]
-    value_w = max((text_width(format_value(value, unit), font) for value in finite), default=0.0)
+    value_w = max((text_width(format_value(value, unit, year=year), font) for value in finite), default=0.0)
     right = max(tick_w / 2, value_w * 0.5) + 8
     plot_w = min(180.0, max(88.0, budget * 0.46))
     cat_w = font * 6
@@ -162,8 +165,8 @@ def _horizontal(
     height = top + row_h * len(labels) + tick_h + (font + 8 if y_title or x_title else 6)
     width = left + plot_w + right
     parts = [legend]
-    parts.extend(_x_axis(scale, unit, font, left, top, plot_w, row_h * len(labels)))
-    parts.extend(_hbars(labels, series, scale, left, top, plot_w, row_h, cat_w, font, unit, cat_limit))
+    parts.extend(_x_axis(scale, unit, font, left, top, plot_w, row_h * len(labels), year))
+    parts.extend(_hbars(labels, series, scale, left, top, plot_w, row_h, cat_w, font, unit, cat_limit, year))
     title = y_title or x_title
     if title:
         parts.append(_axis_title(title, left + plot_w / 2, height - 4, font, plot_w))
@@ -179,6 +182,7 @@ def _lines(
     font: float,
     show_values: bool,
     unit: str,
+    year: bool,
 ) -> list[str]:
     parts: list[str] = []
     for index, (_name, column) in enumerate(series):
@@ -195,7 +199,7 @@ def _lines(
             for cx, cy, value in coords:
                 parts.append(f'<circle class="{_fill_class("dot", index)}" cx="{_n(cx)}" cy="{_n(cy)}" r="3.5"/>')
                 if show_values:
-                    parts.append(_text(cx, cy - 8, format_value(value, unit), "", font, anchor="middle"))
+                    parts.append(_text(cx, cy - 8, format_value(value, unit, year=year), "", font, anchor="middle"))
     return parts
 
 
@@ -208,6 +212,7 @@ def _bars(
     font: float,
     show_values: bool,
     unit: str,
+    year: bool,
 ) -> list[str]:
     groups = len(series)
     gap = 3.0
@@ -230,7 +235,9 @@ def _bars(
             )
             if show_values:
                 label_y = y - 4 if value >= 0 else y + height + font
-                parts.append(_text(x + bar_w / 2, label_y, format_value(value, unit), "", font, anchor="middle"))
+                parts.append(
+                    _text(x + bar_w / 2, label_y, format_value(value, unit, year=year), "", font, anchor="middle")
+                )
     return parts
 
 
@@ -246,6 +253,7 @@ def _hbars(
     font: float,
     unit: str,
     limit: float,
+    year: bool,
 ) -> list[str]:
     groups = len(series)
     gap = 3.0
@@ -276,7 +284,15 @@ def _hbars(
                 anchor = "start" if value >= 0 else "end"
                 vx = end + (4 if value >= 0 else -4)
                 parts.append(
-                    _text(vx, y + bar_h / 2, format_value(value, unit), "", font, anchor=anchor, baseline="central")
+                    _text(
+                        vx,
+                        y + bar_h / 2,
+                        format_value(value, unit, year=year),
+                        "",
+                        font,
+                        anchor=anchor,
+                        baseline="central",
+                    )
                 )
     return parts
 
@@ -290,9 +306,10 @@ def _y_axis(
     plot_w: float,
     title_x: float,
     y_title: str,
+    year: bool,
 ) -> list[str]:
     parts: list[str] = []
-    labels = [format_tick(tick, unit, scale.step) for tick in scale.ticks]
+    labels = [format_tick(tick, unit, scale.step, year=year) for tick in scale.ticks]
     positions = [_y(tick, scale, top) for tick in scale.ticks]
     # A centered tick label is about one em tall. Drop a label that would sit on its neighbor.
     keep = keep_tick_labels(positions, [font * 1.15 for _label in labels])
@@ -310,10 +327,12 @@ def _y_axis(
     return parts
 
 
-def _x_axis(scale: Scale, unit: str, font: float, left: float, top: float, plot_w: float, plot_h: float) -> list[str]:
+def _x_axis(
+    scale: Scale, unit: str, font: float, left: float, top: float, plot_w: float, plot_h: float, year: bool
+) -> list[str]:
     parts: list[str] = []
     span = scale.hi - scale.lo or 1.0
-    labels = [format_tick(tick, unit, scale.step) for tick in scale.ticks]
+    labels = [format_tick(tick, unit, scale.step, year=year) for tick in scale.ticks]
     positions = [left + (tick - scale.lo) / span * plot_w for tick in scale.ticks]
     sizes = [text_width(label, font) for label in labels]
     keep = keep_tick_labels(positions, sizes)
@@ -436,8 +455,8 @@ def _y(value: float, scale: Scale, top: float) -> float:
     return top + (scale.hi - value) / span * _PLOT_H
 
 
-def _tick_width(scale: Scale, unit: str, font: float) -> float:
-    return max(text_width(format_tick(tick, unit, scale.step), font) for tick in scale.ticks)
+def _tick_width(scale: Scale, unit: str, font: float, year: bool) -> float:
+    return max(text_width(format_tick(tick, unit, scale.step, year=year), font) for tick in scale.ticks)
 
 
 def _few(series: Series) -> bool:

@@ -51,7 +51,7 @@ def read_fence(info: str, content: str) -> Drawn | None:
 
 
 def timeline_from_children(children: list[Block]) -> Drawn | None:
-    """``date | title | note`` lines inside ``::: timeline`` draw a timeline.
+    """``date | title | note`` or ``date: text`` lines inside ``::: timeline`` draw.
 
     A bullet list stays a list. That is the older timeline syntax.
     """
@@ -59,7 +59,7 @@ def timeline_from_children(children: list[Block]) -> Drawn | None:
         return None
     parts = [child.source for child in children if child.kind == "paragraph" and child.source.strip()]
     text = "\n".join(parts).strip()
-    if "|" not in text:
+    if "|" not in text and ":" not in text:
         return None
     drawn = read_fence("timeline", text)
     if drawn is None:

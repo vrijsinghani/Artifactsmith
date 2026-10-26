@@ -4,7 +4,7 @@ The line grammar follows answer-me-with-html (MIT),
 https://github.com/QingYunA/answer-me-with-html
 (src/components/flow.js, sequence.js, timeline.js, tree.js):
 ``A -> B: label``, ``-->`` for a dashed return, ``note A: text``,
-``date | title``, and indentation for a tree. The Python is not a copy
+``date | title``, ``date: text``, and indentation for a tree. The Python is not a copy
 of those files.
 """
 
@@ -140,10 +140,14 @@ def parse_tree(info: str, content: str) -> Tree | None:
 
 
 def fallback_steps(kind: str, content: str) -> list[str]:
-    """Readable steps. Arrow syntax is rewritten so the page is not the source."""
+    """Readable steps. Arrow syntax is rewritten so the page is not the source.
+
+    A line that still has words is kept. The generic sentence is only for a
+    fence that has no readable line left.
+    """
     steps: list[str] = []
     for raw in (content or "").splitlines():
-        step = _humanize(kind, raw)
+        step = _humanize(kind, raw) or _plain_line(raw)
         if step:
             steps.append(step)
         if len(steps) >= 40:
@@ -318,7 +322,7 @@ def _timeline(info: str, content: str) -> Timeline:
     for row in rows:
         hi = row.startswith("*")
         body = row[1:].strip() if hi else row
-        parts = [part.strip() for part in body.split("|")]
+        parts = _event_parts(body)
         if len(parts) < 2 or not parts[0] or not parts[1]:
             skipped += 1
             continue
@@ -387,13 +391,41 @@ def _tree(content: str) -> Tree:
     return Tree(roots, skipped)
 
 
+def _event_parts(body: str) -> list[str]:
+    """``date | title | note`` or ``date: text``. A pipe wins when both appear."""
+    if "|" in body:
+        return [part.strip() for part in body.split("|")]
+    if ":" in body:
+        date, _, title = body.partition(":")
+        return [date.strip(), title.strip()]
+    return [body.strip()] if body.strip() else []
+
+
+def _plain_line(raw: str) -> str:
+    """Words from a line that did not match the fence grammar."""
+    text = raw.strip()
+    if not text or text.startswith("//"):
+        return ""
+    text = text.replace("```", " ")
+    text = re.sub(r":{3,}", " ", text)
+    text = _ARROW.sub(" to ", text)
+    text = text.replace("->", " to ")
+    text = text.replace("*", "")
+    text = text.replace("[(", " ").replace(")]", " ")
+    text = re.sub(r"[{}\[\]()]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" :|-")
+    if not text or "->" in text:
+        return ""
+    return text[:180]
+
+
 def _humanize(kind: str, raw: str) -> str:
     text = raw.strip()
     if not text or text.startswith("//"):
         return ""
     if kind == "timeline":
         body = text[1:].strip() if text.startswith("*") else text
-        parts = [part.strip() for part in body.split("|") if part.strip()]
+        parts = [part for part in _event_parts(body) if part]
         if len(parts) < 2:
             return ""
         return " — ".join(parts)[:180]

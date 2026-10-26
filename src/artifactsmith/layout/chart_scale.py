@@ -85,18 +85,45 @@ def line_scale(values: Sequence[float | None]) -> Scale:
     return _cover(lo, hi, finite)
 
 
-def format_value(value: float, unit: str) -> str:
+def bare_years(values: Sequence[float | None], unit: str) -> bool:
+    """True when every finite value is a year and the unit is empty.
+
+    A series of only years stays ``1998``, not ``1,998``. A mixed series such
+    as 1840, 2010, and 2200 is a quantity, so 2010 is grouped as ``2,010``.
+    """
+    if unit != "":
+        return False
+    finite = [value for value in values if value is not None and math.isfinite(value)]
+    if not finite:
+        return False
+    for value in finite:
+        if value != int(value) or not 1900 <= int(value) <= 2100:
+            return False
+    return True
+
+
+def _grouped_int(number: int, unit: str, year: bool | None) -> str:
+    """``year`` True keeps a bare year. False groups every integer. None decides per number."""
+    if year is None:
+        bare = unit == "" and 1900 <= number <= 2100
+    else:
+        bare = year and unit == "" and 1900 <= number <= 2100
+    return str(number) if bare else f"{number:,}"
+
+
+def format_value(value: float, unit: str, *, year: bool | None = None) -> str:
     """One number plus its unit, for a value label or a screen-reader summary.
 
     Non-integers keep at least two significant figures, and the text rounds
     back to the same value. ``0.018`` stays ``0.018``; it does not become ``0.02``.
+    A bare year is not a thousands-grouped quantity (``1998``, never ``1,998``).
+    Pass ``year=False`` when the series is a quantity that only happens to
+    include a 4-digit value.
     """
     if not math.isfinite(value):
         return ""
     if value == int(value) and abs(value) < 1e15:
-        number = int(value)
-        # A bare year is not a thousands-grouped quantity ("1998", never "1,998").
-        shown = str(number) if unit == "" and 1900 <= number <= 2100 else f"{number:,}"
+        shown = _grouped_int(int(value), unit, year)
     else:
         places = _places_for(value)
         sign = "-" if value < 0 else ""
@@ -104,13 +131,12 @@ def format_value(value: float, unit: str) -> str:
     return _with_unit(shown, unit)
 
 
-def format_tick(value: float, unit: str, step: float) -> str:
+def format_tick(value: float, unit: str, step: float, *, year: bool | None = None) -> str:
     """A tick label. Decimals follow the step so 4.0 and 4.2 line up."""
     places = _decimals(step)
     rounded = _round(value)
     if places == 0:
-        number = int(round(rounded))
-        shown = str(number) if unit == "" and 1900 <= number <= 2100 else f"{number:,}"
+        shown = _grouped_int(int(round(rounded)), unit, year)
     else:
         shown = f"{rounded:,.{places}f}"
     return _with_unit(shown, unit)
@@ -133,18 +159,26 @@ def text_width(text: str, font: float) -> float:
     return units * font
 
 
+# A short axis keeps every name. Longer series may skip labels so they do not collide.
+_KEEP_EVERY_LABEL = 12
+
+
 def plan_category_labels(labels: Sequence[str], slot: float, font: float) -> list[LabelMark]:
     """Show every label that fits. Otherwise thin, slant, then truncate.
 
     ``slot`` is the center-to-center gap in user units. A truncated label keeps
     the full string on ``LabelMark.full`` so the drawing can put it in ``<title>``.
     The last label is kept when it still clears the previous shown label.
+
+    Twelve categories or fewer are never dropped. They are drawn flat when they
+    fit, and slanted or shortened when they do not. A longer series may thin.
     """
     count = len(labels)
     if count == 0:
         return []
     slot = max(slot, 1.0)
-    for step in range(1, count + 1):
+    steps: Sequence[int] = (1,) if count <= _KEEP_EVERY_LABEL else range(1, count + 1)
+    for step in steps:
         room = step * slot - 4
         if room < font:
             continue
@@ -153,13 +187,16 @@ def plan_category_labels(labels: Sequence[str], slot: float, font: float) -> lis
     cos = math.cos(math.radians(40))
     sin = math.sin(math.radians(40))
     limit = max(slot * 6, font * 8)
-    for step in range(1, count + 1):
+    for step in steps:
         gap = step * slot
         if gap * sin < font * 1.05:
             continue
         shown = [_truncate(labels[index], limit, font) for index in range(0, count, step)]
         if all(text_width(text, font) * cos <= gap - 1 for text in shown):
             return _marks(labels, step, slot, font, rotate=True, limit=limit)
+    if count <= _KEEP_EVERY_LABEL:
+        short = max(font * 3, slot * 2)
+        return _marks(labels, 1, slot, font, rotate=True, limit=short)
     return _marks(labels, max(1, count - 1), slot, font, rotate=True, limit=max(font * 4, slot * 3))
 
 
