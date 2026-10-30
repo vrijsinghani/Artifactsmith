@@ -2,8 +2,11 @@
 FROM python:3.14-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint needs Pango/Cairo (no headless browser). fonts-liberation covers PDF text.
+# CVE-2026-111497: curl depends on libbrotli1. trixie main still ships 1.1.0-2+b7.
+# Pin the trixie-security fix 1.1.0-2+deb13u1 (DSA-6582-1).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
+        'libbrotli1=1.1.0-2+deb13u1' \
         libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
         libgdk-pixbuf-2.0-0 libffi8 libjpeg62-turbo libopenjp2-7 \
         shared-mime-info fonts-liberation \
