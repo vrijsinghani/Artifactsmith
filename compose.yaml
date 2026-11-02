@@ -10,7 +10,7 @@ x-store: &store-env
 services:
   storage:
     # rustfs/rustfs:1.0.1
-    image: rustfs/rustfs@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+    image: rustfs/rustfs@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
     # Internal only: no published ports. The object store is reachable only on the compose network.
     environment:
       RUSTFS_ACCESS_KEY: ${AM_STORE_KEY:?Set AM_STORE_KEY in .env (run ./scripts/ensure-local-env.sh)}
