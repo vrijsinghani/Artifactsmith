@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from artifactsmith.renderers.safety import check_content, check_fields, find_private_links, sanitize_text
+from artifactsmith.renderers.safety import (
+    check_content,
+    check_fields,
+    find_disallowed_links,
+    find_private_links,
+    sanitize_text,
+)
 
 
 def test_strips_scripts_keeps_public_urls():
@@ -142,6 +148,63 @@ def test_check_fields_metadata_length_message():
 
     problems = check_fields("x" * (METADATA_MAX_CHARS + 1), label="metadata")
     assert f"metadata exceeds {METADATA_MAX_CHARS} characters" in problems
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "run `curl https://` then",
+        "`http://`",
+        "https://`x`",
+        "see `https://example.com`",
+    ],
+)
+def test_bare_scheme_beside_backtick_is_not_a_link(text: str) -> None:
+    """A scheme with no host, or a code span after the scheme, is not a private link.
+
+    ``https://`x` `` is inline code next to a bare scheme. ``x`` is not a host.
+    """
+    assert find_private_links(text) == []
+    assert find_disallowed_links(text, ["example.com"]) == []
+    assert check_content(text, fmt="markdown", block_private_links=True) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "http://10.0.0.1`x`",
+        "http://127.0.0.1`/x",
+        "http://`@127.0.0.1/",
+        "http://`localhost`",
+        "http://`127.0.0.1`/",
+        "`http://localhost`",
+        "`http://192.168.30.4/x`",
+        "```\nhttp://localhost/secret\n```",
+        "[x](http://127.0.0.1)",
+        "http://[::1]/",
+        "http://[::ffff:10.0.0.1]/",
+        "http://2130706433/",
+        "http://127.1/",
+        "https://your-server/mcp",
+        "https://[bad",
+        "https://[bad]",
+        "https://[::1",
+    ],
+)
+def test_private_hosts_and_backtick_tricks_still_blocked(text: str) -> None:
+    hits = find_private_links(text)
+    assert hits, text
+    assert all(hit.startswith("private or local link host:") for hit in hits)
+    assert find_disallowed_links(text, ["example.com"]), text
+
+
+def test_allow_list_keeps_public_host_when_backtick_closes_code() -> None:
+    assert find_disallowed_links("see `https://example.com`", ["example.com"]) == []
+    assert find_disallowed_links("https://example.com`x`", ["example.com"]) == []
+    assert find_private_links("https://example.com`x`") == []
+    assert find_private_links("https://[2606:4700:4700::1111]`x`") == []
+    blocked = find_disallowed_links("https://evil.example`x`", ["example.com"])
+    assert blocked == ["link host not on allow-list: evil.example"]
 
 
 def test_check_fields_catches_secret_in_title():
