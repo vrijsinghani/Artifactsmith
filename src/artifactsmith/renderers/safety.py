@@ -15,9 +15,17 @@ import unicodedata
 from urllib.parse import unquote, urlparse
 
 # http(s)/ftp URL references in prose (also used by linkify and private-link checks).
-# Allow IPv6 bracket hosts: http://[::1]/path
+# Allow IPv6 bracket hosts: http://[::1]/path. Backticks stay inside the match
+# so ``http://`@127.0.0.1`` is still one URL; ``_match_hosts`` decides whether
+# a backtick is a code delimiter or part of a real authority.
 URL_RE = re.compile(
     r"""(?:https?|ftp)://(?:\[[0-9A-Fa-f:.]+\]|[^\s"'<>()\[\]]+)[^\s"'<>()\]]*""",
+    re.I,
+)
+# URL_RE only accepts a bracket authority when the ] is present, so
+# ``https://[bad`` never matches. Fail closed on that shape separately.
+_UNCLOSED_BRACKET_RE = re.compile(
+    r"""(?:https?|ftp)://\[[^\s"'<>()\[\]/?#]*""",
     re.I,
 )
 SCRIPT_RE = re.compile(
@@ -254,11 +262,14 @@ def _ip_is_private(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return False
 
 
-def _host_is_private(host: str) -> bool:
+def _host_is_private(host: str, *, bare_single_label: bool = True) -> bool:
     """True when the host is not a global unicast address, or a known private/wildcard alias.
 
     Fail closed: unparseable address-like hosts and bare single-label names are private.
     Uses ``not ip.is_global`` so CGNAT (100.64.0.0/10) and similar ranges are blocked.
+    ``bare_single_label=False`` still blocks addresses and reserved names, and does
+    not treat an arbitrary token (``x``) as a host. Used when backticks were
+    removed from a match and the residue might only be a code span.
     """
     h = _normalize_host(host)
     if not h or h in PRIVATE_HOST_NAMES:
@@ -273,10 +284,11 @@ def _host_is_private(host: str) -> bool:
     if ip is not None:
         return _ip_is_private(ip)
     # Bare hostnames without a dot are treated as local/private.
-    if "." not in h:
+    if bare_single_label and "." not in h:
         return True
-    # Looks like a dotted address we failed to parse (fail closed).
-    if re.fullmatch(r"[0-9a-fxA-FX.:]+", h):
+    # Dotted address we failed to parse (fail closed). A single hex letter is
+    # not an address; requiring a dot keeps ``x`` from looking like one.
+    if "." in h and re.fullmatch(r"[0-9a-fxA-FX.:]+", h):
         return True
     return False
 
@@ -303,6 +315,70 @@ def _url_host(raw: str) -> str | None:
     return ""
 
 
+def _authority(url: str) -> str:
+    rest = url.split("://", 1)[1]
+    return rest.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+
+
+def _append_host(hosts: list[str], host: str | None) -> None:
+    if host is not None and host not in hosts:
+        hosts.append(host)
+
+
+def _match_hosts(raw: str) -> list[str]:
+    """Hosts one URL match can reach. ``""`` means an unparseable authority.
+
+    ``URL_RE`` lets a backtick count as part of the host, so ``http://` ``
+    looks like a single-label name. A backtick is a code delimiter: the span
+    before it is what GFM autolinks (``http://10.0.0.1`x`` → 10.0.0.1), and a
+    host that itself contains a backtick is not resolved. The browser still
+    parses a literal backtick in userinfo (``http://`@127.0.0.1``). Stripping
+    backticks only counts when the residue is an address or a reserved name
+    (``http://`localhost``), not an arbitrary code token (``https://`x``).
+    A bare scheme is not a link.
+    """
+    if "`" not in raw:
+        host = _url_host(raw)
+        return [] if host is None else [host]
+
+    hosts: list[str] = []
+    prefix = raw.split("`", 1)[0]
+    prefix_authority = _authority(prefix).strip("`") if "://" in prefix else ""
+    if prefix_authority:
+        # GFM stops the autolink at the backtick, so the host is whatever
+        # sits before it. Do not glue the code span back onto that host.
+        _append_host(hosts, _url_host(prefix))
+    if "://" in raw and _authority(raw).strip("`"):
+        host = _url_host(raw)
+        # An empty host is the unparseable-authority fail-closed signal.
+        # Skip it when the span before the backtick already has an authority:
+        # the backtick made the whole match unparseable, and that span is the
+        # link an autolinker actually emits.
+        if host is not None and "`" not in host and (host or not prefix_authority):
+            _append_host(hosts, host)
+    # ``http://`localhost`` has no host before the backtick. Dropping the
+    # delimiters reveals a reserved name or address. ``https://`x`` does not.
+    if not prefix_authority:
+        stripped = raw.replace("`", "")
+        if "://" in stripped and _authority(stripped).strip("`"):
+            host = _url_host(stripped)
+            if host and _host_is_private(host, bare_single_label=False):
+                _append_host(hosts, host)
+    return hosts
+
+
+def _unclosed_bracket_authorities(text: str) -> list[str]:
+    """``https://[bad`` has no closing bracket, so ``URL_RE`` never sees it."""
+    found: list[str] = []
+    for m in _UNCLOSED_BRACKET_RE.finditer(text):
+        if m.end() < len(text) and text[m.end()] == "]":
+            continue
+        raw = m.group(0).rstrip(".,;:)")
+        if raw not in found:
+            found.append(raw)
+    return found
+
+
 def find_private_links(text: str, *, fmt: str | None = None) -> list[str]:
     """Return problems for http(s) links that resolve to private or local hosts.
 
@@ -315,13 +391,13 @@ def find_private_links(text: str, *, fmt: str | None = None) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        host = _url_host(raw)
-        if host is None:
-            continue
-        # Empty host after a scheme (unparseable) → fail closed.
-        if host == "" or _host_is_private(host):
-            label = host or raw
-            problems.append(f"private or local link host: {label}")
+        for host in _match_hosts(raw):
+            # Empty host after a scheme (unparseable) → fail closed.
+            if host == "" or _host_is_private(host):
+                label = host or raw
+                problems.append(f"private or local link host: {label}")
+    for raw in _unclosed_bracket_authorities(text):
+        problems.append(f"private or local link host: {raw}")
     problems.extend(find_bad_html_attr_urls(text, fmt=fmt))
     return problems
 
@@ -334,12 +410,18 @@ def find_disallowed_links(text: str, allowed_domains: list[str]) -> list[str]:
     problems: list[str] = []
     for m in URL_RE.finditer(text):
         raw = m.group(0).rstrip(".,;:)")
-        host = (_url_host(raw) or "").lower()
-        if not host:
-            problems.append(f"link host not on allow-list: {raw}")
+        hosts = _match_hosts(raw)
+        if not hosts:
             continue
-        if not any(host == d or host.endswith("." + d) for d in allowed):
-            problems.append(f"link host not on allow-list: {host}")
+        for host in hosts:
+            if not host:
+                problems.append(f"link host not on allow-list: {raw}")
+                continue
+            lowered = host.lower()
+            if not any(lowered == d or lowered.endswith("." + d) for d in allowed):
+                problems.append(f"link host not on allow-list: {lowered}")
+    for raw in _unclosed_bracket_authorities(text):
+        problems.append(f"link host not on allow-list: {raw}")
     return problems
 
 
