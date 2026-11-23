@@ -6,12 +6,44 @@ import logging
 
 import boto3
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ProxyConnectionError,
+    ReadTimeoutError,
+    ResponseStreamingError,
+)
 
 from . import stdio_mode
 from .config import CFG
 
 log = logging.getLogger("artifactsmith.store")
+
+# What botocore raises when the endpoint cannot be reached or the body is cut off.
+# SSLError is a certificate failure, not a brief outage, so it is not in this list.
+_STORAGE_OUTAGE = (
+    EndpointConnectionError,
+    ConnectTimeoutError,
+    ReadTimeoutError,
+    ConnectionClosedError,
+    ProxyConnectionError,
+    ResponseStreamingError,
+)
+
+
+def is_storage_outage(exc: BaseException) -> bool:
+    """True when object storage could not be reached. The text names the endpoint."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, _STORAGE_OUTAGE):
+            return True
+        cause = current.__cause__
+        current = cause if isinstance(cause, BaseException) else None
+    return False
 
 
 def vdir(version: int) -> str:
