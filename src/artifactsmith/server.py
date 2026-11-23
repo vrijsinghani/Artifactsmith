@@ -28,6 +28,7 @@ from .oauth_origin import authenticate_header
 from .renderers import MIME, SOURCE_NAME
 from .service import ALL_PERMS, AMError, Service, page_title, stamp_share_title, unsign
 from .share_credit import stamp_share_credit
+from .store import is_storage_outage
 from .web.routes import build_pages
 from .web.trial_pages import _CARD_PATH
 
@@ -183,11 +184,41 @@ def _stdio_status_reads_manifest(principal: dict[str, Any], artifact_id: str | N
     return row is not None and row["status"] == "done" and row.get("model") == PUBLISHED_MODEL
 
 
+_PAGE_UNAVAILABLE = "This page is briefly unavailable. Try again in a minute."
+_TOOL_UNAVAILABLE = "Object storage is briefly unavailable. Try again in a minute."
+
+
+def _storage_down(exc: BaseException) -> bool:
+    if not is_storage_outage(exc):
+        return False
+    logging.getLogger("artifactsmith").warning("object storage unavailable: %s", type(exc).__name__)
+    return True
+
+
+def _unavailable_page() -> PlainTextResponse:
+    return PlainTextResponse(
+        _PAGE_UNAVAILABLE,
+        status_code=503,
+        headers={"Cache-Control": "no-store", "Retry-After": "5"},
+    )
+
+
+def _tool_outage(exc: BaseException) -> dict[str, str] | None:
+    if not _storage_down(exc):
+        return None
+    return {"error": _TOOL_UNAVAILABLE}
+
+
 def _run(fn: Callable[..., dict[str, Any]], *a: Any, **k: Any) -> dict[str, Any]:
     try:
         return fn(*a, **k)
     except AMError as e:
         return {"error": str(e)}
+    except Exception as exc:
+        failed = _tool_outage(exc)
+        if failed is not None:
+            return failed
+        raise
 
 
 @mcp.tool(
@@ -454,6 +485,11 @@ async def status(
         return await _svc().status(principal, artifact_id=artifact_id, job_id=job_id, wait=wait)
     except AMError as e:
         return {"error": str(e)}
+    except Exception as exc:
+        failed = _tool_outage(exc)
+        if failed is not None:
+            return failed
+        raise
 
 
 @mcp.tool(
@@ -776,6 +812,10 @@ async def _open_page(
         data, ct, name, title, style = await asyncio.to_thread(_svc().read_primary_view, aid, version)
     except AMError:
         return _not_found()
+    except Exception as exc:
+        if _storage_down(exc):
+            return _unavailable_page()
+        raise
     if sha is not None and hashlib.sha256(data).hexdigest() != sha:
         return _not_found()
     if raw:
@@ -824,6 +864,10 @@ async def download(request: Request) -> Response:
         data, ct, _ = await asyncio.to_thread(_svc().read_file, p["a"], int(p["v"]), p["f"])
     except AMError:
         return _not_found()
+    except Exception as exc:
+        if _storage_down(exc):
+            return _unavailable_page()
+        raise
     return _serve(data, ct, p.get("n") or p["f"], attachment=True)
 
 
