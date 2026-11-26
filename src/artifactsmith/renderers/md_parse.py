@@ -36,6 +36,7 @@ _OL = re.compile(r"^\d+[.)]\s+(.*)$")
 _FENCE = re.compile(r"^```")
 _TABLE_ROW = re.compile(r"^\|(.+)\|$")
 _TABLE_SEP = re.compile(r"^\|[\s\-:|]+\|$")
+_TASK_ITEM = re.compile(r"^\[([ xX])\]\s*(.*)$", re.DOTALL)
 
 
 def _split_row(line: str) -> list[str]:
@@ -273,6 +274,16 @@ def _inline_html(text: str) -> str:
     return "".join(parts)
 
 
+def _list_item_html(item: str) -> str:
+    """A leading task mark becomes a box. Other brackets stay text."""
+    match = _TASK_ITEM.match(item.strip())
+    if match is None:
+        return _inline_html(item)
+    mark = "\u25a0" if match.group(1).lower() == "x" else "\u25a1"
+    rest = _inline_html(match.group(2))
+    return f"{mark} {rest}".rstrip()
+
+
 def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
     """Self-contained HTML for PDF (WeasyPrint). No scripts, no remote resources.
 
@@ -309,7 +320,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         elif b.kind == "paragraph":
             parts.append(f"<p>{_inline_html(b.text)}</p>")
         elif b.kind == "list":
-            parts.append("<ul>" + "".join(f"<li>{_inline_html(it)}</li>" for it in b.items) + "</ul>")
+            parts.append("<ul>" + "".join(f"<li>{_list_item_html(it)}</li>" for it in b.items) + "</ul>")
         elif b.kind == "code":
             parts.append(f"<pre><code>{_esc_text(b.text)}</code></pre>")
         elif b.kind == "figure" and b.svg:

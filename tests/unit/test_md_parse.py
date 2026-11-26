@@ -55,6 +55,21 @@ code
     assert "<script" not in html
 
 
+def test_pdf_html_renders_task_boxes_and_drops_brackets():
+    html = blocks_to_simple_html("Doc", parse_blocks("- [ ] one\n- [x] two\n"))
+    assert "\u25a1 one" in html
+    assert "\u25a0 two" in html
+    assert "[ ]" not in html
+    assert "[x]" not in html
+
+
+def test_pdf_html_task_marks_only_when_they_lead():
+    html = blocks_to_simple_html("Doc", parse_blocks("- [X] yes\n- plain\n- see [ ] later\n"))
+    assert "\u25a0 yes" in html
+    assert "<li>plain</li>" in html
+    assert "[ ]" in html
+
+
 def test_inline_html_renders_emphasis_not_markers():
     html = blocks_to_simple_html("Doc", parse_blocks("Use **bold**, *italic*, and `code`."))
     assert "<strong>bold</strong>" in html
