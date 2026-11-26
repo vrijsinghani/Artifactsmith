@@ -872,6 +872,8 @@ async def render_checked_body(
     progress: Callable[[str], None],
     linkify: bool = True,
     safety_changes: list[str] | None = None,
+    style: str = "",
+    mode: str = "",
 ) -> BuildResult:
     """Run the output safety pipeline and renderer. Does not call the model.
 
@@ -900,6 +902,10 @@ async def render_checked_body(
     try:
         if fmt == "html":
             body = sanitize_html(body, linkify=linkify, changes=safety_changes)
+            if style == "bold" and mode == "full":
+                from .renderers.phone_tables import stack_wide_tables
+
+                body = stack_wide_tables(body)
         else:
             before = body
             body = sanitize_text(body)
@@ -1036,6 +1042,8 @@ async def _finish_text(
     notes: list[str],
     attempt_label: str,
     raw_chars: int | None = None,
+    style: str = "",
+    mode: str = "",
 ) -> _Finish:
     """Parse one complete reply, then run the same checks as a published page."""
     try:
@@ -1056,6 +1064,8 @@ async def _finish_text(
             raw_chars=len(text) if raw_chars is None else raw_chars,
             notes=notes,
             progress=progress,
+            style=style,
+            mode=mode,
         )
     except RetryableCheck as exc:
         notes.append(f"{attempt_label}: " + "; ".join(exc.problems))
@@ -1086,6 +1096,7 @@ async def _try_edit_patch(
     source: dict[str, Any] | None,
     render_timeout: int,
     notes: list[str],
+    mode: str = "full",
 ) -> BuildResult | None:
     """One patch call. None means the same job should run the full-rewrite path."""
     progress("calling model (patch)")
@@ -1129,6 +1140,8 @@ async def _try_edit_patch(
         notes=notes,
         attempt_label="patch",
         raw_chars=len(text),
+        style=chosen,
+        mode=mode,
     )
     if finish.fatal is not None:
         _note_patch_fallback(notes, "sanitize")
@@ -1201,6 +1214,7 @@ async def run_build(
             source=source,
             render_timeout=render_timeout,
             notes=notes,
+            mode=chosen_mode,
         )
         if patched is not None:
             return patched
@@ -1241,6 +1255,8 @@ async def run_build(
             progress=progress,
             notes=notes,
             attempt_label=f"attempt {attempt}",
+            style=chosen,
+            mode=chosen_mode,
         )
         if finish.fatal is not None:
             raise BuildError(str(finish.fatal)) from finish.fatal

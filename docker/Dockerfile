@@ -2,6 +2,7 @@
 FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # WeasyPrint needs Pango/Cairo (no headless browser). fonts-liberation covers PDF text.
+# fonts-dejavu-core draws the task-list box glyphs (U+2610, U+2611), which Liberation lacks.
 # CVE-2026-111497: curl depends on libbrotli1. trixie main still ships 1.1.0-2+b7.
 # Pin the trixie-security fix 1.1.0-2+deb13u1 (DSA-6582-1).
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         'libbrotli1=1.1.0-2+deb13u1' \
         libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
         libgdk-pixbuf-2.0-0 libffi8 libjpeg62-turbo libopenjp2-7 \
-        shared-mime-info fonts-liberation \
+        shared-mime-info fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml ./

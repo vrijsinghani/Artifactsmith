@@ -87,6 +87,38 @@ def test_pdf_and_docx_render_inline_emphasis():
     assert "<w:i" in xml
 
 
+def test_docx_drops_heading_that_repeats_the_title():
+    from docx import Document
+
+    title = "Sample kickoff meeting notes"
+    data = (
+        get_renderer("docx")
+        .render(
+            title=title,
+            body=f"# {title}\n\nBring the agenda.\n",
+        )
+        .files["document.docx"]
+    )
+    doc = Document(io.BytesIO(data))
+    texts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    assert texts[0] == title
+    assert texts[1] != title
+    assert texts[1] == "Bring the agenda."
+
+    kept = (
+        get_renderer("docx")
+        .render(
+            title=title,
+            body="# Other heading\n\nBring the agenda.\n",
+        )
+        .files["document.docx"]
+    )
+    other = Document(io.BytesIO(kept))
+    other_texts = [p.text.strip() for p in other.paragraphs if p.text.strip()]
+    assert other_texts[0] == title
+    assert other_texts[1] == "Other heading"
+
+
 def test_pdf_wraps_long_code_line():
     body = f"```\n{LONG_CMD}\n{UNBROKEN}\n```"
     html = blocks_to_simple_html("T", parse_blocks(body))

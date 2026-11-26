@@ -63,6 +63,24 @@ def _parser(source: str) -> MarkdownIt:
     return md
 
 
+def _item_checked(tokens: list[Token], index: int) -> bool:
+    """True when a task item's checkbox token says checked.
+
+    The task-list plugin stores ``checked="checked"`` on an inline child, not
+    on the list-item token the walker is standing on.
+    """
+    for tok in tokens[index:]:
+        if tok.type == "list_item_close":
+            return False
+        parts = [tok.content or ""]
+        for child in tok.children or []:
+            parts.append(child.content or "")
+        blob = "".join(parts)
+        if 'checked="checked"' in blob or "checked='checked'" in blob:
+            return True
+    return False
+
+
 def take_braces(text: str) -> tuple[str, dict[str, str]]:
     """Split a trailing ``{...}`` attribute group off ``text``. Disallowed keys are kept for filtering."""
     match = _TRAIL.search(text)
@@ -228,14 +246,18 @@ class _Walker:
         checked = False
         while self.i < len(self.tokens) and self.tokens[self.i].type != "list_item_close":
             if task:
-                checked = checked or "checked" in (self.tokens[self.i].content or "")
+                checked = checked or _item_checked(self.tokens, self.i)
             child = self.one()
             if child is not None:
                 children.append(child)
         self._close("list_item_close")
         if task and children:
-            mark = "Done" if checked else "Not done"
-            children[0].html = f'<span class="asl-check">{mark}</span> ' + children[0].html
+            glyph = "\u2611" if checked else "\u2610"
+            words = "Done" if checked else "Not done"
+            children[0].html = (
+                f'<span class="asl-check" aria-hidden="true">{glyph}</span>'
+                f'<span class="asl-sr">{words}</span> ' + children[0].html
+            )
         html = "".join(child.html for child in children if child.kind == "paragraph") or ""
         plain = " ".join(child.plain for child in children).strip()
         return Block(kind="item", html=html, plain=plain, children=children)

@@ -26,7 +26,7 @@ _STYLE_PROPS: set[str] = set(
     border-right-width border-spacing border-style border-top border-top-color
     border-top-left-radius border-top-right-radius border-top-style border-top-width
     border-width border-block bottom box-shadow box-sizing break-after break-before
-    break-inside caption-side color color-scheme
+    break-inside caption-side clip color color-scheme
     column-count column-gap columns content counter-increment counter-reset cursor
     display filter backdrop-filter flex flex-basis flex-direction flex-flow flex-grow flex-shrink
     flex-wrap float font font-family font-feature-settings font-size font-style font-variant
