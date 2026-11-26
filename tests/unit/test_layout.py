@@ -1128,6 +1128,24 @@ def _phone_metrics(sock: socket.socket, width: int) -> dict[str, object]:
     return json.loads(value)
 
 
+def test_fast_task_marks_hide_status_words():
+    html, notes = render_layout("- [ ] a\n- [x] b\n", style="bold", title="Tasks")
+    assert notes == []
+    without_status = re.sub(r'<span class="asl-sr">.*?</span>', "", html)
+    body = re.search(r"<body[^>]*>(.*)</body>", without_status, re.S)
+    assert body is not None
+    visible = re.sub(r"<[^>]+>", " ", body.group(1))
+    assert "Not done" not in visible
+    assert "Done" not in visible
+    assert "\u2610" in visible
+    assert "\u2611" in visible
+    assert "a" in visible and "b" in visible
+    assert '<span class="asl-sr">Not done</span>' in html
+    assert '<span class="asl-sr">Done</span>' in html
+    assert ".asl-sr{position:absolute;width:1px;height:1px;" in html
+    assert len(stylesheet("bold").encode()) < 8192
+
+
 def test_body_breaks_only_on_word_boundaries():
     """anywhere shrinks min-content and splits Stock, $508.68 and Confirmed."""
     css = stylesheet("bold")

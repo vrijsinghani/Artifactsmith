@@ -64,6 +64,19 @@ def test_inline_html_renders_emphasis_not_markers():
     assert "*italic*" not in html
 
 
+def test_task_list_glyphs_replace_bracket_markers():
+    html = blocks_to_simple_html("Doc", parse_blocks("- [ ] one\n- [x] two\n- plain"))
+    assert "\u2610" in html
+    assert "\u2611" in html
+    assert "[ ]" not in html
+    assert "[x]" not in html
+    assert ">one<" not in html
+    assert "one" in html
+    assert "two" in html
+    assert "plain" in html
+    assert 'font-family:"DejaVu Sans"' in html
+
+
 def test_pre_css_wraps_long_code_lines():
     html = blocks_to_simple_html("Doc", parse_blocks("```\n" + "x" * 200 + "\n```"))
     assert "white-space:pre-wrap" in html
