@@ -20,6 +20,43 @@ LONG_CMD = (
 UNBROKEN = "X" * 240
 
 
+def _docx_paragraphs(title: str, body: str) -> list[str]:
+    from docx import Document
+
+    data = get_renderer("docx").render(title=title, body=body).files["document.docx"]
+    doc = Document(io.BytesIO(data))
+    return [paragraph.text for paragraph in doc.paragraphs]
+
+
+def test_docx_drops_a_leading_heading_that_matches_the_title():
+    paragraphs = _docx_paragraphs(
+        "Sample kickoff meeting notes", "# Sample kickoff meeting notes\n\nBring the notes.\n"
+    )
+    assert paragraphs[0] == "Sample kickoff meeting notes"
+    assert paragraphs[1] != "Sample kickoff meeting notes"
+    assert "Bring the notes." in paragraphs
+
+
+def test_docx_title_match_is_casefold_and_only_a_leading_h1():
+    matched = _docx_paragraphs("  Title  ", "# title\n\nBody.\n")
+    assert matched[0].strip() == "Title"
+    assert matched[1] == "Body."
+    kept_later = _docx_paragraphs("Title", "Intro.\n\n# Title\n")
+    assert kept_later[:2] == ["Title", "Intro."]
+    assert "Title" in kept_later[2:]
+    kept_h2 = _docx_paragraphs("Title", "## Title\n\nBody.\n")
+    assert kept_h2[0] == "Title"
+    assert kept_h2[1] == "Title"
+    repeated = _docx_paragraphs("Title", "# Title\n\n# Title\n")
+    assert repeated == ["Title", "Title"]
+    different = _docx_paragraphs("Title", "# Different\n\nBody.\n")
+    assert different[0] == "Title"
+    assert different[1] == "Different"
+    untitled = _docx_paragraphs("", "# Title\n\nBody.\n")
+    assert untitled[0] == "Title"
+    assert untitled[1] == "Body."
+
+
 def _iter_boxes(box: object) -> list[object]:
     out = [box]
     for child in getattr(box, "children", None) or ():

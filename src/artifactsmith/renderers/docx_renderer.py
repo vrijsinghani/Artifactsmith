@@ -126,7 +126,16 @@ class DocxRenderer:
         style.font.size = Pt(11)
         if title:
             doc.add_heading(strip_ooxml_controls(title), level=0)
-        for b in parse_blocks(body):
+        blocks = parse_blocks(body)
+        for index, b in enumerate(blocks):
+            if (
+                index == 0
+                and b.kind == "heading"
+                and b.level == 1
+                and title.strip()
+                and b.text.strip().casefold() == title.strip().casefold()
+            ):
+                continue
             if b.kind == "heading":
                 p = doc.add_heading("", level=min(max(b.level, 1), 4))
                 # Clear default empty run then add linked text.
