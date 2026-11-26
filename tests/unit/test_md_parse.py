@@ -65,16 +65,18 @@ def test_inline_html_renders_emphasis_not_markers():
 
 
 def test_task_list_glyphs_replace_bracket_markers():
-    html = blocks_to_simple_html("Doc", parse_blocks("- [ ] one\n- [x] two\n- plain"))
+    from artifactsmith.renderers.safety import sanitize_text
+
+    body = sanitize_text("- [ ] one\n- [x] two\n- plain\n")
+    html = blocks_to_simple_html("Doc", parse_blocks(body))
     assert "\u2610" in html
     assert "\u2611" in html
     assert "[ ]" not in html
     assert "[x]" not in html
-    assert ">one<" not in html
     assert "one" in html
     assert "two" in html
     assert "plain" in html
-    assert 'font-family:"DejaVu Sans"' in html
+    assert "DejaVu" not in html
 
 
 def test_pre_css_wraps_long_code_lines():

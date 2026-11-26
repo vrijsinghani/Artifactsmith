@@ -19,9 +19,11 @@ _TAG = re.compile(r"<[^>]+>")
 
 _CARD_CSS = (
     "@media (max-width:40rem){"
-    "table.am-stack{display:block;width:100%;max-width:100%}"
+    "table.am-stack{display:block;min-width:0!important;width:100%;max-width:100%}"
     "table.am-stack thead,table.am-stack tr.am-stack-head{display:none}"
-    "table.am-stack tr{display:block;margin:0 0 .75rem;border:1px solid #ccc;padding:.45rem .65rem}"
+    "table.am-stack tbody{display:block;width:100%}"
+    "table.am-stack tr{display:block;width:100%;box-sizing:border-box;margin:0 0 .75rem;"
+    "border:1px solid #ccc;padding:.45rem .65rem}"
     "table.am-stack td,table.am-stack th{display:block;border:0;text-align:left;"
     "padding:.2rem 0;white-space:normal}"
     "table.am-stack td::before,table.am-stack th::before{content:attr(data-label);"

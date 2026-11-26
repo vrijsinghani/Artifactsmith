@@ -1143,6 +1143,8 @@ def test_fast_task_marks_hide_status_words():
     assert '<span class="asl-sr">Not done</span>' in html
     assert '<span class="asl-sr">Done</span>' in html
     assert ".asl-sr{position:absolute;width:1px;height:1px;" in html
+    served = sanitize_html_document(html)
+    assert "clip:rect(0,0,0,0)" in served.replace(" ", "")
     assert len(stylesheet("bold").encode()) < 8192
 
 

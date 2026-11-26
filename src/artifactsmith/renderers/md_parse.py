@@ -36,7 +36,7 @@ _OL = re.compile(r"^\d+[.)]\s+(.*)$")
 _FENCE = re.compile(r"^```")
 _TABLE_ROW = re.compile(r"^\|(.+)\|$")
 _TABLE_SEP = re.compile(r"^\|[\s\-:|]+\|$")
-_TASK_ITEM = re.compile(r"^\[([ xX])\]\s*")
+_TASK_ITEM = re.compile(r"^\\?\[( |x|X)\\?\]\s*")
 
 
 def _split_row(line: str) -> list[str]:
@@ -293,7 +293,7 @@ def blocks_to_simple_html(title: str, blocks: list[Block]) -> str:
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">',
         f"<title>{_esc_text(title)}</title>",
         "<style>",
-        'body{font-family:"DejaVu Sans",Helvetica,Arial,sans-serif;margin:2rem;max-width:48rem;',
+        "body{font-family:Helvetica,Arial,sans-serif;margin:2rem;max-width:48rem;",
         "line-height:1.5;color:#111;background:#fff}",
         "h1,h2,h3{color:#0b3d91}",
         "pre{background:#f4f4f4;padding:0.75rem;white-space:pre-wrap;",
