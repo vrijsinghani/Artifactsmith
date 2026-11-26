@@ -31,6 +31,132 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLES = ROOT / "examples" / "layout"
 
 
+_SR = re.compile(r'<span class="asl-sr">.*?</span>', re.S)
+
+
+def test_fast_task_list_shows_boxes_and_hides_status_words():
+    html, notes = render_layout("- [ ] a\n- [x] b\n- plain\n", style="house", title="Tasks")
+    assert notes == []
+    assert "\u25a1" in html
+    assert "\u25a0" in html
+    visible = _SR.sub("", html)
+    assert "Not done" not in visible
+    assert re.search(r">Done<", visible) is None
+    assert "Not done" in html
+    assert "Done" in html
+    assert "asl-sr" in html
+    cleaned = sanitize_html_document(html)
+    assert "asl-sr" in cleaned
+    assert "position:absolute" in cleaned
+    plain = render_layout("- plain\n", style="house", title="Tasks")[0]
+    assert "\u25a1" not in plain
+    assert "Not done" not in plain
+    nested, _notes = render_layout("- [ ] outer\n  - [x] inner\n", style="house", title="Tasks")
+    assert "\u25a1" in nested
+    assert nested.count("\u25a0") == 1
+    assert nested.count(">Not done<") == 1
+    assert nested.count(">Done<") == 1
+    assert len(stylesheet("bold").encode()) < 8192
+    chrome = _chrome_bin()
+    if chrome is None:
+        return
+    visible = _visible_text(chrome, html, 390)
+    assert "Not done" not in visible
+    assert "Done" not in re.findall(r"\bDone\b", visible)
+
+
+def _visible_text(chrome: str, html: str, width: int) -> str:
+    """Text whose boxes are wider than a screen-reader clip, at ``width`` px."""
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    with tempfile.TemporaryDirectory(dir=Path.home(), ignore_cleanup_errors=True) as td:
+        profile = Path(td) / "profile"
+        profile.mkdir()
+        page = Path(td) / "task.html"
+        page.write_text(html, encoding="utf-8")
+        proc = subprocess.Popen(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                f"--user-data-dir={profile}",
+                f"--remote-debugging-port={port}",
+                "about:blank",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            for _ in range(80):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=0.2)
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            else:
+                raise AssertionError("chrome debug port did not open")
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/json/new?{page.as_uri()}", method="PUT")
+            target = json.load(urllib.request.urlopen(req, timeout=5))
+            parsed = urlparse(target["webSocketDebuggerUrl"])
+            sock = _ws_connect(parsed.hostname or "127.0.0.1", parsed.port or port, parsed.path)
+            try:
+                expr = (
+                    "(function(){const bits=[];const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);"
+                    "let n;while((n=walker.nextNode())){const t=(n.textContent||'').trim();if(!t)continue;"
+                    "const box=n.parentElement.getBoundingClientRect();"
+                    "if(box.width>2&&box.height>2)bits.push(t);}return bits.join(' ');})()"
+                )
+                seq = 1
+                _ws_send(
+                    sock,
+                    json.dumps(
+                        {
+                            "id": seq,
+                            "method": "Emulation.setDeviceMetricsOverride",
+                            "params": {"width": width, "height": 800, "deviceScaleFactor": 1, "mobile": True},
+                        }
+                    ),
+                )
+                while True:
+                    raw = _ws_recv(sock)
+                    if raw and json.loads(raw).get("id") == seq:
+                        break
+                seq = 2
+                _ws_send(
+                    sock,
+                    json.dumps(
+                        {
+                            "id": seq,
+                            "method": "Runtime.evaluate",
+                            "params": {"expression": expr, "returnByValue": True},
+                        }
+                    ),
+                )
+                while True:
+                    raw = _ws_recv(sock)
+                    if not raw:
+                        continue
+                    data = json.loads(raw)
+                    if data.get("id") == seq:
+                        value = data["result"]["result"].get("value")
+                        assert isinstance(value, str)
+                        return value
+            finally:
+                sock.close()
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                proc.terminate()
+            proc.wait(timeout=3)
+
+
 def _tokens(text: str) -> int:
     return len(re.findall(r"\w+|[^\w\s]", text))
 

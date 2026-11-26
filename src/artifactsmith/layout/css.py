@@ -371,6 +371,7 @@ def sheet_extra() -> str:
     push the bold stylesheet over its 8192-byte cap.
     """
     return (
+        ".asl-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;white-space:nowrap;border:0}"
         ".asl-diagram{margin:1rem auto;max-width:100%}"
         ".asl-diagram svg{display:block;max-width:100%;height:auto;margin-inline:auto;overflow:hidden}"
         ".asl-diagram-notes{list-style:none;margin:.75rem 0 0;padding:0}"

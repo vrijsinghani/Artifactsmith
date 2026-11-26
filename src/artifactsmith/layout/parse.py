@@ -226,16 +226,34 @@ class _Walker:
         self.i += 1
         children: list[Block] = []
         checked = False
+        if task:
+            cursor = self.i
+            depth = 0
+            while cursor < len(self.tokens):
+                kind = self.tokens[cursor].type
+                if kind == "list_item_open":
+                    depth += 1
+                elif kind == "list_item_close":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif depth == 0:
+                    tok = self.tokens[cursor]
+                    blob = tok.content or ""
+                    blob += "".join(child.content or "" for child in (tok.children or []))
+                    checked = checked or 'checked="checked"' in blob
+                cursor += 1
         while self.i < len(self.tokens) and self.tokens[self.i].type != "list_item_close":
-            if task:
-                checked = checked or "checked" in (self.tokens[self.i].content or "")
             child = self.one()
             if child is not None:
                 children.append(child)
         self._close("list_item_close")
         if task and children:
-            mark = "Done" if checked else "Not done"
-            children[0].html = f'<span class="asl-check">{mark}</span> ' + children[0].html
+            mark = "\u25a0" if checked else "\u25a1"
+            word = "Done" if checked else "Not done"
+            children[0].html = (
+                f'<span class="asl-check">{mark}<span class="asl-sr">{word}</span></span> ' + children[0].html
+            )
         html = "".join(child.html for child in children if child.kind == "paragraph") or ""
         plain = " ".join(child.plain for child in children).strip()
         return Block(kind="item", html=html, plain=plain, children=children)
